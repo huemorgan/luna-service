@@ -1,0 +1,47 @@
+# Secrets — never commit
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.uv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Node / Vite
+node_modules/
+.parcel-cache/
+.next/
+.turbo/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+!.vscode/extensions.json
+
+# Local data
+docker-data/
+postgres-data/
+redis-data/
+
+# Test artifacts
+.playwright-mcp/
+playwright-report/
+test-results/
+
+# Dojo results screenshots can grow — keep summaries, ignore raw caches
+dojo-results/**/.cache/
