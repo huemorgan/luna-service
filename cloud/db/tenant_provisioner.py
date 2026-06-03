@@ -30,7 +30,9 @@ async def provision_tenant_schema(db_url: str, schema_name: str) -> None:
                 return
 
             await conn.execute(text(f'CREATE SCHEMA "{schema_name}"'))
-            log.info("Created schema %s", schema_name)
+            await conn.execute(text('CREATE EXTENSION IF NOT EXISTS vector'))
+            await conn.execute(text('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"'))
+            log.info("Created schema %s (vector + uuid-ossp extensions ensured)", schema_name)
     finally:
         await engine.dispose()
 
