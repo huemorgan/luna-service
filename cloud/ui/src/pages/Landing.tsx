@@ -1,4 +1,4 @@
-import { Moon, Code, Shield, Puzzle, Github } from 'lucide-react';
+import { Moon, Code, Shield, Puzzle, ExternalLink } from 'lucide-react';
 
 export default function Landing() {
   return (
@@ -51,7 +51,7 @@ export default function Landing() {
         </p>
         <div className="flex items-center gap-6 text-sm" style={{ color: 'var(--text-dim)' }}>
           <a href="https://github.com/huemorgan/luna" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 hover:underline">
-            <Github size={16} /> Open Source
+            <ExternalLink size={16} /> Open Source
           </a>
           <span>Terms</span>
           <span>Privacy</span>
