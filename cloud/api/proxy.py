@@ -87,11 +87,17 @@ async def agent_status(request: Request):
     }
 
 
+_RESERVED = {"api", "auth", "healthz", "assets", "favicon.svg", "icons.svg", "dashboard"}
+
+
 @router.api_route(
     "/{account_slug}/{path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
 )
 async def proxy_to_luna(request: Request, account_slug: str, path: str):
+    if account_slug in _RESERVED:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+
     user, account, agent = await _resolve_context(request, account_slug)
 
     if not agent or agent.status != "running":

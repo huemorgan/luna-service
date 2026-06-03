@@ -5,18 +5,54 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, Response
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from cloud.api.agent_routes import router as agent_router
 from cloud.api.auth_routes import router as auth_router
 from cloud.api.proxy import router as proxy_router
 from cloud.config import get_settings
 from cloud.db.models import Base
-from cloud.db.session import dispose_engine, get_session_factory
+from cloud.db.session import dispose_engine
 
 UI_DIR = Path(__file__).parent / "ui" / "dist"
+
+RESERVED_PREFIXES = (
+    "/api/", "/auth/", "/healthz",
+    "/assets/", "/favicon", "/icons",
+)
+
+
+class SPAStaticMiddleware(BaseHTTPMiddleware):
+    """Serve UI static files before route matching so the proxy
+    catch-all doesn't intercept asset requests."""
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+
+        if any(path.startswith(p) for p in ("/assets/",)):
+            file = UI_DIR / path.lstrip("/")
+            if file.is_file():
+                return FileResponse(file)
+
+        if path in ("/favicon.svg", "/icons.svg"):
+            file = UI_DIR / path.lstrip("/")
+            if file.is_file():
+                return FileResponse(file)
+
+        response: Response = await call_next(request)
+
+        if response.status_code == 404 and UI_DIR.is_dir():
+            first = path.split("/")[1] if "/" in path else ""
+            is_api = any(path.startswith(p) for p in RESERVED_PREFIXES)
+            if not is_api and first:
+                pass
+            elif not is_api:
+                return FileResponse(UI_DIR / "index.html")
+
+        return response
 
 
 @asynccontextmanager
@@ -38,6 +74,8 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.add_middleware(SPAStaticMiddleware)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"] if settings.env == "dev" else [settings.base_url],
@@ -46,25 +84,19 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    app.include_router(auth_router)
-    app.include_router(agent_router)
-    app.include_router(proxy_router)
-
     @app.get("/healthz")
     async def healthz():
         return {"ok": True, "service": "luna-service"}
 
-    if UI_DIR.is_dir():
-        from fastapi.responses import FileResponse
-
-        app.mount("/assets", StaticFiles(directory=str(UI_DIR / "assets")), name="ui-assets")
-
-        @app.get("/{path:path}")
-        async def spa_fallback(path: str):
-            file_path = UI_DIR / path
-            if file_path.is_file():
-                return FileResponse(file_path)
+    @app.get("/")
+    async def root():
+        if UI_DIR.is_dir():
             return FileResponse(UI_DIR / "index.html")
+        return {"service": "luna-service", "status": "no UI built"}
+
+    app.include_router(auth_router)
+    app.include_router(agent_router)
+    app.include_router(proxy_router)
 
     return app
 
