@@ -1,0 +1,16 @@
+luna/
+.git/
+.env
+*.md
+plans/
+vision/
+dojo-vision/
+tests/
+dev/
+scripts/
+agent-transcripts/
+cloud/ui/node_modules/
+cloud/ui/dist/
+__pycache__/
+*.pyc
+.venv/
