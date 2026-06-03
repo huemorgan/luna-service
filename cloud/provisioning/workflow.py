@@ -74,10 +74,25 @@ async def provision_luna_for_account(account_id: str) -> Agent:
         secrets.token_urlsafe(32),
     )
 
+    runtime_kind = os.environ.get("CLOUD_RUNTIME", "docker-local")
+
     luna_db_url = tenant_db_url
-    if "localhost" in luna_db_url:
+    if runtime_kind == "docker-local" and "localhost" in luna_db_url:
         luna_db_url = luna_db_url.replace("localhost:5435", "luna-service-postgres:5432")
         luna_db_url = luna_db_url.replace("localhost:5432", "luna-service-postgres:5432")
+
+    if runtime_kind == "fly-machines":
+        # Fly Machines need the external Render Postgres hostname
+        luna_db_url = luna_db_url.replace("postgresql+asyncpg://", "postgresql://")
+        # Convert internal Render host to external
+        import re
+        luna_db_url = re.sub(
+            r"@(dpg-[a-z0-9]+(?:-a)?)/",
+            r"@\1.oregon-postgres.render.com/",
+            luna_db_url,
+        )
+    elif "localhost" not in luna_db_url:
+        luna_db_url = luna_db_url.replace("postgresql+asyncpg://", "postgresql://")
 
     llm_keys = {}
     for key in ("LUNA_ANTHROPIC_API_KEY", "LUNA_OPENAI_API_KEY", "LUNA_TAVILY_API_KEY"):
