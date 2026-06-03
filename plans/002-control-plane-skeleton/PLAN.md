@@ -214,51 +214,20 @@ Switched via `CLOUD_IDENTITY_PROVIDER` env var (`google` | `stub`).
 - `make cloud-test` — run coded tests
 - `make cloud-dojo` — run dojo scenarios (LLM-driven, manual for now)
 
-### 10. Deploy to Render staging
+### 10. Deploy to Render
 
-We're going to **reuse the existing `runluna` Render service slot** — it's the one Cloudflare already points `luna.com.ai` at. Rather than spinning up a new service (and re-doing DNS), we repurpose the existing service to deploy this repo instead of the upstream Luna repo.
+The user has created a new `luna-service` web service on Render, pointing at the `huemorgan/luna-service` repo. Domain `luna.com.ai` will be moved to point at it when ready (phase 004).
 
-**Existing setup to be aware of** (see `../luna/render.yaml`):
-- Web service: `runluna` (Docker, Standard, Oregon region) — currently pulling from `huemorgan/luna` branch `010.3-mcp-agent-management`
-- Postgres: `luna-db` (Postgres 16, Standard, Oregon) — contains personal Luna data
-- Redis: `luna-redis` (Standard, Oregon)
-- Public URL: `runluna.onrender.com`
-- DNS: Cloudflare proxies `luna.com.ai` → `runluna.onrender.com`
-
-**Migration approach (phase 002 — staging only):**
-
-Two options — pick before starting:
-
-**Option A: Parallel staging (recommended, zero downtime)**
-- Don't touch `runluna` yet
-- Create a brand new Render service `luna-service-control-staging` (Docker, Standard, **Oregon** to match Fly later)
-- Point it at this repo
-- Create a small free-tier Postgres `luna-service-cp-staging` for control-plane data
-- Smoke-test at `luna-service-control-staging.onrender.com`
-- The `runluna.onrender.com` keeps running until phase 004 cutover
-
-**Option B: In-place replacement (faster, riskier)**
-- Edit the existing `runluna` service: change `repo` to point at this luna-service repo, change `dockerfilePath` to `./cloud/Dockerfile`, update env vars
-- ⚠️ **Data preservation:** the existing `luna-db` contains personal Luna conversations. Either:
-  - Take a backup snapshot (Render dashboard → "Backups") BEFORE pointing the service at the new repo, OR
-  - Repurpose `luna-db` as the new control-plane DB and accept that old conversations become inaccessible (data still exists in the dump; just not used)
-- DNS keeps working through cutover
-
-**Default:** Option A. Less reversible damage if anything goes wrong. Final cutover happens in phase 004.
-
-**Tasks regardless of option:**
-
-- `cloud/render.yaml` defining the new service:
-  - Web: Docker, Standard plan, Oregon region (same region as existing infra), repo `huemorgan/luna-service` (or wherever this repo gets pushed), Dockerfile `./cloud/Dockerfile`
-  - Postgres: Standard plan, Oregon, Postgres 16, pgvector enabled (extension can be added later, control plane itself doesn't need vectors but co-locating future tenant DB here keeps things simple)
-  - Redis: optional for MVP (sessions can live in Postgres for now)
+- `cloud/render.yaml`:
+  - Web: Docker, Standard plan, Oregon, Dockerfile `./cloud/Dockerfile`
+  - Postgres: new `luna-service-cp` instance (Starter or Standard, Oregon, PG 16)
 - Environment vars (set in Render dashboard, NOT in render.yaml):
-  - `CLOUD_IDENTITY_PROVIDER=google`
-  - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (Novalystrix OAuth app)
-  - `CLOUD_SESSION_SECRET` (use `generateValue: true` in render.yaml)
+  - `CLOUD_ENV=staging`
+  - `CLOUD_IDENTITY_PROVIDER=stub` (initially — switch to `google` once OAuth app exists)
+  - `CLOUD_SESSION_SECRET` (use `generateValue: true`)
   - `CLOUD_DATABASE_URL` (from `fromDatabase`)
-  - Pass-through LLM keys from existing `runluna` dashboard: `LUNA_ANTHROPIC_API_KEY`, `LUNA_OPENAI_API_KEY`, `LUNA_TAVILY_API_KEY` (mark as `sync: false`, copy values from the existing service's dashboard)
-- Push branch → Render auto-deploys → smoke test in browser
+  - LLM keys: copy from existing `runluna` service dashboard → `LUNA_ANTHROPIC_API_KEY`, `LUNA_OPENAI_API_KEY`, `LUNA_TAVILY_API_KEY`
+- Push to `main` → Render auto-deploys → smoke test at `luna-service.onrender.com`
 
 ## Tests
 

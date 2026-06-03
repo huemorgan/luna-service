@@ -1,0 +1,118 @@
+"""Provisioning workflow — creates schema, derives vault key, spawns Luna."""
+
+from __future__ import annotations
+
+import logging
+import os
+import secrets
+
+from sqlalchemy import select
+
+from cloud.db.models import Account, Agent
+from cloud.db.session import get_session as get_db_session
+from cloud.db.tenant_provisioner import _safe_schema, provision_tenant_schema
+from cloud.runtime.base import AgentSpec
+from cloud.runtime.docker_local import DockerLocalRuntime
+from cloud.runtime.fly_machines import FlyMachinesRuntime
+from cloud.vault.keygen import derive_tenant_vault_key
+
+log = logging.getLogger(__name__)
+
+
+def _get_runtime():
+    kind = os.environ.get("CLOUD_RUNTIME", "docker-local")
+    if kind == "docker-local":
+        return DockerLocalRuntime()
+    if kind == "fly-machines":
+        return FlyMachinesRuntime()
+    raise ValueError(f"Unknown runtime: {kind}")
+
+
+async def provision_luna_for_account(account_id: str) -> Agent:
+    """Provision a Luna instance for an account. Idempotent."""
+    async with get_db_session() as db:
+        account = (await db.execute(
+            select(Account).where(Account.id == account_id)
+        )).scalar_one()
+
+        agent = (await db.execute(
+            select(Agent).where(Agent.account_id == account.id)
+        )).scalar_one_or_none()
+
+        if agent and agent.status == "running":
+            log.info("Agent already running for %s", account.slug)
+            return agent
+
+        if not agent:
+            agent = Agent(
+                account_id=account.id,
+                creator_id=account.created_by,
+                name="My Luna",
+                status="provisioning",
+            )
+            db.add(agent)
+            await db.flush()
+
+        schema_name = _safe_schema(account.slug)
+        agent.db_schema = schema_name
+        agent.status = "provisioning"
+        await db.commit()
+
+    tenant_db_url = os.environ.get(
+        "CLOUD_TENANT_DATABASE_URL",
+        os.environ.get("CLOUD_DATABASE_URL", "postgresql+asyncpg://luna:luna@localhost:5435/lunaservice"),
+    )
+    await provision_tenant_schema(tenant_db_url, schema_name)
+
+    root_key = bytes.fromhex(
+        os.environ.get("CLOUD_VAULT_ROOT_KEY", "a" * 64)
+    )
+    vault_key = derive_tenant_vault_key(root_key, str(account.id))
+
+    proxy_secret = os.environ.get(
+        "CLOUD_TRUSTED_PROXY_SECRET",
+        secrets.token_urlsafe(32),
+    )
+
+    luna_db_url = tenant_db_url
+    if "localhost" in luna_db_url:
+        luna_db_url = luna_db_url.replace("localhost:5435", "luna-service-postgres:5432")
+        luna_db_url = luna_db_url.replace("localhost:5432", "luna-service-postgres:5432")
+
+    llm_keys = {}
+    for key in ("LUNA_ANTHROPIC_API_KEY", "LUNA_OPENAI_API_KEY", "LUNA_TAVILY_API_KEY"):
+        val = os.environ.get(key, "")
+        if val:
+            llm_keys[key] = val
+
+    spec = AgentSpec(
+        account_slug=account.slug,
+        db_schema=schema_name,
+        db_url=luna_db_url,
+        vault_key=vault_key.hex(),
+        trusted_proxy_secret=proxy_secret,
+        llm_keys=llm_keys,
+    )
+
+    runtime = _get_runtime()
+    try:
+        handle = await runtime.provision(spec)
+    except Exception as e:
+        log.error("Provisioning failed for %s: %s", account.slug, e)
+        async with get_db_session() as db:
+            agent = (await db.execute(select(Agent).where(Agent.id == agent.id))).scalar_one()
+            agent.status = "error"
+            await db.commit()
+        raise
+
+    async with get_db_session() as db:
+        agent = (await db.execute(select(Agent).where(Agent.id == agent.id))).scalar_one()
+        agent.status = "running"
+        agent.runtime_kind = handle.runtime_kind
+        agent.runtime_ref = handle.runtime_ref
+        agent.internal_url = handle.internal_url
+        await db.commit()
+        await db.refresh(agent)
+
+    log.info("Provisioned Luna for %s → %s", account.slug, handle.internal_url)
+    return agent

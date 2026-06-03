@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: cloud-cp-postgres
+    environment:
+      POSTGRES_USER: luna
+      POSTGRES_PASSWORD: luna
+      POSTGRES_DB: lunaservice
+    ports:
+      - "5435:5432"
+    volumes:
+      - cpdata:/var/lib/postgresql/data
+    healthcheck:
+      test: pg_isready -U luna -d lunaservice
+      interval: 2s
+      retries: 10
+
+volumes:
+  cpdata:

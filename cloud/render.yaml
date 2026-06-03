@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: luna-service
+    runtime: docker
+    dockerfilePath: ./cloud/Dockerfile
+    dockerContext: .
+    plan: standard
+    region: oregon
+    healthCheckPath: /healthz
+    envVars:
+      - key: CLOUD_ENV
+        value: production
+      - key: CLOUD_SESSION_SECRET
+        generateValue: true
+      - key: CLOUD_DATABASE_URL
+        fromDatabase:
+          name: luna-service-cp
+          property: connectionString
+      - key: CLOUD_IDENTITY_PROVIDER
+        value: google
+      - key: CLOUD_GOOGLE_CLIENT_ID
+        sync: false
+      - key: CLOUD_GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: CLOUD_GOOGLE_REDIRECT_URI
+        sync: false
+      - key: CLOUD_BASE_URL
+        value: https://luna.com.ai
+
+databases:
+  - name: luna-service-cp
+    plan: starter
+    region: oregon
+    postgresMajorVersion: "16"

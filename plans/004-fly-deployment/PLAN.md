@@ -9,9 +9,9 @@ This phase is mostly **infrastructure plumbing** — no new logic. The runtime p
 ## Result
 
 After this phase:
-- `https://luna.com.ai` is live with the marketing landing + Google sign-in (DNS already exists — see "DNS state" below)
-- Control plane runs on Render — **the existing `runluna` service slot, repurposed for luna-service**
-- Control plane's Postgres on Render Postgres (the existing `luna-db` instance, or a new one — see Task 2 below)
+- `https://luna.com.ai` is live with the marketing landing + Google sign-in (user moves domain from `runluna` to the new `luna-service` Render service)
+- Control plane runs on Render as the **`luna-service`** web service (new, separate from old `runluna`)
+- Control plane's Postgres on a new Render Postgres instance
 - Tenant Postgres (Luna data) on a **second Render Postgres instance** (Standard, Oregon) — schema-per-tenant, pgvector + HNSW enabled
 - Luna fleet on Fly Machines (`sjc` region — West Coast, matching Render Oregon for low DB latency, ~20ms hop)
 - R2 bucket exists for future file storage (not used in MVP but provisioned)
@@ -21,22 +21,20 @@ After this phase:
 ## Prerequisites
 
 - Phase 003 complete and locally verified
-- Phase 002 staging deployment is running and passing dojo tests (we cut over from staging to production in this phase)
+- Phase 002 staging deployment running on the new `luna-service` Render service
 - Fly.io account created (user is opening this)
-- Render account (already exists — we'll repurpose the existing `runluna` service slot and provision a second Postgres for tenant data)
-- Cloudflare: **already configured** — `luna.com.ai` zone exists and proxies to `runluna.onrender.com`. We do NOT need to set up Cloudflare from scratch. We just need to verify the cutover doesn't break it (Render service stays at the same URL).
+- Render: new `luna-service` web service already created (phase 002), plus a new Postgres for tenant data
+- Cloudflare: user will point `luna.com.ai` to the new `luna-service.onrender.com` (domain move from old `runluna`)
 - Google OAuth app's production redirect URI added: `https://luna.com.ai/auth/google/callback`
 
 ## Tasks
 
-### 1. Cloudflare — verify existing setup, add R2
-
-**DNS already exists.** The Cloudflare zone for `luna.com.ai` is already proxying to `runluna.onrender.com`. Don't touch DNS — we're swapping out what runs at that Render service, not where DNS points.
+### 1. Cloudflare — point domain to new service, add R2
 
 - [ ] Log into Cloudflare, navigate to the `luna.com.ai` zone
-- [ ] Document current DNS records (screenshot for backup before any change)
-- [ ] Verify proxy mode (orange cloud) is enabled for the apex/root record
-- [ ] Verify TLS mode is "Full (strict)" — Render serves valid TLS, Cloudflare should validate it
+- [ ] Update DNS: change the CNAME/A record from `runluna.onrender.com` → `luna-service.onrender.com`
+- [ ] Verify proxy mode (orange cloud) is enabled
+- [ ] Verify TLS mode is "Full (strict)"
 - [ ] (Optional, post-MVP) Add wildcard `*.luna.com.ai` placeholder for future subdomain routing
 - [ ] Create R2 bucket: `luna-service-prod`
 - [ ] Create scoped R2 API token (read+write to `luna-service-prod` only) → save to Render env vars
@@ -73,22 +71,18 @@ User decision needed — flagged in the README. **Default assumption: Option A**
 - [ ] Document the **admin role** credentials (control plane uses these to `CREATE SCHEMA` and `CREATE ROLE` for new tenants)
 - [ ] Backups: Render Standard plan does daily snapshots + 7-day PITR automatically. Verify in Render dashboard.
 
-### 3. Render control plane deployment — repurpose `runluna` slot
+### 3. Render control plane — production config for `luna-service`
 
-We're cutting over the existing `runluna` Render service from "hosts a single Luna" to "hosts the luna-service control plane." Same service name, same URL (`runluna.onrender.com`), same Cloudflare DNS — only what runs there changes.
+The `luna-service` Render web service was created in phase 002. Now we configure it for production.
 
-**Cutover steps:**
-
-- [ ] Take a final database backup of `luna-db` (via Render dashboard "Backups") — store the backup ID somewhere safe
-- [ ] In the Render dashboard, edit the `runluna` service:
-  - Change `repo` from `huemorgan/luna` → `huemorgan/luna-service` (or wherever this repo lives)
-  - Change `branch` from `010.3-mcp-agent-management` → `main`
-  - Change `dockerfilePath` from `./Dockerfile` → `./cloud/Dockerfile`
-- [ ] OR: update via `cloud/render.yaml` (preferred — infrastructure as code):
-  - Web service: Docker, **Standard** plan (1GB RAM), region **Oregon** (existing region, no migration needed)
-  - Render Postgres `luna-service-control` (or repurpose `luna-db`): Standard plan, Oregon, Postgres 16
+- [ ] In Render dashboard, verify `luna-service` service settings:
+  - Repo: `huemorgan/luna-service`, branch: `main`
+  - Dockerfile: `./cloud/Dockerfile`
+  - Plan: **Standard** (1GB RAM)
+  - Region: **Oregon**
   - Health check: `/healthz`
-  - Custom domain: already `luna.com.ai` via Cloudflare → keep as-is
+- [ ] Add custom domain `luna.com.ai` in Render dashboard (after Cloudflare DNS updated in task 1)
+- [ ] Create a new Render Postgres `luna-service-cp` for control-plane data (Standard, Oregon, PG 16)
 - [ ] Environment variables (set via Render dashboard, not committed):
   - `CLOUD_ENV=production`
   - `CLOUD_RUNTIME=fly-machines`

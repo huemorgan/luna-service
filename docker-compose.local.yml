@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: luna-service-postgres
+    environment:
+      POSTGRES_USER: luna
+      POSTGRES_PASSWORD: luna
+      POSTGRES_DB: lunaservice
+    ports:
+      - "5435:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./dev/init-tenant-db.sql:/docker-entrypoint-initdb.d/01-tenant-db.sql
+    networks:
+      - luna-service-net
+    healthcheck:
+      test: pg_isready -U luna -d lunaservice
+      interval: 2s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: luna-service-redis
+    ports:
+      - "6381:6379"
+    networks:
+      - luna-service-net
+    healthcheck:
+      test: redis-cli ping
+      interval: 2s
+      retries: 10
+
+  control-plane:
+    build:
+      context: .
+      dockerfile: cloud/Dockerfile
+    container_name: luna-service-cp
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8100:8100"
+    environment:
+      CLOUD_ENV: dev
+      CLOUD_DATABASE_URL: postgresql+asyncpg://luna:luna@luna-service-postgres:5432/lunaservice
+      CLOUD_TENANT_DATABASE_URL: postgresql+asyncpg://luna:luna@luna-service-postgres:5432/lunatenants
+      CLOUD_SESSION_SECRET: dev-session-secret
+      CLOUD_IDENTITY_PROVIDER: stub
+      CLOUD_RUNTIME: docker-local
+      CLOUD_TRUSTED_PROXY_SECRET: dev-proxy-secret-12345
+      CLOUD_VAULT_ROOT_KEY: abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+      LUNA_ANTHROPIC_API_KEY: ${LUNA_ANTHROPIC_API_KEY:-}
+      LUNA_OPENAI_API_KEY: ${LUNA_OPENAI_API_KEY:-}
+      LUNA_TAVILY_API_KEY: ${LUNA_TAVILY_API_KEY:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - luna-service-net
+    healthcheck:
+      test: curl -fs http://localhost:8100/healthz || exit 1
+      interval: 3s
+      retries: 20
+      start_period: 10s
+
+volumes:
+  pgdata:
+
+networks:
+  luna-service-net:
+    name: luna-service-net
+    driver: bridge

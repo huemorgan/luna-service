@@ -79,12 +79,9 @@ See `.env.example` for the full list of env vars and where to source each one.
 What we already have (reusable from prior projects):
 
 - **LLM keys:** Anthropic, OpenAI, Tavily in `../luna/.env` and `../luna-dojo/luna/.env`
-- **Render account + existing infrastructure:**
-  - `runluna` web service in Oregon (currently runs upstream Luna; we'll repurpose it to host the luna-service control plane)
-  - `luna-db` Postgres 16 in Oregon (decide: repurpose as control-plane DB, or back up + recreate)
-  - `luna-redis` in Oregon (optional for MVP)
-  - LLM keys already set as `sync: false` secrets in the `runluna` service dashboard
-- **Cloudflare:** `luna.com.ai` zone is already configured and proxying to `runluna.onrender.com`. **Do not re-do DNS** — just swap what runs at the Render service.
+- **Render account:** new `luna-service` web service created, separate from old `runluna`
+  - LLM keys: copy from existing `runluna` service dashboard
+- **Cloudflare:** `luna.com.ai` zone exists. User will move the domain to point at `luna-service.onrender.com` when ready.
 - **Domain:** `luna.com.ai` registered and pointed at Cloudflare nameservers
 
 What we still need to create:

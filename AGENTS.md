@@ -46,8 +46,8 @@ When something goes wrong or you're uncertain: say so plainly. Don't pad.
 
 ## Existing infra (don't recreate)
 
-- Render account exists, `runluna` service + `luna-db` Postgres in Oregon are reused
-- Cloudflare `luna.com.ai` already proxies to `runluna.onrender.com`
+- Render account exists. New `luna-service` web service created (separate from old `runluna`)
+- Cloudflare `luna.com.ai` zone exists — user will move domain to `luna-service.onrender.com` when ready
 - LLM keys live in `../luna/.env` (Anthropic, OpenAI, Tavily) and also in Render dashboard
 - Fly account: user opening — needed only for phase 004
 - Google OAuth client: not yet created, lives under `novalystrix.ai` Workspace

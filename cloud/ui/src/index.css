@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #0f0f14;
+  --ink-light: #1a1a24;
+  --ink-lighter: #2a2a3a;
+  --moon: #c9b8ff;
+  --moon-dim: #a08cd0;
+  --surface: #16161e;
+  --text: #e4e4ef;
+  --text-dim: #8888a0;
+}
+
+body {
+  margin: 0;
+  background: var(--ink);
+  color: var(--text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}

@@ -73,8 +73,8 @@ See `../.env.example` for the canonical list of env vars and source pointers.
 | Anthropic API key | ✓ Have it | `../luna/.env`, also set as `sync: false` on Render `runluna` |
 | OpenAI API key | ✓ Have it | `../luna/.env`, also on Render `runluna` |
 | Tavily API key (web search) | ✓ Have it | `../luna/.env`, also on Render `runluna` |
-| Render account | ✓ Have it | Existing — `runluna` service + `luna-db` Postgres + `luna-redis` |
-| Cloudflare + `luna.com.ai` DNS | ✓ **Already configured** | Cloudflare zone proxies `luna.com.ai` → `runluna.onrender.com` — don't touch DNS, just swap what runs at the Render service |
+| Render account | ✓ Have it | New `luna-service` web service created, separate from old `runluna` |
+| Cloudflare + `luna.com.ai` DNS | ✓ Zone exists | User will move domain to `luna-service.onrender.com` when ready |
 | Google Cloud project + OAuth client | ⏳ To create | Inside `novalystrix.ai` Workspace org |
 | Fly.io account | ⏳ User opening | Needed for phase 004 only |
 | Render Postgres (tenant DB) | ⏳ To create | Same Render account — **second** Postgres instance (`luna-tenant-prod`), Standard plan, Oregon region, pgvector + HNSW enabled |
@@ -82,16 +82,9 @@ See `../.env.example` for the canonical list of env vars and source pointers.
 
 **Phases 001-003 can proceed with what we have today.** Phase 004 adds: Google OAuth, Fly, the second Render Postgres, R2.
 
-### Cutover strategy for the existing `runluna` deployment
+### Render deployment strategy
 
-The `runluna` Render service currently runs an upstream Luna and Cloudflare DNS already points `luna.com.ai` at it. Phase 004 reuses this slot rather than building parallel infrastructure:
-
-- **Same service name** (`runluna`) → DNS stays pointed at it, zero DNS changes
-- **Repo swap**: `huemorgan/luna` → `huemorgan/luna-service` (or similar), Dockerfile path → `./cloud/Dockerfile`
-- **DB decision**: repurpose `luna-db` as the control-plane DB (back it up first), or create a new control-plane DB and leave `luna-db` for archival
-- **Plus**: a *new* `luna-tenant-prod` Postgres for tenant schemas (phase 004 task 2)
-
-The phase 002 plan stages this safely via a parallel `luna-service-control-staging` service before the phase 004 production cutover.
+New `luna-service` web service on Render — clean slate, separate from old `runluna`. User will move `luna.com.ai` domain to it when MVP is ready (phase 004). Old `runluna` stays untouched until then.
 
 ## Risks & Decisions Punted
 
