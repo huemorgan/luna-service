@@ -28,6 +28,17 @@ def _get_identity_provider(settings: Settings):
     return StubIdentityProvider()
 
 
+_ALLOWED_DOMAINS = {"monday.com"}
+_ALLOWED_EMAILS = {"vaselin@gmail.com"}
+
+
+def _enforce_email_allowlist(email: str) -> None:
+    domain = email.split("@", 1)[-1].lower()
+    if domain in _ALLOWED_DOMAINS or email.lower() in _ALLOWED_EMAILS:
+        return
+    raise HTTPException(status.HTTP_403_FORBIDDEN, "Sign-ups are currently restricted.")
+
+
 def _make_slug(email: str) -> str:
     local = email.split("@")[0]
     slug = re.sub(r"[^a-z0-9]", "-", local.lower()).strip("-")
@@ -61,6 +72,7 @@ async def google_callback(code: str, state: str):
     except Exception as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"OAuth exchange failed: {e}")
 
+    _enforce_email_allowlist(user_info.email)
     user, account = await _upsert_user_and_account(user_info)
 
     response = RedirectResponse("/dashboard", status_code=302)
