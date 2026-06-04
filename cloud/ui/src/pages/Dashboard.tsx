@@ -299,6 +299,8 @@ function AgentCard({
           {agent.status === 'running' && agent.slug && (
             <a
               href={`/a/${agent.slug}/`}
+              target="_blank"
+              rel="noopener noreferrer"
               className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all hover:scale-105"
               style={{ background: 'var(--moon)', color: 'var(--ink)' }}
             >
