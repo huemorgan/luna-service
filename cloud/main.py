@@ -54,10 +54,19 @@ class SPAStaticMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from sqlalchemy import text
     from cloud.db.session import _get_engine
     engine = _get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Add columns that create_all won't add to existing tables
+        for col, coltype in [
+            ("error_message", "TEXT"),
+            ("error_at", "TIMESTAMPTZ"),
+        ]:
+            await conn.execute(text(
+                f"ALTER TABLE agents ADD COLUMN IF NOT EXISTS {col} {coltype}"
+            ))
     yield
     await dispose_engine()
 
