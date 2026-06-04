@@ -79,6 +79,8 @@ class Agent(Base):
     internal_url: Mapped[str | None] = mapped_column(Text)
     db_schema: Mapped[str | None] = mapped_column(Text)
     vault_key_ref: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

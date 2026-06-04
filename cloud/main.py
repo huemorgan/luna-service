@@ -45,11 +45,8 @@ class SPAStaticMiddleware(BaseHTTPMiddleware):
         response: Response = await call_next(request)
 
         if response.status_code == 404 and UI_DIR.is_dir():
-            first = path.split("/")[1] if "/" in path else ""
             is_api = any(path.startswith(p) for p in RESERVED_PREFIXES)
-            if not is_api and first:
-                pass
-            elif not is_api:
+            if not is_api:
                 return FileResponse(UI_DIR / "index.html")
 
         return response

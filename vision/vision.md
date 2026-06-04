@@ -370,7 +370,57 @@ The few things kept proprietary are:
 
 ---
 
-## Future-Looking: Where This Needs to Stretch
+## Agent Fleet Dashboard & Team Management
+
+The control plane on Render.com is not just a routing layer — it is a **full management surface** for users' agent fleets. The dashboard is where users create, monitor, configure, and retire agents. Fly.io runs the agents; Render runs the management experience.
+
+### Dashboard: Agent Fleet Management
+
+Users don't get one Luna by default. They get an **empty workspace** and the power to create agents on demand.
+
+**Core dashboard capabilities:**
+
+- **Agent list** — see all agents in the account: name, status (running / stopped / provisioning / error), uptime, last active, monthly cost
+- **Create agent** — explicit "New Agent" action provisions a Fly Machine. Clear progress indicator, explicit error reporting if Fly provisioning fails. Users choose a name and (later) a template/preset.
+- **Agent detail view** — per-agent panel: start/stop/restart controls, configuration, logs preview, cost breakdown, connection URL
+- **Destroy agent** — permanent removal with confirmation. Tears down Fly Machine, archives DB schema, cleans up
+- **Bulk operations (future)** — stop all agents, restart fleet, export agent configs
+
+This is a fleet management tool. Power users will run 5, 10, 50 agents — one per project, per client, per workflow. The dashboard must scale to hundreds of agents per account without becoming unusable.
+
+### Cost & Billing Visibility
+
+Every agent has a cost. The dashboard makes costs visible and controllable:
+
+- **Per-agent cost meter** — how much this agent has consumed this billing cycle (compute time, LLM tokens, storage)
+- **Account-level spend overview** — total monthly spend, broken down by agent, by cost category (compute, LLM, storage)
+- **Budget controls (future)** — set per-agent or per-account spending caps. Agent pauses or downgrades when budget is exhausted.
+- **Billing page** — Stripe integration. Payment method, invoices, plan upgrades
+
+### Teams & Collaboration
+
+Agents belong to accounts, not to individual users. An account is a team/company:
+
+- **Roles** — owner, admin, member, viewer. Owners manage billing and invitations. Admins can create/destroy agents and manage members. Members can use agents. Viewers can observe but not interact.
+- **Invitations** — invite by email. Invited users sign in with Google and are added to the account.
+- **Shared agent access** — all team members with appropriate roles can use any agent in the account. Access control is at the account level, not per-agent (per-agent ACLs are a future enhancement).
+- **Activity audit (future)** — who did what, when. Agent creation, configuration changes, team membership changes — all logged.
+- **Multi-account support** — a single Google user can belong to multiple accounts (personal + work). Account switcher in the UI header.
+
+### Agent Marketplace (Future)
+
+A marketplace for agent configurations, templates, and plugin bundles:
+
+- **Agent templates** — pre-configured agent setups: "Marketing Agent," "Developer Agent," "Research Agent." Each template defines a set of plugins, system prompts, and configurations.
+- **Community templates** — users can publish their agent setups as templates for others.
+- **Plugin marketplace** — browse, install, and manage plugins per-agent. Some free (OSS), some paid (commercial packs).
+- **One-click deploy** — pick a template from the marketplace → agents is provisioned with that config automatically.
+
+The marketplace is not v1. But the dashboard data model (agents have configurations, configurations are composable) is designed to support it cleanly when the time comes.
+
+---
+
+
 
 Luna's roadmap (see `luna/plans/FANTASIES.md`) includes things that change the platform's shape over time. We must build the platform such that none of these require re-architecting:
 

@@ -32,6 +32,7 @@ Four phases. Each phase is shippable on its own — each ends with something tes
 | **002** | **Control Plane Skeleton** | FastAPI control plane with Google OAuth, Postgres-backed accounts, login/logout/dashboard UI. No Luna integration yet. | Local + Render Postgres |
 | **003** | **Local Provisioning + Routing** | Control plane spins up per-user Luna Docker containers and proxies requests to them. **Full MVP works on a single laptop.** | Local Docker |
 | **004** | **Fly + Render Deployment** | Swap local Docker for Fly Machines. Deploy control plane to Render. Production live at `luna.com.ai`. | Production |
+| **005** | **Dashboard & Agent Fleet** | Replace auto-provisioning with dashboard. Empty agent area → explicit "New Agent" button → error-surfacing Fly provisioning. Management surface on Render, agents on Fly. | Production |
 
 ## Why This Order
 

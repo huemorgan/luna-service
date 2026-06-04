@@ -63,12 +63,7 @@ async def google_callback(code: str, state: str):
 
     user, account = await _upsert_user_and_account(user_info)
 
-    # Kick off Luna provisioning in the background
-    from cloud.provisioning.workflow import provision_luna_for_account
-    import asyncio
-    asyncio.create_task(provision_luna_for_account(str(account.id)))
-
-    response = RedirectResponse(f"/{account.slug}", status_code=302)
+    response = RedirectResponse("/dashboard", status_code=302)
     set_session(response, str(user.id), str(account.id))
     return response
 
