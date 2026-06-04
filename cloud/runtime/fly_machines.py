@@ -51,14 +51,13 @@ class FlyMachinesRuntime:
             if m.get("name") == machine_name:
                 mid = m["id"]
                 state = m.get("state", "")
+                url = f"https://{self.app_name}.fly.dev"
                 if state in ("started", "running"):
                     log.info("Machine %s already running (id=%s)", machine_name, mid)
-                    url = f"https://{mid}.vm.{self.app_name}.fly.dev:8000"
                     return RuntimeHandle("fly-machine", mid, url)
                 if state in ("stopped", "suspended"):
                     await client.post(f"/machines/{mid}/start")
                     log.info("Restarted machine %s (id=%s)", machine_name, mid)
-                    url = f"https://{mid}.vm.{self.app_name}.fly.dev:8000"
                     await self._wait_healthy(mid)
                     return RuntimeHandle("fly-machine", mid, url)
 
@@ -120,7 +119,7 @@ class FlyMachinesRuntime:
 
         await self._wait_healthy(machine_id)
 
-        internal_url = f"https://{machine_id}.vm.{self.app_name}.fly.dev:8000"
+        internal_url = f"https://{self.app_name}.fly.dev"
         return RuntimeHandle("fly-machine", machine_id, internal_url)
 
     async def _wait_healthy(self, machine_id: str):

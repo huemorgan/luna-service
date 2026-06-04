@@ -115,6 +115,9 @@ async def proxy_to_luna(request: Request, account_slug: str, path: str):
     headers["x-luna-user"] = user.email
     headers["x-luna-proxy-secret"] = proxy_secret
 
+    if agent.runtime_ref:
+        headers["fly-force-instance-id"] = agent.runtime_ref
+
     client = _get_http_client()
     body = await request.body()
 
