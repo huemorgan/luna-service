@@ -28,7 +28,7 @@ class FlyMachinesRuntime:
         self.region = region or os.environ.get("FLY_REGION", "sjc")
         self.image = image or os.environ.get(
             "FLY_LUNA_IMAGE",
-            f"registry.fly.io/{self.app_name}:deployment-01KT6S0MHJ15N4J8NN70YSGR5A",
+            f"registry.fly.io/{self.app_name}:latest",
         )
         self._client: httpx.AsyncClient | None = None
 
