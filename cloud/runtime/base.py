@@ -28,6 +28,7 @@ class RuntimeHandle:
 
 class AgentSpec(BaseModel):
     account_slug: str
+    agent_slug: str
     db_schema: str
     db_url: str
     vault_key: str  # hex-encoded 32 bytes

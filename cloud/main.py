@@ -22,6 +22,7 @@ UI_DIR = Path(__file__).parent / "ui" / "dist"
 RESERVED_PREFIXES = (
     "/api/", "/auth/", "/healthz",
     "/assets/", "/favicon", "/icons",
+    "/a/",
 )
 
 
@@ -63,6 +64,7 @@ async def lifespan(app: FastAPI):
         for col, coltype in [
             ("error_message", "TEXT"),
             ("error_at", "TIMESTAMPTZ"),
+            ("slug", "TEXT"),
         ]:
             await conn.execute(text(
                 f"ALTER TABLE agents ADD COLUMN IF NOT EXISTS {col} {coltype}"

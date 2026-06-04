@@ -12,6 +12,7 @@ interface UserInfo {
 interface AgentInfo {
   id: string;
   name: string;
+  slug: string;
   status: string;
   runtime_kind: string | null;
   internal_url: string | null;
@@ -242,7 +243,6 @@ export default function Dashboard() {
               <AgentCard
                 key={agent.id}
                 agent={agent}
-                accountSlug={account?.slug}
                 isLoading={actionLoading === agent.id}
                 onAction={handleAction}
               />
@@ -255,10 +255,9 @@ export default function Dashboard() {
 }
 
 function AgentCard({
-  agent, accountSlug, isLoading, onAction,
+  agent, isLoading, onAction,
 }: {
   agent: AgentInfo;
-  accountSlug: string | undefined;
   isLoading: boolean;
   onAction: (id: string, action: 'start' | 'stop' | 'retry' | 'delete') => void;
 }) {
@@ -297,9 +296,9 @@ function AgentCard({
         <div className="flex items-center gap-2">
           {isLoading && <Loader2 className="animate-spin" size={16} style={{ color: 'var(--moon)' }} />}
 
-          {agent.status === 'running' && accountSlug && (
+          {agent.status === 'running' && agent.slug && (
             <a
-              href={`/${accountSlug}/`}
+              href={`/a/${agent.slug}/`}
               className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all hover:scale-105"
               style={{ background: 'var(--moon)', color: 'var(--ink)' }}
             >

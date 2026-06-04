@@ -43,7 +43,7 @@ class FlyMachinesRuntime:
 
     async def provision(self, spec: AgentSpec) -> RuntimeHandle:
         client = self._get_client()
-        machine_name = f"luna-{spec.account_slug}"
+        machine_name = f"luna-{spec.agent_slug}"
 
         existing = await client.get("/machines")
         existing.raise_for_status()

@@ -73,6 +73,7 @@ class Agent(Base):
     account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"))
     creator_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     name: Mapped[str] = mapped_column(Text, nullable=False, default="My Luna")
+    slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
     runtime_kind: Mapped[str | None] = mapped_column(Text)
     runtime_ref: Mapped[str | None] = mapped_column(Text)

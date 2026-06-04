@@ -88,12 +88,13 @@ async def provision_luna_for_account(account_id: str, *, agent_id: str | None = 
                     account_id=account.id,
                     creator_id=account.created_by,
                     name="My Luna",
+                    slug=f"{account.slug}-my-luna",
                     status="provisioning",
                 )
                 db.add(agent)
                 await db.flush()
 
-        schema_name = _safe_schema(account.slug)
+        schema_name = _safe_schema(agent.slug)
         agent.db_schema = schema_name
         agent.status = "provisioning"
         agent.error_message = None
@@ -137,6 +138,7 @@ async def provision_luna_for_account(account_id: str, *, agent_id: str | None = 
 
     spec = AgentSpec(
         account_slug=account.slug,
+        agent_slug=agent.slug,
         db_schema=schema_name,
         db_url=luna_db_url,
         vault_key=vault_key.hex(),

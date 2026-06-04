@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -17,6 +18,12 @@ from cloud.db.session import get_session as get_db_session
 
 log = logging.getLogger(__name__)
 
+
+def _make_slug(name: str, account_slug: str) -> str:
+    """Generate a URL-safe slug from agent name, prefixed with account slug."""
+    base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "luna"
+    return f"{account_slug}-{base}"
+
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
 
@@ -28,6 +35,7 @@ def _agent_dict(a: Agent) -> dict:
     return {
         "id": str(a.id),
         "name": a.name,
+        "slug": a.slug,
         "status": a.status,
         "runtime_kind": a.runtime_kind,
         "internal_url": a.internal_url,
@@ -56,11 +64,21 @@ async def create_agent(
 ):
     user, account = auth
 
+    name = body.name.strip() or "My Luna"
+    base_slug = _make_slug(name, account.slug)
+
     async with get_db_session() as db:
+        slug = base_slug
+        suffix = 1
+        while (await db.execute(select(Agent).where(Agent.slug == slug))).scalar_one_or_none():
+            suffix += 1
+            slug = f"{base_slug}-{suffix}"
+
         agent = Agent(
             account_id=account.id,
             creator_id=user.id,
-            name=body.name.strip() or "My Luna",
+            name=name,
+            slug=slug,
             status="provisioning",
         )
         db.add(agent)

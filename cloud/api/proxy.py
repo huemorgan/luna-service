@@ -1,4 +1,4 @@
-"""Reverse proxy — routes /{slug}/… to the user's Luna instance."""
+"""Reverse proxy — routes /a/{agent_slug}/… to the user's Luna instance."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
 from cloud.auth.session import get_session
-from cloud.db.models import Account, Agent, Membership, User
+from cloud.db.models import Agent, Membership, User
 from cloud.db.session import get_session as get_db_session
 
 log = logging.getLogger(__name__)
@@ -30,8 +30,8 @@ def _get_http_client() -> httpx.AsyncClient:
     return _http_client
 
 
-async def _resolve_context(request: Request, account_slug: str):
-    """Resolve session + account + agent, raising appropriate errors."""
+async def _resolve_agent(request: Request, agent_slug: str):
+    """Resolve session + agent, verifying the user has access."""
     sess = get_session(request)
     if not sess:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
@@ -43,68 +43,34 @@ async def _resolve_context(request: Request, account_slug: str):
         if not user:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
 
-        account = (await db.execute(
-            select(Account).where(Account.slug == account_slug)
+        agent = (await db.execute(
+            select(Agent).where(Agent.slug == agent_slug)
         )).scalar_one_or_none()
-        if not account:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
+        if not agent:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
 
         membership = (await db.execute(
             select(Membership).where(
                 Membership.user_id == user.id,
-                Membership.account_id == account.id,
+                Membership.account_id == agent.account_id,
                 Membership.status == "active",
             )
         )).scalar_one_or_none()
         if not membership:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a member of this account")
 
-        agent = (await db.execute(
-            select(Agent).where(Agent.account_id == account.id)
-        )).scalar_one_or_none()
+        return user, agent
 
-        return user, account, agent
-
-
-@router.get("/api/agents/me/status")
-async def agent_status(request: Request):
-    """Returns the current user's Luna agent status for polling."""
-    sess = get_session(request)
-    if not sess:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED)
-
-    async with get_db_session() as db:
-        account = (await db.execute(
-            select(Account).where(Account.id == uuid.UUID(sess["account_id"]))
-        )).scalar_one_or_none()
-        if not account:
-            raise HTTPException(status.HTTP_404_NOT_FOUND)
-
-        agent = (await db.execute(
-            select(Agent).where(Agent.account_id == account.id)
-        )).scalar_one_or_none()
-
-    return {
-        "slug": account.slug,
-        "status": agent.status if agent else "pending",
-        "internal_url": agent.internal_url if agent else None,
-    }
-
-
-_RESERVED = {"api", "auth", "healthz", "assets", "favicon.svg", "icons.svg", "dashboard"}
 
 
 @router.api_route(
-    "/{account_slug}/{path:path}",
+    "/a/{agent_slug}/{path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
 )
-async def proxy_to_luna(request: Request, account_slug: str, path: str):
-    if account_slug in _RESERVED:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+async def proxy_to_luna(request: Request, agent_slug: str, path: str):
+    user, agent = await _resolve_agent(request, agent_slug)
 
-    user, account, agent = await _resolve_context(request, account_slug)
-
-    if not agent or agent.status != "running":
+    if agent.status != "running":
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Luna is not ready yet")
 
     proxy_secret = os.environ.get("CLOUD_TRUSTED_PROXY_SECRET", "dev-proxy-secret")
@@ -157,7 +123,7 @@ async def proxy_to_luna(request: Request, account_slug: str, path: str):
         html_bytes = await resp.aread()
         await resp.aclose()
         html = html_bytes.decode("utf-8", errors="replace")
-        prefix = f"/{account_slug}"
+        prefix = f"/a/{agent_slug}"
         html = _rewrite_html_paths(html, prefix)
         response_headers["cache-control"] = "no-cache, no-store, must-revalidate"
         return Response(
