@@ -40,7 +40,8 @@ def _build_luna_db_url(tenant_db_url: str) -> str:
         luna_db_url = luna_db_url.replace("localhost:5432", "luna-service-postgres:5432")
 
     if runtime_kind == "fly-machines":
-        luna_db_url = luna_db_url.replace("postgresql+asyncpg://", "postgresql://")
+        if "+asyncpg" not in luna_db_url:
+            luna_db_url = luna_db_url.replace("postgresql://", "postgresql+asyncpg://")
         luna_db_url = re.sub(
             r"@(dpg-[a-z0-9]+(?:-a)?)/",
             r"@\1.oregon-postgres.render.com/",
