@@ -84,6 +84,8 @@ class Agent(Base):
     error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cached_metrics: Mapped[dict | None] = mapped_column(JSONB)
+    cached_metrics_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     account: Mapped[Account] = relationship(back_populates="agents")
 

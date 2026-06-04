@@ -162,3 +162,23 @@ class FlyMachinesRuntime:
     async def destroy(self, handle: RuntimeHandle) -> None:
         client = self._get_client()
         await client.delete(f"/machines/{handle.runtime_ref}?force=true")
+
+    async def describe(self, machine_id: str) -> dict | None:
+        """Return the full Fly Machine record, or None if it no longer exists.
+
+        Used by the agent detail endpoint to surface live compute info
+        (region, image, guest size, state, events) without caching them
+        in our DB long-term. Caller is responsible for short-TTL caching.
+        """
+        client = self._get_client()
+        try:
+            resp = await client.get(f"/machines/{machine_id}")
+        except httpx.HTTPError as exc:
+            log.warning("Fly describe failed for %s: %s", machine_id, exc)
+            return None
+        if resp.status_code == 404:
+            return None
+        if resp.status_code >= 400:
+            log.warning("Fly describe %s returned %s", machine_id, resp.status_code)
+            return None
+        return resp.json()

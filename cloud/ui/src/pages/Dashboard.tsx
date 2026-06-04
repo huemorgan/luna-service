@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Moon, LogOut, Bot, Loader2, Plus, ExternalLink,
   RotateCcw, Square, Play, Trash2, AlertTriangle,
@@ -273,7 +274,14 @@ function AgentCard({
         <div className="flex items-center gap-3">
           <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: dotColor }} />
           <div>
-            <h4 className="font-semibold" style={{ color: 'var(--text)' }}>{agent.name}</h4>
+            <Link
+              to={`/dashboard/agents/${agent.id}`}
+              className="font-semibold hover:underline"
+              style={{ color: 'var(--text)' }}
+              title="View agent details"
+            >
+              {agent.name}
+            </Link>
             <div className="flex items-center gap-3 mt-1">
               <span className="text-xs capitalize" style={{ color: 'var(--text-dim)' }}>
                 {agent.status === 'provisioning' && (

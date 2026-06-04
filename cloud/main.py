@@ -64,6 +64,8 @@ async def lifespan(app: FastAPI):
             ("error_message", "TEXT"),
             ("error_at", "TIMESTAMPTZ"),
             ("slug", "TEXT"),
+            ("cached_metrics", "JSONB"),
+            ("cached_metrics_at", "TIMESTAMPTZ"),
         ]:
             await conn.execute(text(
                 f"ALTER TABLE agents ADD COLUMN IF NOT EXISTS {col} {coltype}"
