@@ -60,7 +60,6 @@ async def lifespan(app: FastAPI):
     engine = _get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Add columns that create_all won't add to existing tables
         for col, coltype in [
             ("error_message", "TEXT"),
             ("error_at", "TIMESTAMPTZ"),
@@ -69,6 +68,16 @@ async def lifespan(app: FastAPI):
             await conn.execute(text(
                 f"ALTER TABLE agents ADD COLUMN IF NOT EXISTS {col} {coltype}"
             ))
+        # Backfill NULL slugs from account slug + agent name
+        await conn.execute(text("""
+            UPDATE agents SET slug = accounts.slug || '-' || LOWER(REGEXP_REPLACE(agents.name, '[^a-zA-Z0-9]+', '-', 'g'))
+            FROM accounts
+            WHERE agents.account_id = accounts.id AND agents.slug IS NULL
+        """))
+        # Clean up destroyed agents with no valid runtime
+        await conn.execute(text("""
+            DELETE FROM agents WHERE status IN ('error', 'provisioning') AND runtime_ref IS NULL AND slug IS NULL
+        """))
     yield
     await dispose_engine()
 
