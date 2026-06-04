@@ -116,6 +116,7 @@ async def proxy_to_luna(request: Request, account_slug: str, path: str):
     headers = dict(request.headers)
     headers.pop("host", None)
     headers.pop("cookie", None)
+    headers.pop("accept-encoding", None)
     headers["x-luna-user"] = user.email
     headers["x-luna-proxy-secret"] = proxy_secret
 
@@ -158,11 +159,12 @@ async def proxy_to_luna(request: Request, account_slug: str, path: str):
         html = html_bytes.decode("utf-8", errors="replace")
         prefix = f"/{account_slug}"
         html = _rewrite_html_paths(html, prefix)
+        response_headers["cache-control"] = "no-cache, no-store, must-revalidate"
         return Response(
             content=html,
             status_code=resp.status_code,
             headers=response_headers,
-            media_type="text/html",
+            media_type="text/html; charset=utf-8",
         )
 
     if is_sse:
