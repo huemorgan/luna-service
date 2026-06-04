@@ -64,10 +64,20 @@ async def _resolve_agent(request: Request, agent_slug: str):
 
 
 @router.api_route(
+    "/a/{agent_slug}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    include_in_schema=False,
+)
+@router.api_route(
+    "/a/{agent_slug}/",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    include_in_schema=False,
+)
+@router.api_route(
     "/a/{agent_slug}/{path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
 )
-async def proxy_to_luna(request: Request, agent_slug: str, path: str):
+async def proxy_to_luna(request: Request, agent_slug: str, path: str = ""):
     user, agent = await _resolve_agent(request, agent_slug)
 
     if agent.status != "running":
