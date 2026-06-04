@@ -185,11 +185,17 @@ async def proxy_to_luna(request: Request, account_slug: str, path: str):
 
 
 def _rewrite_html_paths(html: str, prefix: str) -> str:
-    """Rewrite absolute asset paths in Luna's HTML to include the slug prefix."""
+    """Rewrite absolute asset paths in Luna's HTML to include the slug prefix.
+
+    Also injects a fetch-interceptor script so API calls from the React app
+    are automatically prefixed with the slug path.
+    """
     html = re.sub(r'(src|href)="/', rf'\1="{prefix}/', html)
-    html = re.sub(
-        r'(fetch|XMLHttpRequest\.open)\s*\(\s*["\']/',
-        lambda m: f'{m.group(1)}("{prefix}/',
-        html,
+    interceptor = (
+        f'<script>window.__LUNA_BASE="{prefix}";'
+        "(function(){var _f=window.fetch;window.fetch=function(u,o){"
+        "if(typeof u==='string'&&u.startsWith('/'))u=window.__LUNA_BASE+u;"
+        "return _f.call(this,u,o);}})();</script>"
     )
+    html = html.replace("</head>", interceptor + "</head>")
     return html

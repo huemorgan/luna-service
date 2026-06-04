@@ -81,6 +81,8 @@ class FlyMachinesRuntime:
             "config": {
                 "image": self.image,
                 "env": env_vars,
+                "restart": {"policy": "always"},
+                "auto_destroy": False,
                 "guest": {
                     "cpu_kind": "shared",
                     "cpus": 1,
@@ -94,6 +96,9 @@ class FlyMachinesRuntime:
                         ],
                         "protocol": "tcp",
                         "internal_port": 8000,
+                        "autostop": "off",
+                        "autostart": True,
+                        "min_machines_running": 1,
                     }
                 ],
                 "checks": {
