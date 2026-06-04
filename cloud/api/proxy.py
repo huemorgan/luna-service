@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 import uuid
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
 from cloud.auth.session import get_session
 from cloud.db.models import Account, Agent, Membership, User
 from cloud.db.session import get_session as get_db_session
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["proxy"])
 
@@ -128,8 +132,6 @@ async def proxy_to_luna(request: Request, account_slug: str, path: str):
         content=body if body else None,
     )
 
-    import logging
-    log = logging.getLogger("cloud.proxy")
     log.info("Proxying %s %s → %s", request.method, request.url.path, target_url)
 
     try:
@@ -141,23 +143,51 @@ async def proxy_to_luna(request: Request, account_slug: str, path: str):
             f"Cannot reach Luna instance: {type(exc).__name__}",
         )
 
-    is_sse = "text/event-stream" in resp.headers.get("content-type", "")
+    content_type = resp.headers.get("content-type", "")
+    is_html = "text/html" in content_type
+    is_sse = "text/event-stream" in content_type
+
+    response_headers = dict(resp.headers)
+    response_headers.pop("transfer-encoding", None)
+    response_headers.pop("content-length", None)
+    response_headers.pop("content-encoding", None)
+
+    if is_html:
+        html_bytes = await resp.aread()
+        await resp.aclose()
+        html = html_bytes.decode("utf-8", errors="replace")
+        prefix = f"/{account_slug}"
+        html = _rewrite_html_paths(html, prefix)
+        return Response(
+            content=html,
+            status_code=resp.status_code,
+            headers=response_headers,
+            media_type="text/html",
+        )
+
+    if is_sse:
+        response_headers["cache-control"] = "no-cache"
+        response_headers["x-accel-buffering"] = "no"
 
     async def stream():
         async for chunk in resp.aiter_bytes():
             yield chunk
         await resp.aclose()
 
-    response_headers = dict(resp.headers)
-    response_headers.pop("transfer-encoding", None)
-
-    if is_sse:
-        response_headers["cache-control"] = "no-cache"
-        response_headers["x-accel-buffering"] = "no"
-
     return StreamingResponse(
         stream(),
         status_code=resp.status_code,
         headers=response_headers,
-        media_type=resp.headers.get("content-type"),
+        media_type=content_type,
     )
+
+
+def _rewrite_html_paths(html: str, prefix: str) -> str:
+    """Rewrite absolute asset paths in Luna's HTML to include the slug prefix."""
+    html = re.sub(r'(src|href)="/', rf'\1="{prefix}/', html)
+    html = re.sub(
+        r'(fetch|XMLHttpRequest\.open)\s*\(\s*["\']/',
+        lambda m: f'{m.group(1)}("{prefix}/',
+        html,
+    )
+    return html
