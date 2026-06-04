@@ -128,7 +128,18 @@ async def proxy_to_luna(request: Request, account_slug: str, path: str):
         content=body if body else None,
     )
 
-    resp = await client.send(req, stream=True)
+    import logging
+    log = logging.getLogger("cloud.proxy")
+    log.info("Proxying %s %s → %s", request.method, request.url.path, target_url)
+
+    try:
+        resp = await client.send(req, stream=True)
+    except Exception as exc:
+        log.error("Proxy connection failed: %s → %s: %s", target_url, type(exc).__name__, exc)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            f"Cannot reach Luna instance: {type(exc).__name__}",
+        )
 
     is_sse = "text/event-stream" in resp.headers.get("content-type", "")
 
