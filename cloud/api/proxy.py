@@ -149,10 +149,10 @@ async def proxy_to_luna(request: Request, account_slug: str, path: str):
 
     response_headers = dict(resp.headers)
     response_headers.pop("transfer-encoding", None)
-    response_headers.pop("content-length", None)
-    response_headers.pop("content-encoding", None)
 
     if is_html:
+        response_headers.pop("content-length", None)
+        response_headers.pop("content-encoding", None)
         html_bytes = await resp.aread()
         await resp.aclose()
         html = html_bytes.decode("utf-8", errors="replace")
@@ -170,7 +170,7 @@ async def proxy_to_luna(request: Request, account_slug: str, path: str):
         response_headers["x-accel-buffering"] = "no"
 
     async def stream():
-        async for chunk in resp.aiter_bytes():
+        async for chunk in resp.aiter_raw():
             yield chunk
         await resp.aclose()
 
