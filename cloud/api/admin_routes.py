@@ -134,15 +134,15 @@ def _read_luna_version() -> str | None:
 
 
 PLUGIN_META = [
-    {"key": "plugin_vault", "name": "Vault", "description": "Encrypted credential storage", "required": False},
-    {"key": "plugin_memory", "name": "Memory", "description": "Long-term semantic recall", "required": False},
-    {"key": "plugin_identity", "name": "Identity", "description": "Agent name, persona, settings", "required": False},
+    {"key": "plugin_vault", "name": "Vault", "description": "Encrypted credential storage", "required": True},
+    {"key": "plugin_memory", "name": "Memory", "description": "Long-term semantic recall", "required": True},
+    {"key": "plugin_identity", "name": "Identity", "description": "Agent name, persona, settings", "required": True},
     {"key": "plugin_mcp", "name": "MCP", "description": "External tool connections", "required": False},
     {"key": "plugin_web_access", "name": "Web Access", "description": "Web search, fetch, HTTP", "required": False},
     {"key": "plugin_funnelfighters", "name": "FunnelFighters", "description": "Marketing intelligence", "required": False},
     {"key": "plugin_brain", "name": "Brain", "description": "Live neural activity visualization", "required": False},
     {"key": "plugin_files", "name": "Files", "description": "File storage and browser", "required": False},
-    {"key": "plugin_meta", "name": "Meta", "description": "Toggle other plugins at runtime", "required": False},
+    {"key": "plugin_meta", "name": "Meta", "description": "Toggle other plugins at runtime", "required": True},
     {"key": "plugin_approvals", "name": "Approvals", "description": "Gates risky actions for owner consent", "required": True},
     {"key": "plugin_web", "name": "Web Server", "description": "Core HTTP server and auth", "required": True},
 ]

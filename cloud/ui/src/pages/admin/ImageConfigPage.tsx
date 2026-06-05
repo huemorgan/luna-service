@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Loader2, Package, Cpu, Brain, Plug, Variable,
-  Star, Check, MapPin, MemoryStick, Zap, Plus, Trash2, Lock,
+  Star, Check, Plus, Trash2, Lock,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -74,6 +74,21 @@ const PROVIDERS = [
   { value: 'openai', label: 'OpenAI' },
 ];
 
+const MODEL_OPTIONS: Record<string, { value: string; label: string }[]> = {
+  anthropic: [
+    { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+    { value: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
+    { value: 'claude-haiku-3-5-20241022', label: 'Claude Haiku 3.5' },
+  ],
+  openai: [
+    { value: 'gpt-4o', label: 'GPT-4o' },
+    { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+    { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+    { value: 'o3', label: 'o3' },
+    { value: 'o4-mini', label: 'o4-mini' },
+  ],
+};
+
 /* ------------------------------------------------------------------ */
 /*  Shared UI pieces                                                   */
 /* ------------------------------------------------------------------ */
@@ -86,28 +101,35 @@ function Toggle({ on, disabled, onChange }: { on: boolean; disabled?: boolean; o
       aria-checked={on}
       disabled={disabled}
       onClick={() => !disabled && onChange(!on)}
-      className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none"
+      className="relative rounded-full transition-colors"
       style={{
-        background: on ? '#22c55e' : 'var(--ink-lighter)',
+        width: 44,
+        height: 24,
+        background: on ? '#4ade80' : '#2a2a3a',
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.5 : 1,
+        flexShrink: 0,
       }}
     >
       <span
-        className="inline-block h-4 w-4 rounded-full transition-transform duration-200"
+        className="absolute rounded-full transition-all duration-200"
         style={{
-          background: 'white',
-          transform: on ? 'translateX(22px)' : 'translateX(4px)',
+          width: 18,
+          height: 18,
+          top: 3,
+          left: on ? 23 : 3,
+          background: on ? 'white' : '#6b6b80',
         }}
       />
     </button>
   );
 }
 
-function Select({ value, options, onChange }: {
+function Select({ value, options, onChange, fullWidth }: {
   value: string | number;
   options: { value: string | number; label: string }[];
   onChange: (v: string) => void;
+  fullWidth?: boolean;
 }) {
   return (
     <select
@@ -118,7 +140,8 @@ function Select({ value, options, onChange }: {
         background: 'var(--ink-light)',
         color: 'var(--text)',
         border: '1px solid var(--ink-lighter)',
-        minWidth: 140,
+        width: fullWidth ? '100%' : undefined,
+        minWidth: fullWidth ? undefined : 140,
       }}
     >
       {options.map(o => (
@@ -148,6 +171,15 @@ function SectionCard({ icon: Icon, title, children }: {
       <div className="px-5 py-4">
         {children}
       </div>
+    </div>
+  );
+}
+
+function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between py-2">
+      <span className="text-sm" style={{ color: 'var(--text-dim)' }}>{label}</span>
+      {children}
     </div>
   );
 }
@@ -214,9 +246,14 @@ export default function ImageConfigPage() {
 
   const updateModel = (role: 'primary' | 'fast', field: string, value: string) => {
     if (!config) return;
+    const updated = { ...config.models[role], [field]: value };
+    if (field === 'provider') {
+      const models = MODEL_OPTIONS[value] || [];
+      if (models.length > 0) updated.model = models[0].value;
+    }
     const next = {
       ...config,
-      models: { ...config.models, [role]: { ...config.models[role], [field]: value } },
+      models: { ...config.models, [role]: updated },
     };
     setConfig(next);
     save({ models: next.models });
@@ -301,81 +338,69 @@ export default function ImageConfigPage() {
       <div className="space-y-4">
         {/* ---- Machine ---- */}
         <SectionCard icon={Cpu} title="Machine">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--text-dim)' }}>
-                <Zap size={12} /> CPU Kind
-              </label>
+          <div className="divide-y" style={{ borderColor: 'var(--ink-lighter)' }}>
+            <FieldRow label="CPU Kind">
               <Select value={config.machine.cpu_kind} options={CPU_KINDS} onChange={v => updateMachine('cpu_kind', v)} />
-            </div>
-            <div className="space-y-1.5">
-              <label className="flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--text-dim)' }}>
-                <Cpu size={12} /> CPUs
-              </label>
+            </FieldRow>
+            <FieldRow label="CPUs">
               <Select value={config.machine.cpus} options={CPU_COUNTS.map(c => ({ value: c, label: `${c} vCPU` }))} onChange={v => updateMachine('cpus', parseInt(v))} />
-            </div>
-            <div className="space-y-1.5">
-              <label className="flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--text-dim)' }}>
-                <MemoryStick size={12} /> Memory
-              </label>
+            </FieldRow>
+            <FieldRow label="Memory">
               <Select value={config.machine.memory_mb} options={MEMORY_OPTIONS} onChange={v => updateMachine('memory_mb', parseInt(v))} />
-            </div>
-            <div className="space-y-1.5">
-              <label className="flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--text-dim)' }}>
-                <MapPin size={12} /> Region
-              </label>
+            </FieldRow>
+            <FieldRow label="Region">
               <Select value={config.machine.region} options={REGIONS} onChange={v => updateMachine('region', v)} />
-            </div>
+            </FieldRow>
           </div>
         </SectionCard>
 
         {/* ---- Models ---- */}
         <SectionCard icon={Brain} title="Models">
-          <div className="space-y-4">
-            {(['primary', 'fast'] as const).map(role => (
-              <div key={role}>
-                <div className="text-xs font-medium mb-2 uppercase tracking-wider" style={{ color: 'var(--moon-dim)' }}>
-                  {role === 'primary' ? 'Primary Model' : 'Fast Model'}
-                </div>
-                <div className="flex gap-3">
-                  <div className="space-y-1">
-                    <label className="text-xs" style={{ color: 'var(--text-dim)' }}>Provider</label>
-                    <Select
-                      value={config.models[role].provider}
-                      options={PROVIDERS}
-                      onChange={v => updateModel(role, 'provider', v)}
-                    />
+          <div className="divide-y" style={{ borderColor: 'var(--ink-lighter)' }}>
+            {(['primary', 'fast'] as const).map(role => {
+              const provider = config.models[role].provider;
+              const models = MODEL_OPTIONS[provider] || [];
+              const currentModel = config.models[role].model;
+              const modelInList = models.some(m => m.value === currentModel);
+              const modelOptions = modelInList ? models : [{ value: currentModel, label: currentModel }, ...models];
+
+              return (
+                <div key={role} className="py-3 first:pt-0 last:pb-0">
+                  <div className="text-xs font-semibold mb-3 uppercase tracking-wider" style={{ color: 'var(--moon-dim)' }}>
+                    {role === 'primary' ? 'Primary Model' : 'Fast Model'}
                   </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-xs" style={{ color: 'var(--text-dim)' }}>Model</label>
-                    <input
-                      type="text"
-                      value={config.models[role].model}
-                      onChange={e => updateModel(role, 'model', e.target.value)}
-                      className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-                      style={{
-                        background: 'var(--ink-light)',
-                        color: 'var(--text)',
-                        border: '1px solid var(--ink-lighter)',
-                      }}
-                    />
+                  <div className="space-y-2">
+                    <FieldRow label="Provider">
+                      <Select
+                        value={provider}
+                        options={PROVIDERS}
+                        onChange={v => updateModel(role, 'provider', v)}
+                      />
+                    </FieldRow>
+                    <FieldRow label="Model">
+                      <Select
+                        value={currentModel}
+                        options={modelOptions}
+                        onChange={v => updateModel(role, 'model', v)}
+                      />
+                    </FieldRow>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </SectionCard>
 
         {/* ---- Plugins ---- */}
         <SectionCard icon={Plug} title="Plugins">
-          <div className="space-y-0.5">
+          <div className="divide-y" style={{ borderColor: 'var(--ink-lighter)' }}>
             {plugins.map(p => {
               const enabled = config.plugins[p.key] !== false;
               return (
                 <div
                   key={p.key}
-                  className="flex items-center justify-between py-2.5 px-1 rounded-lg transition-colors"
-                  style={{ opacity: enabled || p.required ? 1 : 0.6 }}
+                  className="flex items-center justify-between py-3"
+                  style={{ opacity: enabled || p.required ? 1 : 0.5 }}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
