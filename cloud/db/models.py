@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Index, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -32,6 +32,7 @@ class User(Base):
     avatar_url: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     memberships: Mapped[list[Membership]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
@@ -84,10 +85,27 @@ class Agent(Base):
     error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    image_version: Mapped[str | None] = mapped_column(Text)
     cached_metrics: Mapped[dict | None] = mapped_column(JSONB)
     cached_metrics_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     account: Mapped[Account] = relationship(back_populates="agents")
+
+
+class LunaImage(Base):
+    __tablename__ = "luna_images"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    version: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    registry_tag: Mapped[str] = mapped_column(Text, nullable=False)
+    is_main: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    build_status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    build_run_id: Mapped[str | None] = mapped_column(Text)
+    build_error: Mapped[str | None] = mapped_column(Text)
+    git_sha: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    built_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
 
 
 class AuditLog(Base):

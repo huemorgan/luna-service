@@ -162,6 +162,7 @@ async def me(user: User = Depends(require_user)):
             "email": user.email,
             "name": user.name,
             "avatar_url": user.avatar_url,
+            "is_admin": user.is_admin,
         },
         "account": {
             "id": str(account.id),

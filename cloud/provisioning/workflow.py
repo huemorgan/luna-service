@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 
-from cloud.db.models import Account, Agent
+from cloud.db.models import Account, Agent, LunaImage
 from cloud.db.session import get_session as get_db_session
 from cloud.db.tenant_provisioner import _safe_schema, provision_tenant_schema
 from cloud.runtime.base import AgentSpec
@@ -136,6 +136,17 @@ async def provision_luna_for_account(account_id: str, *, agent_id: str | None = 
         if val:
             llm_keys[key] = val
 
+    # Look up the main image to use for provisioning
+    image_tag = "local-luna-luna:latest"
+    image_version = None
+    async with get_db_session() as db:
+        main_image = (await db.execute(
+            select(LunaImage).where(LunaImage.is_main == True, LunaImage.build_status == "built")  # noqa: E712
+        )).scalar_one_or_none()
+        if main_image:
+            image_tag = main_image.registry_tag
+            image_version = main_image.version
+
     spec = AgentSpec(
         account_slug=account.slug,
         agent_slug=agent.slug,
@@ -144,6 +155,7 @@ async def provision_luna_for_account(account_id: str, *, agent_id: str | None = 
         vault_key=vault_key.hex(),
         trusted_proxy_secret=proxy_secret,
         llm_keys=llm_keys,
+        image_tag=image_tag,
     )
 
     runtime = _get_runtime()
@@ -165,6 +177,7 @@ async def provision_luna_for_account(account_id: str, *, agent_id: str | None = 
         agent.runtime_kind = handle.runtime_kind
         agent.runtime_ref = handle.runtime_ref
         agent.internal_url = handle.internal_url
+        agent.image_version = image_version
         agent.error_message = None
         agent.error_at = None
         await db.commit()

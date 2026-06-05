@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     trusted_proxy_secret: str = "dev-proxy-secret"
     vault_root_key: str = "a" * 64  # 32 bytes hex-encoded
 
+    github_pat: str = ""
+    github_repo: str = "huemorgan/luna-service"
+    admin_webhook_secret: str = "dev-webhook-secret"
+
     model_config = {"env_prefix": "CLOUD_"}
 
 

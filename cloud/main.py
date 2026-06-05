@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from cloud.api.admin_routes import router as admin_router
 from cloud.api.agent_routes import router as agent_router
 from cloud.api.auth_routes import router as auth_router
 from cloud.api.proxy import router as proxy_router
@@ -66,10 +67,17 @@ async def lifespan(app: FastAPI):
             ("slug", "TEXT"),
             ("cached_metrics", "JSONB"),
             ("cached_metrics_at", "TIMESTAMPTZ"),
+            ("image_version", "TEXT"),
         ]:
             await conn.execute(text(
                 f"ALTER TABLE agents ADD COLUMN IF NOT EXISTS {col} {coltype}"
             ))
+        await conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false"
+        ))
+        await conn.execute(text(
+            "UPDATE users SET is_admin = true WHERE email = 'vaselin@gmail.com' AND is_admin = false"
+        ))
         # Backfill NULL slugs from account slug + agent name
         await conn.execute(text("""
             UPDATE agents SET slug = accounts.slug || '-' || LOWER(REGEXP_REPLACE(agents.name, '[^a-zA-Z0-9]+', '-', 'g'))
@@ -114,6 +122,7 @@ def create_app() -> FastAPI:
         return {"service": "luna-service", "status": "no UI built"}
 
     app.include_router(auth_router)
+    app.include_router(admin_router)
     app.include_router(agent_router)
     app.include_router(proxy_router)
 

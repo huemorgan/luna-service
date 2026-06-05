@@ -1,0 +1,72 @@
+name: Build Luna Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Luna version to build (e.g. 0.01.002)'
+        required: true
+      image_id:
+        description: 'LunaImage record ID for status callback'
+        required: true
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout luna-service (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Update luna submodule to latest
+        run: |
+          cd luna
+          git checkout main
+          git pull origin main
+
+      - name: Verify version matches
+        run: |
+          ACTUAL=$(python3 -c "import re; m=re.search(r'__version__\s*=\s*\"(.+?)\"', open('luna/luna/__init__.py').read()); print(m.group(1))")
+          echo "Luna version on disk: $ACTUAL"
+          echo "Expected: ${{ github.event.inputs.version }}"
+          if [ "$ACTUAL" != "${{ github.event.inputs.version }}" ]; then
+            echo "::error::Version mismatch! Expected ${{ github.event.inputs.version }} but found $ACTUAL"
+            exit 1
+          fi
+
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Build and push Docker image
+        working-directory: luna
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl auth docker
+          docker build \
+            -t registry.fly.io/luna-tenants-prod:${{ github.event.inputs.version }} \
+            -t registry.fly.io/luna-tenants-prod:latest \
+            .
+          docker push registry.fly.io/luna-tenants-prod:${{ github.event.inputs.version }}
+          docker push registry.fly.io/luna-tenants-prod:latest
+
+      - name: Notify control plane (success)
+        if: success()
+        run: |
+          GIT_SHA=$(cd luna && git rev-parse HEAD)
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.ADMIN_WEBHOOK_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"image_id\": \"${{ github.event.inputs.image_id }}\", \"status\": \"built\", \"git_sha\": \"$GIT_SHA\"}" \
+            "${{ secrets.CONTROL_PLANE_URL }}/api/admin/webhooks/build-complete"
+
+      - name: Notify control plane (failure)
+        if: failure()
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.ADMIN_WEBHOOK_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"image_id\": \"${{ github.event.inputs.image_id }}\", \"status\": \"failed\", \"error\": \"Build failed — check Actions logs\"}" \
+            "${{ secrets.CONTROL_PLANE_URL }}/api/admin/webhooks/build-complete" || true

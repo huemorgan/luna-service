@@ -79,7 +79,7 @@ class FlyMachinesRuntime:
             "name": machine_name,
             "region": self.region,
             "config": {
-                "image": self.image,
+                "image": spec.image_tag if spec.image_tag != "local-luna-luna:latest" else self.image,
                 "env": env_vars,
                 "restart": {"policy": "always"},
                 "auto_destroy": False,
@@ -162,6 +162,23 @@ class FlyMachinesRuntime:
     async def destroy(self, handle: RuntimeHandle) -> None:
         client = self._get_client()
         await client.delete(f"/machines/{handle.runtime_ref}?force=true")
+
+    async def list_machines(self) -> list[dict]:
+        client = self._get_client()
+        resp = await client.get("/machines")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def update_machine_image(self, machine_id: str, new_image: str) -> dict:
+        client = self._get_client()
+        resp = await client.get(f"/machines/{machine_id}")
+        resp.raise_for_status()
+        machine = resp.json()
+        config = machine.get("config", {})
+        config["image"] = new_image
+        resp = await client.post(f"/machines/{machine_id}", json={"config": config})
+        resp.raise_for_status()
+        return resp.json()
 
     async def describe(self, machine_id: str) -> dict | None:
         """Return the full Fly Machine record, or None if it no longer exists.

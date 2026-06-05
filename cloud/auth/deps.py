@@ -26,6 +26,22 @@ async def require_user(request: Request) -> User:
         return user
 
 
+async def require_admin(request: Request) -> User:
+    sess = get_session(request)
+    if not sess or "user_id" not in sess:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
+
+    async with get_db_session() as db:
+        user = (await db.execute(
+            select(User).where(User.id == uuid.UUID(sess["user_id"]))
+        )).scalar_one_or_none()
+        if not user:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
+        if not user.is_admin:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
+        return user
+
+
 async def require_active_account(request: Request) -> tuple[User, Account]:
     sess = get_session(request)
     if not sess or "user_id" not in sess or "account_id" not in sess:

@@ -2,11 +2,11 @@ import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Moon, LogOut, Bot, Loader2, Plus, ExternalLink,
-  RotateCcw, Square, Play, Trash2, AlertTriangle,
+  RotateCcw, Square, Play, Trash2, AlertTriangle, Shield,
 } from 'lucide-react';
 
 interface UserInfo {
-  user: { id: string; email: string; name: string | null; avatar_url: string | null };
+  user: { id: string; email: string; name: string | null; avatar_url: string | null; is_admin?: boolean };
   account: { id: string; slug: string; name: string; plan: string } | null;
 }
 
@@ -152,6 +152,16 @@ export default function Dashboard() {
             )}
             <span className="text-sm hidden sm:inline" style={{ color: 'var(--text-dim)' }}>{user.name || user.email}</span>
           </div>
+          {user.is_admin && (
+            <Link
+              to="/admin"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors hover:opacity-80"
+              style={{ color: 'var(--moon)' }}
+            >
+              <Shield size={14} />
+              Admin
+            </Link>
+          )}
           <a
             href="/auth/logout"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors hover:opacity-80"
