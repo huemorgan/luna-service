@@ -61,6 +61,12 @@ class FlyMachinesRuntime:
                     await self._wait_healthy(mid)
                     return RuntimeHandle("fly-machine", mid, url)
 
+        ic = spec.image_config
+        machine_cfg = ic.get("machine", {})
+        models_cfg = ic.get("models", {})
+        plugins_cfg = ic.get("plugins", {})
+        env_overrides = ic.get("env", {})
+
         env_vars = {
             "LUNA_ENV": "production",
             "LUNA_AUTH_MODE": "trusted_proxy",
@@ -75,18 +81,33 @@ class FlyMachinesRuntime:
         for k, v in spec.llm_keys.items():
             env_vars[k] = v
 
+        disabled = [k for k, v in plugins_cfg.items() if v is False]
+        if disabled:
+            env_vars["LUNA_DISABLED_PLUGINS"] = ",".join(disabled)
+
+        primary = models_cfg.get("primary", {})
+        fast = models_cfg.get("fast", {})
+        if primary.get("model"):
+            env_vars["LUNA_PRIMARY_MODEL"] = f"{primary.get('provider', 'anthropic')}:{primary['model']}"
+        if fast.get("model"):
+            env_vars["LUNA_FAST_MODEL"] = f"{fast.get('provider', 'anthropic')}:{fast['model']}"
+
+        env_vars.update(env_overrides)
+
+        region = machine_cfg.get("region", self.region)
+
         payload = {
             "name": machine_name,
-            "region": self.region,
+            "region": region,
             "config": {
                 "image": spec.image_tag if spec.image_tag != "local-luna-luna:latest" else self.image,
                 "env": env_vars,
                 "restart": {"policy": "always"},
                 "auto_destroy": False,
                 "guest": {
-                    "cpu_kind": "shared",
-                    "cpus": 1,
-                    "memory_mb": 1024,
+                    "cpu_kind": machine_cfg.get("cpu_kind", "shared"),
+                    "cpus": machine_cfg.get("cpus", 1),
+                    "memory_mb": machine_cfg.get("memory_mb", 1024),
                 },
                 "services": [
                     {

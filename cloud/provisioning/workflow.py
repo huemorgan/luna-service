@@ -139,6 +139,7 @@ async def provision_luna_for_account(account_id: str, *, agent_id: str | None = 
     # Look up the main image to use for provisioning
     image_tag = "local-luna-luna:latest"
     image_version = None
+    image_config: dict = {}
     async with get_db_session() as db:
         main_image = (await db.execute(
             select(LunaImage).where(LunaImage.is_main == True, LunaImage.build_status == "built")  # noqa: E712
@@ -146,6 +147,7 @@ async def provision_luna_for_account(account_id: str, *, agent_id: str | None = 
         if main_image:
             image_tag = main_image.registry_tag
             image_version = main_image.version
+            image_config = main_image.image_config or {}
 
     spec = AgentSpec(
         account_slug=account.slug,
@@ -156,6 +158,7 @@ async def provision_luna_for_account(account_id: str, *, agent_id: str | None = 
         trusted_proxy_secret=proxy_secret,
         llm_keys=llm_keys,
         image_tag=image_tag,
+        image_config=image_config,
     )
 
     runtime = _get_runtime()

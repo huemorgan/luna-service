@@ -35,6 +35,7 @@ class AgentSpec(BaseModel):
     trusted_proxy_secret: str
     llm_keys: dict[str, str] = {}
     image_tag: str = "local-luna-luna:latest"
+    image_config: dict = {}
 
 
 class LunaRuntime(Protocol):
