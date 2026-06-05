@@ -1,8 +1,8 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Loader2, Package, Cpu, Brain, Plug, Variable,
-  Star, Check, Plus, Trash2, Lock,
+  Star, Check, Plus, Trash2, Lock, DollarSign, ArrowRight,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -88,6 +88,30 @@ const MODEL_OPTIONS: Record<string, { value: string; label: string }[]> = {
     { value: 'o4-mini', label: 'o4-mini' },
   ],
 };
+
+/* ------------------------------------------------------------------ */
+/*  Cost estimation (Fly.io pricing, per-month, 730h)                  */
+/* ------------------------------------------------------------------ */
+
+const REGION_MULTIPLIERS: Record<string, number> = {
+  iad: 1.00, sjc: 1.04, lhr: 1.25, ams: 1.25,
+  cdg: 1.25, nrt: 1.25, sin: 1.25, syd: 1.25, gru: 1.25,
+};
+
+function estimateMonthlyCost(cpuKind: string, cpus: number, memoryMb: number, region: string): number {
+  const mult = REGION_MULTIPLIERS[region] ?? 1.04;
+  const baseCpuRate = cpuKind === 'shared' ? 1.94 : 31.00;
+  const baseRamPerCpu = cpuKind === 'shared' ? 256 : 2048;
+  const cpuCost = cpus * baseCpuRate;
+  const baseRamMb = cpus * baseRamPerCpu;
+  const extraRamGb = Math.max(0, memoryMb - baseRamMb) / 1024;
+  const ramCost = extraRamGb * 5.00;
+  return (cpuCost + ramCost) * mult;
+}
+
+function formatCost(v: number): string {
+  return `$${v.toFixed(2)}`;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Shared UI pieces                                                   */
@@ -206,6 +230,10 @@ export default function ImageConfigPage() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
+  type MachineConfig = ImageConfig['machine'];
+  const [machineDraft, setMachineDraft] = useState<MachineConfig | null>(null);
+  const [applyingMachine, setApplyingMachine] = useState(false);
+
   const fetchData = useCallback(async () => {
     const [imgRes, cfgRes, plugRes] = await Promise.all([
       fetch('/api/admin/images'),
@@ -216,7 +244,11 @@ export default function ImageConfigPage() {
       const imgs: ImageInfo[] = await imgRes.json();
       setImage(imgs.find(i => i.id === imageId) || null);
     }
-    if (cfgRes.ok) setConfig(await cfgRes.json());
+    if (cfgRes.ok) {
+      const cfg = await cfgRes.json();
+      setConfig(cfg);
+      setMachineDraft(cfg.machine);
+    }
     if (plugRes.ok) setPlugins(await plugRes.json());
     setLoading(false);
   }, [imageId]);
@@ -237,11 +269,37 @@ export default function ImageConfigPage() {
     saveTimer.current = setTimeout(() => setSaveStatus('idle'), 2000);
   }, [imageId]);
 
-  const updateMachine = (field: string, value: string | number) => {
-    if (!config) return;
-    const next = { ...config, machine: { ...config.machine, [field]: value } };
+  const machineChanged = useMemo(() => {
+    if (!config || !machineDraft) return false;
+    return config.machine.cpu_kind !== machineDraft.cpu_kind
+      || config.machine.cpus !== machineDraft.cpus
+      || config.machine.memory_mb !== machineDraft.memory_mb
+      || config.machine.region !== machineDraft.region;
+  }, [config, machineDraft]);
+
+  const currentCost = useMemo(() => {
+    if (!config) return 0;
+    const m = config.machine;
+    return estimateMonthlyCost(m.cpu_kind, m.cpus, m.memory_mb, m.region);
+  }, [config]);
+
+  const draftCost = useMemo(() => {
+    if (!machineDraft) return 0;
+    return estimateMonthlyCost(machineDraft.cpu_kind, machineDraft.cpus, machineDraft.memory_mb, machineDraft.region);
+  }, [machineDraft]);
+
+  const updateMachineDraft = (field: string, value: string | number) => {
+    if (!machineDraft) return;
+    setMachineDraft({ ...machineDraft, [field]: value });
+  };
+
+  const applyMachine = async () => {
+    if (!machineDraft || !config) return;
+    setApplyingMachine(true);
+    const next = { ...config, machine: machineDraft };
     setConfig(next);
-    save({ machine: next.machine });
+    await save({ machine: machineDraft });
+    setApplyingMachine(false);
   };
 
   const updateModel = (role: 'primary' | 'fast', field: string, value: string) => {
@@ -337,22 +395,67 @@ export default function ImageConfigPage() {
 
       <div className="space-y-4">
         {/* ---- Machine ---- */}
+        {machineDraft && (
         <SectionCard icon={Cpu} title="Machine">
           <div className="divide-y" style={{ borderColor: 'var(--ink-lighter)' }}>
             <FieldRow label="CPU Kind">
-              <Select value={config.machine.cpu_kind} options={CPU_KINDS} onChange={v => updateMachine('cpu_kind', v)} />
+              <Select value={machineDraft.cpu_kind} options={CPU_KINDS} onChange={v => updateMachineDraft('cpu_kind', v)} />
             </FieldRow>
             <FieldRow label="CPUs">
-              <Select value={config.machine.cpus} options={CPU_COUNTS.map(c => ({ value: c, label: `${c} vCPU` }))} onChange={v => updateMachine('cpus', parseInt(v))} />
+              <Select value={machineDraft.cpus} options={CPU_COUNTS.map(c => ({ value: c, label: `${c} vCPU` }))} onChange={v => updateMachineDraft('cpus', parseInt(v))} />
             </FieldRow>
             <FieldRow label="Memory">
-              <Select value={config.machine.memory_mb} options={MEMORY_OPTIONS} onChange={v => updateMachine('memory_mb', parseInt(v))} />
+              <Select value={machineDraft.memory_mb} options={MEMORY_OPTIONS} onChange={v => updateMachineDraft('memory_mb', parseInt(v))} />
             </FieldRow>
             <FieldRow label="Region">
-              <Select value={config.machine.region} options={REGIONS} onChange={v => updateMachine('region', v)} />
+              <Select value={machineDraft.region} options={REGIONS} onChange={v => updateMachineDraft('region', v)} />
             </FieldRow>
           </div>
+
+          {/* Cost + Apply */}
+          <div className="mt-4 pt-3 border-t" style={{ borderColor: 'var(--ink-lighter)' }}>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-1.5 text-xs font-medium mb-1" style={{ color: 'var(--text-dim)' }}>
+                  <DollarSign size={12} /> Estimated monthly cost
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg font-bold" style={{ color: machineChanged ? 'var(--text-dim)' : 'var(--text)' }}>
+                    {formatCost(currentCost)}
+                  </span>
+                  {machineChanged && (
+                    <>
+                      <ArrowRight size={14} style={{ color: 'var(--text-dim)' }} />
+                      <span className="text-lg font-bold" style={{ color: draftCost > currentCost ? '#facc15' : '#4ade80' }}>
+                        {formatCost(draftCost)}
+                      </span>
+                      <span className="text-xs px-1.5 py-0.5 rounded" style={{
+                        background: draftCost > currentCost ? 'rgba(250,204,21,0.1)' : 'rgba(74,222,128,0.1)',
+                        color: draftCost > currentCost ? '#facc15' : '#4ade80',
+                      }}>
+                        {draftCost > currentCost ? '+' : ''}{formatCost(draftCost - currentCost)}/mo
+                      </span>
+                    </>
+                  )}
+                </div>
+                <span className="text-[10px]" style={{ color: 'var(--text-dim)' }}>per agent, running 24/7</span>
+              </div>
+              <button
+                onClick={applyMachine}
+                disabled={!machineChanged || applyingMachine}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all hover:scale-105 disabled:opacity-30 disabled:hover:scale-100"
+                style={{
+                  background: machineChanged ? 'var(--moon)' : 'var(--ink-lighter)',
+                  color: machineChanged ? 'var(--ink)' : 'var(--text-dim)',
+                }}
+              >
+                {applyingMachine ? <Loader2 className="animate-spin" size={14} /> : <Check size={14} />}
+                Apply
+              </button>
+            </div>
+          </div>
         </SectionCard>
+        )}
 
         {/* ---- Models ---- */}
         <SectionCard icon={Brain} title="Models">
