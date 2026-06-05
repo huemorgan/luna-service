@@ -142,7 +142,7 @@ async def _fetch_luna_version_from_github() -> tuple[str | None, str]:
 
     try:
         api_headers: dict[str, str] = {"Accept": "application/vnd.github.v3+json"}
-        gh_token = os.environ.get("GITHUB_TOKEN")
+        gh_token = os.environ.get("CLOUD_GITHUB_PAT") or os.environ.get("GITHUB_TOKEN")
         if gh_token:
             api_headers["Authorization"] = f"Bearer {gh_token}"
         async with httpx.AsyncClient(timeout=10) as client:
