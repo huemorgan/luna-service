@@ -291,6 +291,15 @@ def _rewrite_html_paths(html: str, prefix: str) -> str:
         "if(n.tagName==='IFRAME')fixSrc(n);"
         "if(n.querySelectorAll){n.querySelectorAll('iframe').forEach(fixSrc);}"
         "});});}).observe(document.documentElement,{childList:true,subtree:true});"
+        # Intercept EventSource for SSE connections (brain widget)
+        "var _ES=window.EventSource;"
+        "window.EventSource=function(u,o){"
+        "if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith(B))u=B+u;"
+        "return new _ES(u,o);};"
+        "window.EventSource.prototype=_ES.prototype;"
+        "window.EventSource.CONNECTING=_ES.CONNECTING;"
+        "window.EventSource.OPEN=_ES.OPEN;"
+        "window.EventSource.CLOSED=_ES.CLOSED;"
         "})();</script>"
     )
     html = html.replace("</head>", interceptor + "</head>")
