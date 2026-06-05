@@ -147,8 +147,9 @@ class TestImages:
         assert resp.status_code == 400
 
     async def test_check_update(self, admin_client: AsyncClient, sample_image):
-        from unittest.mock import patch
-        with patch("cloud.api.admin_routes._read_luna_version", return_value="0.01.002"):
+        from unittest.mock import AsyncMock, patch
+        mock_fetch = AsyncMock(return_value="0.01.002")
+        with patch("cloud.api.admin_routes._fetch_luna_version_from_github", mock_fetch):
             resp = await admin_client.get("/api/admin/images/check-update")
         assert resp.status_code == 200
         data = resp.json()
@@ -157,8 +158,9 @@ class TestImages:
         assert data["update_available"] is True
 
     async def test_check_update_no_update(self, admin_client: AsyncClient, sample_image):
-        from unittest.mock import patch
-        with patch("cloud.api.admin_routes._read_luna_version", return_value="0.01.001"):
+        from unittest.mock import AsyncMock, patch
+        mock_fetch = AsyncMock(return_value="0.01.001")
+        with patch("cloud.api.admin_routes._fetch_luna_version_from_github", mock_fetch):
             resp = await admin_client.get("/api/admin/images/check-update")
         data = resp.json()
         assert data["update_available"] is False

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -119,18 +121,60 @@ async def remove_admin(user_id: str, admin: User = Depends(require_admin)):
 
 # ── Luna Images ──────────────────────────────────────────────────────────────
 
-def _read_luna_version() -> str | None:
-    """Read Luna version from cloud/.luna-version (synced from submodule)."""
+_github_version_cache: dict[str, tuple[float, str | None]] = {}
+GITHUB_CACHE_TTL = 300  # 5 minutes
+
+LUNA_GITHUB_REPO = "huemorgan/luna"
+LUNA_VERSION_PATH = "luna/__init__.py"
+
+
+async def _fetch_luna_version_from_github() -> str | None:
+    """Fetch __version__ from the luna repo's main branch via GitHub API.
+
+    Caches for 5 minutes to avoid rate limits (60 req/hr unauthenticated).
+    Falls back to cloud/.luna-version on disk if the API call fails.
+    """
+    cache_key = "luna_version"
+    now = time.monotonic()
+    cached = _github_version_cache.get(cache_key)
+    if cached and now - cached[0] < GITHUB_CACHE_TTL:
+        return cached[1]
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                f"https://api.github.com/repos/{LUNA_GITHUB_REPO}/contents/{LUNA_VERSION_PATH}",
+                params={"ref": "main"},
+                headers={"Accept": "application/vnd.github.v3+json"},
+            )
+        if resp.status_code == 200:
+            content_b64 = resp.json().get("content", "")
+            content = base64.b64decode(content_b64).decode("utf-8")
+            m = re.search(r'__version__\s*=\s*"(.+?)"', content)
+            version = m.group(1) if m else None
+            _github_version_cache[cache_key] = (now, version)
+            return version
+        log.warning("GitHub API returned %s for luna version check", resp.status_code)
+    except Exception as exc:
+        log.warning("GitHub API call failed: %s", exc)
+
+    # Fallback: disk
+    return _read_luna_version_from_disk()
+
+
+def _read_luna_version_from_disk() -> str | None:
+    """Fallback: read from cloud/.luna-version or submodule on disk."""
     version_file = Path(__file__).resolve().parents[1] / ".luna-version"
-    if not version_file.exists():
-        # Fallback: try reading from submodule directly (local dev)
-        init_path = Path(__file__).resolve().parents[2] / "luna" / "luna" / "__init__.py"
-        if not init_path.exists():
-            return None
-        content = init_path.read_text()
-        m = re.search(r'__version__\s*=\s*"(.+?)"', content)
-        return m.group(1) if m else None
-    return version_file.read_text().strip() or None
+    if version_file.exists():
+        v = version_file.read_text().strip()
+        if v:
+            return v
+    init_path = Path(__file__).resolve().parents[2] / "luna" / "luna" / "__init__.py"
+    if not init_path.exists():
+        return None
+    content = init_path.read_text()
+    m = re.search(r'__version__\s*=\s*"(.+?)"', content)
+    return m.group(1) if m else None
 
 
 PLUGIN_META = [
@@ -213,7 +257,7 @@ async def list_images(admin: User = Depends(require_admin)):
 
 @router.get("/images/check-update")
 async def check_update(admin: User = Depends(require_admin)):
-    submodule_version = _read_luna_version()
+    submodule_version = await _fetch_luna_version_from_github()
     async with get_db_session() as db:
         latest_image = (await db.execute(
             select(LunaImage).order_by(LunaImage.created_at.desc()).limit(1)
