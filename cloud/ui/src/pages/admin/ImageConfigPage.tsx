@@ -88,7 +88,7 @@ function Toggle({ on, disabled, onChange }: { on: boolean; disabled?: boolean; o
       onClick={() => !disabled && onChange(!on)}
       className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none"
       style={{
-        background: disabled ? 'var(--ink-lighter)' : on ? '#22c55e' : 'var(--ink-lighter)',
+        background: on ? '#22c55e' : 'var(--ink-lighter)',
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.5 : 1,
       }}
