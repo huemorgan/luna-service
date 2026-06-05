@@ -263,9 +263,19 @@ def _rewrite_html_paths(html: str, prefix: str) -> str:
     html = re.sub(r'(src|href)="/', rf'\1="{prefix}/', html)
     interceptor = (
         f'<script>window.__LUNA_BASE="{prefix}";'
-        "(function(){var _f=window.fetch;window.fetch=function(u,o){"
-        "if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith(window.__LUNA_BASE))u=window.__LUNA_BASE+u;"
-        "return _f.call(this,u,o);}})();</script>"
+        "(function(){"
+        "var B=window.__LUNA_BASE;"
+        "var _f=window.fetch;window.fetch=function(u,o){"
+        "if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith(B))u=B+u;"
+        "return _f.call(this,u,o);};"
+        "var _xhr=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){"
+        "if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith(B))u=B+u;"
+        "return _xhr.apply(this,[m,u].concat([].slice.call(arguments,2)));};"
+        "var dP=Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype,'src');"
+        "Object.defineProperty(HTMLIFrameElement.prototype,'src',{"
+        "set:function(v){if(typeof v==='string'&&v.startsWith('/')&&!v.startsWith(B))v=B+v;dP.set.call(this,v);},"
+        "get:function(){return dP.get.call(this);}});"
+        "})();</script>"
     )
     html = html.replace("</head>", interceptor + "</head>")
     return html
