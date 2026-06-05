@@ -397,7 +397,7 @@ export default function ImageConfigPage() {
         {/* ---- Machine ---- */}
         {machineDraft && (
         <SectionCard icon={Cpu} title="Machine">
-          <div className="divide-y" style={{ borderColor: 'var(--ink-lighter)' }}>
+          <div className="divide-y" style={{ '--tw-divide-color': 'var(--ink-lighter)' } as React.CSSProperties}>
             <FieldRow label="CPU Kind">
               <Select value={machineDraft.cpu_kind} options={CPU_KINDS} onChange={v => updateMachineDraft('cpu_kind', v)} />
             </FieldRow>
@@ -459,7 +459,7 @@ export default function ImageConfigPage() {
 
         {/* ---- Models ---- */}
         <SectionCard icon={Brain} title="Models">
-          <div className="divide-y" style={{ borderColor: 'var(--ink-lighter)' }}>
+          <div className="divide-y" style={{ '--tw-divide-color': 'var(--ink-lighter)' } as React.CSSProperties}>
             {(['primary', 'fast'] as const).map(role => {
               const provider = config.models[role].provider;
               const models = MODEL_OPTIONS[provider] || [];
@@ -496,7 +496,7 @@ export default function ImageConfigPage() {
 
         {/* ---- Plugins ---- */}
         <SectionCard icon={Plug} title="Plugins">
-          <div className="divide-y" style={{ borderColor: 'var(--ink-lighter)' }}>
+          <div className="divide-y" style={{ '--tw-divide-color': 'var(--ink-lighter)' } as React.CSSProperties}>
             {plugins.map(p => {
               const enabled = config.plugins[p.key] !== false;
               return (
