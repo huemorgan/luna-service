@@ -438,7 +438,10 @@ export default function ImageConfigPage() {
                     </>
                   )}
                 </div>
-                <span className="text-[10px]" style={{ color: 'var(--text-dim)' }}>per agent, running 24/7</span>
+                <div className="flex items-center gap-3 mt-0.5">
+                  <span className="text-[10px]" style={{ color: 'var(--text-dim)' }}>per agent, running 24/7</span>
+                  <span className="text-[10px]" style={{ color: 'var(--text-dim)' }}>· $0.15/mo when stopped</span>
+                </div>
               </div>
               <button
                 onClick={applyMachine}
