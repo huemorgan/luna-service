@@ -141,11 +141,15 @@ async def _fetch_luna_version_from_github() -> str | None:
         return cached[1]
 
     try:
+        headers: dict[str, str] = {"Accept": "application/vnd.github.v3+json"}
+        gh_token = os.environ.get("GITHUB_TOKEN")
+        if gh_token:
+            headers["Authorization"] = f"Bearer {gh_token}"
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(
                 f"https://api.github.com/repos/{LUNA_GITHUB_REPO}/contents/{LUNA_VERSION_PATH}",
                 params={"ref": "main"},
-                headers={"Accept": "application/vnd.github.v3+json"},
+                headers=headers,
             )
         if resp.status_code == 200:
             content_b64 = resp.json().get("content", "")
