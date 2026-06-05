@@ -119,13 +119,17 @@ async def remove_admin(user_id: str, admin: User = Depends(require_admin)):
 # ── Luna Images ──────────────────────────────────────────────────────────────
 
 def _read_luna_version() -> str | None:
-    """Read __version__ from the luna submodule on disk."""
-    init_path = Path(__file__).resolve().parents[2] / "luna" / "luna" / "__init__.py"
-    if not init_path.exists():
-        return None
-    content = init_path.read_text()
-    m = re.search(r'__version__\s*=\s*"(.+?)"', content)
-    return m.group(1) if m else None
+    """Read Luna version from cloud/.luna-version (synced from submodule)."""
+    version_file = Path(__file__).resolve().parents[1] / ".luna-version"
+    if not version_file.exists():
+        # Fallback: try reading from submodule directly (local dev)
+        init_path = Path(__file__).resolve().parents[2] / "luna" / "luna" / "__init__.py"
+        if not init_path.exists():
+            return None
+        content = init_path.read_text()
+        m = re.search(r'__version__\s*=\s*"(.+?)"', content)
+        return m.group(1) if m else None
+    return version_file.read_text().strip() or None
 
 
 def _image_dict(img: LunaImage, agent_count: int = 0) -> dict:

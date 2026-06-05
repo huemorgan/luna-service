@@ -16,7 +16,6 @@ RUN uv pip install --system --no-cache fastapi "uvicorn[standard]" pydantic pyda
 
 COPY cloud/ ./cloud/
 COPY --from=ui-build /build/dist ./cloud/ui/dist
-COPY luna/luna/__init__.py ./luna/luna/__init__.py
 
 EXPOSE 8100
 ENV PORT=8100
