@@ -69,25 +69,17 @@ const REGIONS = [
   { value: 'gru', label: 'São Paulo (gru)' },
 ];
 
-const PROVIDERS = [
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'openai', label: 'OpenAI' },
+const ALL_MODELS: { provider: string; model: string; label: string }[] = [
+  { provider: 'anthropic', model: 'claude-sonnet-4-20250514', label: 'Anthropic — Claude Sonnet 4' },
+  { provider: 'anthropic', model: 'claude-opus-4-20250514', label: 'Anthropic — Claude Opus 4' },
+  { provider: 'anthropic', model: 'claude-opus-4-20250514-high', label: 'Anthropic — Claude Opus 4 High' },
+  { provider: 'anthropic', model: 'claude-haiku-3-5-20241022', label: 'Anthropic — Claude Haiku 3.5' },
+  { provider: 'openai', model: 'gpt-4o', label: 'OpenAI — GPT-4o' },
+  { provider: 'openai', model: 'gpt-4o-mini', label: 'OpenAI — GPT-4o Mini' },
+  { provider: 'openai', model: 'gpt-4-turbo', label: 'OpenAI — GPT-4 Turbo' },
+  { provider: 'openai', model: 'o3', label: 'OpenAI — o3' },
+  { provider: 'openai', model: 'o4-mini', label: 'OpenAI — o4-mini' },
 ];
-
-const MODEL_OPTIONS: Record<string, { value: string; label: string }[]> = {
-  anthropic: [
-    { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
-    { value: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
-    { value: 'claude-haiku-3-5-20241022', label: 'Claude Haiku 3.5' },
-  ],
-  openai: [
-    { value: 'gpt-4o', label: 'GPT-4o' },
-    { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-    { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-    { value: 'o3', label: 'o3' },
-    { value: 'o4-mini', label: 'o4-mini' },
-  ],
-};
 
 /* ------------------------------------------------------------------ */
 /*  Cost estimation (Fly.io pricing, per-month, 730h)                  */
@@ -302,16 +294,13 @@ export default function ImageConfigPage() {
     setApplyingMachine(false);
   };
 
-  const updateModel = (role: 'primary' | 'fast', field: string, value: string) => {
+  const updateModel = (role: 'primary' | 'fast', modelKey: string) => {
     if (!config) return;
-    const updated = { ...config.models[role], [field]: value };
-    if (field === 'provider') {
-      const models = MODEL_OPTIONS[value] || [];
-      if (models.length > 0) updated.model = models[0].value;
-    }
+    const entry = ALL_MODELS.find(m => m.model === modelKey);
+    const provider = entry?.provider || config.models[role].provider;
     const next = {
       ...config,
-      models: { ...config.models, [role]: updated },
+      models: { ...config.models, [role]: { provider, model: modelKey } },
     };
     setConfig(next);
     save({ models: next.models });
@@ -464,34 +453,16 @@ export default function ImageConfigPage() {
         <SectionCard icon={Brain} title="Models">
           <div className="divide-y" style={{ '--tw-divide-color': 'var(--ink-lighter)' } as React.CSSProperties}>
             {(['primary', 'fast'] as const).map(role => {
-              const provider = config.models[role].provider;
-              const models = MODEL_OPTIONS[provider] || [];
               const currentModel = config.models[role].model;
-              const modelInList = models.some(m => m.value === currentModel);
-              const modelOptions = modelInList ? models : [{ value: currentModel, label: currentModel }, ...models];
+              const inList = ALL_MODELS.some(m => m.model === currentModel);
+              const options = inList
+                ? ALL_MODELS.map(m => ({ value: m.model, label: m.label }))
+                : [{ value: currentModel, label: currentModel }, ...ALL_MODELS.map(m => ({ value: m.model, label: m.label }))];
 
               return (
-                <div key={role} className="py-3 first:pt-0 last:pb-0">
-                  <div className="text-xs font-semibold mb-3 uppercase tracking-wider" style={{ color: 'var(--moon-dim)' }}>
-                    {role === 'primary' ? 'Primary Model' : 'Fast Model'}
-                  </div>
-                  <div className="space-y-2">
-                    <FieldRow label="Provider">
-                      <Select
-                        value={provider}
-                        options={PROVIDERS}
-                        onChange={v => updateModel(role, 'provider', v)}
-                      />
-                    </FieldRow>
-                    <FieldRow label="Model">
-                      <Select
-                        value={currentModel}
-                        options={modelOptions}
-                        onChange={v => updateModel(role, 'model', v)}
-                      />
-                    </FieldRow>
-                  </div>
-                </div>
+                <FieldRow key={role} label={role === 'primary' ? 'Primary Model' : 'Fast Model'}>
+                  <Select value={currentModel} options={options} onChange={v => updateModel(role, v)} />
+                </FieldRow>
               );
             })}
           </div>
