@@ -56,6 +56,6 @@ When something goes wrong or you're uncertain: say so plainly. Don't pad.
 
 - **Never** commit `.env` or any real secret
 - **Never** destroy data without a verified backup (see `skills/devprocess/SKILL.md` data-preservation section)
-- **Never** modify Luna OSS code outside of an explicit phase that calls for it (phase 001 is the only one)
+- **Never** modify Luna OSS code without following the Luna submodule change process (see `skills/luna-submodule-changes/SKILL.md`)
 - **Always** follow the devprocess skill when executing a plan — branch, scenarios first, implement, browser walkthrough, report
 - **Always** prefer reusing existing infra (Render slot, Cloudflare zone) over creating parallel resources

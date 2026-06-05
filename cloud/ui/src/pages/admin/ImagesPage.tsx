@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Package, Loader2, Star, Hammer, RefreshCw, ExternalLink, ChevronDown, ChevronRight, AlertCircle, Trash2, RotateCcw } from 'lucide-react';
+import { Package, Loader2, Star, Hammer, RefreshCw, ExternalLink, ChevronDown, ChevronRight, AlertCircle, Trash2, RotateCcw, ArrowUpCircle } from 'lucide-react';
 
 interface LunaImage {
   id: string;
@@ -191,6 +191,8 @@ export default function ImagesPage() {
   const [checking, setChecking] = useState(false);
   const [building, setBuilding] = useState(false);
   const [settingMain, setSettingMain] = useState<string | null>(null);
+  const [migrating, setMigrating] = useState(false);
+  const [migrateResult, setMigrateResult] = useState<{ updated: number; errors: { agent: string; error: string }[] } | null>(null);
 
   const fetchImages = useCallback(async () => {
     const res = await fetch('/api/admin/images');
@@ -245,6 +247,18 @@ export default function ImagesPage() {
       setUpdateCheck(null);
     }
     setBuilding(false);
+  };
+
+  const handleMigrateAll = async () => {
+    setMigrating(true);
+    setMigrateResult(null);
+    const res = await fetch('/api/admin/machines/migrate-all', { method: 'POST' });
+    if (res.ok) {
+      const data = await res.json();
+      setMigrateResult({ updated: data.updated, errors: data.errors || [] });
+      await fetchImages();
+    }
+    setMigrating(false);
   };
 
   if (loading) {
@@ -332,6 +346,59 @@ export default function ImagesPage() {
               onDelete={handleDelete}
               onRetry={handleRetry}
             />
+          ))}
+        </div>
+      )}
+
+      {(() => {
+        const mainImage = images.find(i => i.is_main && i.build_status === 'built');
+        const totalAgents = images.reduce((sum, i) => sum + i.agent_count, 0);
+        const outdatedAgents = mainImage ? totalAgents - mainImage.agent_count : 0;
+        if (!mainImage || outdatedAgents <= 0) return null;
+        return (
+          <div
+            className="rounded-xl border p-4 mt-4 flex items-center justify-between"
+            style={{ background: 'var(--surface)', borderColor: 'var(--ink-lighter)' }}
+          >
+            <div>
+              <div className="text-sm font-medium" style={{ color: 'var(--text)' }}>
+                {outdatedAgents} agent{outdatedAgents !== 1 ? 's' : ''} on older images
+              </div>
+              <div className="text-xs mt-0.5" style={{ color: 'var(--text-dim)' }}>
+                Migrate all to v{mainImage.version}
+              </div>
+            </div>
+            <button
+              onClick={handleMigrateAll}
+              disabled={migrating}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all hover:scale-105 disabled:opacity-50"
+              style={{ background: 'var(--moon)', color: 'var(--ink)' }}
+            >
+              {migrating ? <Loader2 className="animate-spin" size={14} /> : <ArrowUpCircle size={14} />}
+              Migrate All
+            </button>
+          </div>
+        );
+      })()}
+
+      {migrateResult && (
+        <div
+          className="rounded-xl border p-4 mt-3"
+          style={{
+            background: 'var(--surface)',
+            borderColor: migrateResult.errors.length > 0 ? 'rgba(239,68,68,0.3)' : 'rgba(34,197,94,0.3)',
+          }}
+        >
+          <div className="text-sm" style={{ color: 'var(--text)' }}>
+            Updated {migrateResult.updated} agent{migrateResult.updated !== 1 ? 's' : ''}
+            {migrateResult.errors.length > 0 && (
+              <span style={{ color: '#ef4444' }}> — {migrateResult.errors.length} failed</span>
+            )}
+          </div>
+          {migrateResult.errors.map((err, i) => (
+            <div key={i} className="text-xs mt-1 flex items-center gap-1" style={{ color: '#fca5a5' }}>
+              <AlertCircle size={10} /> {err.agent}: {err.error}
+            </div>
           ))}
         </div>
       )}

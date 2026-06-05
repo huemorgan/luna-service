@@ -17,6 +17,7 @@ interface AgentInfo {
   status: string;
   runtime_kind: string | null;
   internal_url: string | null;
+  image_version: string | null;
   error_message: string | null;
   error_at: string | null;
   created_at: string;
@@ -305,6 +306,11 @@ function AgentCard({
               {agent.created_at && (
                 <span className="text-xs" style={{ color: 'var(--text-dim)', opacity: 0.6 }}>
                   Created {timeAgo(agent.created_at)}
+                </span>
+              )}
+              {agent.image_version && (
+                <span className="text-xs font-mono" style={{ color: 'var(--text-dim)', opacity: 0.6 }}>
+                  v{agent.image_version}
                 </span>
               )}
             </div>

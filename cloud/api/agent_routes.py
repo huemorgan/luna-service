@@ -58,6 +58,7 @@ def _agent_dict(a: Agent) -> dict:
         "status": a.status,
         "runtime_kind": a.runtime_kind,
         "internal_url": a.internal_url,
+        "image_version": a.image_version,
         "error_message": a.error_message,
         "error_at": a.error_at.isoformat() if a.error_at else None,
         "created_at": a.created_at.isoformat(),
