@@ -249,7 +249,7 @@ async def build_image(admin: User = Depends(require_admin)):
     if not version:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot read Luna version from submodule")
 
-    fly_app = os.environ.get("FLY_APP", "luna-tenants-prod")
+    fly_app = os.environ.get("FLY_APP", "luna-agents")
     registry_tag = f"registry.fly.io/{fly_app}:{version}"
 
     async with get_db_session() as db:

@@ -47,11 +47,11 @@ jobs:
         run: |
           flyctl auth docker
           docker build \
-            -t registry.fly.io/luna-tenants-prod:${{ github.event.inputs.version }} \
-            -t registry.fly.io/luna-tenants-prod:latest \
+            -t registry.fly.io/luna-agents:${{ github.event.inputs.version }} \
+            -t registry.fly.io/luna-agents:latest \
             .
-          docker push registry.fly.io/luna-tenants-prod:${{ github.event.inputs.version }}
-          docker push registry.fly.io/luna-tenants-prod:latest
+          docker push registry.fly.io/luna-agents:${{ github.event.inputs.version }}
+          docker push registry.fly.io/luna-agents:latest
 
       - name: Notify control plane (success)
         if: success()

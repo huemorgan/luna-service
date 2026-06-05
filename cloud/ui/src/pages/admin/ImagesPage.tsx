@@ -86,6 +86,15 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry }: {
         </div>
 
         <div className="flex items-center gap-2">
+          {img.build_status === 'failed' && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onRetry(); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80"
+              style={{ border: '1px solid var(--ink-lighter)', color: 'var(--moon)' }}
+            >
+              <RotateCcw size={12} /> Retry
+            </button>
+          )}
           {img.build_status === 'built' && !img.is_main && (
             <button
               onClick={(e) => { e.stopPropagation(); onSetMain(img.id); }}

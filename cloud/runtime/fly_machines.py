@@ -24,7 +24,7 @@ class FlyMachinesRuntime:
         image: str | None = None,
     ):
         self.api_token = api_token or os.environ["FLY_API_TOKEN"]
-        self.app_name = app_name or os.environ.get("FLY_APP", "luna-tenants-prod")
+        self.app_name = app_name or os.environ.get("FLY_APP", "luna-agents")
         self.region = region or os.environ.get("FLY_REGION", "sjc")
         self.image = image or os.environ.get(
             "FLY_LUNA_IMAGE",

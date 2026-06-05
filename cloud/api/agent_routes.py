@@ -302,7 +302,7 @@ async def _refresh_metrics(agent: Agent) -> dict:
                 cfg = machine.get("config") or {}
                 guest = cfg.get("guest") or {}
                 compute.update({
-                    "app": os.environ.get("FLY_APP", "luna-tenants-prod"),
+                    "app": os.environ.get("FLY_APP", "luna-agents"),
                     "region": machine.get("region"),
                     "image": cfg.get("image"),
                     "size": {
