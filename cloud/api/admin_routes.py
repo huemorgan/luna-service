@@ -133,6 +133,48 @@ def _read_luna_version() -> str | None:
     return version_file.read_text().strip() or None
 
 
+PLUGIN_META = [
+    {"key": "plugin_vault", "name": "Vault", "description": "Encrypted credential storage", "required": False},
+    {"key": "plugin_memory", "name": "Memory", "description": "Long-term semantic recall", "required": False},
+    {"key": "plugin_identity", "name": "Identity", "description": "Agent name, persona, settings", "required": False},
+    {"key": "plugin_mcp", "name": "MCP", "description": "External tool connections", "required": False},
+    {"key": "plugin_web_access", "name": "Web Access", "description": "Web search, fetch, HTTP", "required": False},
+    {"key": "plugin_funnelfighters", "name": "FunnelFighters", "description": "Marketing intelligence", "required": False},
+    {"key": "plugin_brain", "name": "Brain", "description": "Live neural activity visualization", "required": False},
+    {"key": "plugin_files", "name": "Files", "description": "File storage and browser", "required": False},
+    {"key": "plugin_meta", "name": "Meta", "description": "Toggle other plugins at runtime", "required": False},
+    {"key": "plugin_approvals", "name": "Approvals", "description": "Gates risky actions for owner consent", "required": True},
+    {"key": "plugin_web", "name": "Web Server", "description": "Core HTTP server and auth", "required": True},
+]
+
+DEFAULT_IMAGE_CONFIG = {
+    "machine": {
+        "cpu_kind": "shared",
+        "cpus": 1,
+        "memory_mb": 1024,
+        "region": "sjc",
+    },
+    "models": {
+        "primary": {"provider": "anthropic", "model": "claude-sonnet-4-20250514"},
+        "fast": {"provider": "anthropic", "model": "claude-sonnet-4-20250514"},
+    },
+    "plugins": {
+        "plugin_vault": True,
+        "plugin_memory": True,
+        "plugin_identity": True,
+        "plugin_mcp": True,
+        "plugin_web_access": True,
+        "plugin_funnelfighters": True,
+        "plugin_brain": True,
+        "plugin_files": True,
+        "plugin_meta": True,
+        "plugin_approvals": True,
+        "plugin_web": True,
+    },
+    "env": {},
+}
+
+
 def _image_dict(img: LunaImage, agent_count: int = 0) -> dict:
     return {
         "id": str(img.id),
@@ -146,6 +188,7 @@ def _image_dict(img: LunaImage, agent_count: int = 0) -> dict:
         "created_at": img.created_at.isoformat() if img.created_at else None,
         "built_at": img.built_at.isoformat() if img.built_at else None,
         "agent_count": agent_count,
+        "image_config": {**DEFAULT_IMAGE_CONFIG, **(img.image_config or {})},
     }
 
 
@@ -198,6 +241,57 @@ async def get_image(image_id: str, admin: User = Depends(require_admin)):
         )).scalar()
 
     return _image_dict(img, agent_count or 0)
+
+
+@router.get("/images/{image_id}/config")
+async def get_image_config(image_id: str, admin: User = Depends(require_admin)):
+    async with get_db_session() as db:
+        img = (await db.execute(
+            select(LunaImage).where(LunaImage.id == uuid.UUID(image_id))
+        )).scalar_one_or_none()
+        if not img:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
+    return {**DEFAULT_IMAGE_CONFIG, **(img.image_config or {})}
+
+
+class ImageConfigUpdate(BaseModel):
+    machine: dict | None = None
+    models: dict | None = None
+    plugins: dict | None = None
+    env: dict | None = None
+
+
+@router.put("/images/{image_id}/config")
+async def update_image_config(
+    image_id: str, body: ImageConfigUpdate, admin: User = Depends(require_admin),
+):
+    async with get_db_session() as db:
+        img = (await db.execute(
+            select(LunaImage).where(LunaImage.id == uuid.UUID(image_id))
+        )).scalar_one_or_none()
+        if not img:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
+
+        current = {**DEFAULT_IMAGE_CONFIG, **(img.image_config or {})}
+        patch = body.model_dump(exclude_none=True)
+        for key, val in patch.items():
+            if isinstance(val, dict) and isinstance(current.get(key), dict):
+                current[key] = {**current[key], **val}
+            else:
+                current[key] = val
+
+        img.image_config = current
+        db.add(AuditLog(
+            actor_user_id=admin.id, action="admin.update_image_config",
+            target=str(img.id), metadata_={"version": img.version, "patch": patch},
+        ))
+        await db.commit()
+    return current
+
+
+@router.get("/plugin-meta")
+async def get_plugin_meta(admin: User = Depends(require_admin)):
+    return PLUGIN_META
 
 
 @router.delete("/images/{image_id}")

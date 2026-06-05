@@ -106,6 +106,7 @@ class LunaImage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     built_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    image_config: Mapped[dict | None] = mapped_column(JSONB)
 
 
 class AuditLog(Base):

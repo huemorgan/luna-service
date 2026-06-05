@@ -76,6 +76,9 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false"
         ))
         await conn.execute(text(
+            "ALTER TABLE luna_images ADD COLUMN IF NOT EXISTS image_config JSONB"
+        ))
+        await conn.execute(text(
             "UPDATE users SET is_admin = true WHERE email = 'vaselin@gmail.com' AND is_admin = false"
         ))
         # Backfill NULL slugs from account slug + agent name
