@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Package, Loader2, Star, Hammer, RefreshCw, ExternalLink, ChevronDown, ChevronRight, AlertCircle, Trash2, RotateCcw, ArrowUpCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Package, Loader2, Star, Hammer, RefreshCw, ExternalLink, ChevronDown, ChevronRight, AlertCircle, Trash2, RotateCcw, ArrowUpCircle, Settings } from 'lucide-react';
 
 interface LunaImage {
   id: string;
@@ -35,12 +36,13 @@ function formatDate(iso: string | null): string {
   });
 }
 
-function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry }: {
+function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure }: {
   img: LunaImage;
   settingMain: string | null;
   onSetMain: (id: string) => void;
   onDelete: (id: string) => void;
   onRetry: () => void;
+  onConfigure: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const hasDetails = img.build_error || img.git_sha || img.registry_tag || img.build_run_id;
@@ -86,6 +88,15 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry }: {
         </div>
 
         <div className="flex items-center gap-2">
+          {img.build_status === 'built' && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onConfigure(img.id); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80"
+              style={{ border: '1px solid var(--ink-lighter)', color: 'var(--moon)' }}
+            >
+              <Settings size={12} /> Configure
+            </button>
+          )}
           {img.build_status === 'failed' && (
             <button
               onClick={(e) => { e.stopPropagation(); onRetry(); }}
@@ -185,6 +196,7 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry }: {
 }
 
 export default function ImagesPage() {
+  const navigate = useNavigate();
   const [images, setImages] = useState<LunaImage[]>([]);
   const [loading, setLoading] = useState(true);
   const [updateCheck, setUpdateCheck] = useState<UpdateCheck | null>(null);
@@ -345,6 +357,7 @@ export default function ImagesPage() {
               onSetMain={handleSetMain}
               onDelete={handleDelete}
               onRetry={handleRetry}
+              onConfigure={(id) => navigate(`/admin/images/${id}`)}
             />
           ))}
         </div>
