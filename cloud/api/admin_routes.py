@@ -43,6 +43,7 @@ class BuildWebhookPayload(BaseModel):
     status: str  # "built" | "failed"
     git_sha: str | None = None
     error: str | None = None
+    build_run_id: str | None = None
 
 
 # ── Admins ───────────────────────────────────────────────────────────────────
@@ -199,6 +200,25 @@ async def get_image(image_id: str, admin: User = Depends(require_admin)):
     return _image_dict(img, agent_count or 0)
 
 
+@router.delete("/images/{image_id}")
+async def delete_image(image_id: str, admin: User = Depends(require_admin)):
+    async with get_db_session() as db:
+        img = (await db.execute(
+            select(LunaImage).where(LunaImage.id == uuid.UUID(image_id))
+        )).scalar_one_or_none()
+        if not img:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
+        if img.is_main:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot delete the main image")
+        await db.delete(img)
+        db.add(AuditLog(
+            actor_user_id=admin.id, action="admin.delete_image",
+            target=str(img.id), metadata_={"version": img.version},
+        ))
+        await db.commit()
+    return {"ok": True}
+
+
 @router.post("/images/{image_id}/set-main")
 async def set_main_image(image_id: str, admin: User = Depends(require_admin)):
     async with get_db_session() as db:
@@ -309,6 +329,8 @@ async def build_complete(
 
         img.build_status = body.status
         img.git_sha = body.git_sha
+        if body.build_run_id:
+            img.build_run_id = body.build_run_id
         if body.status == "built":
             img.built_at = datetime.now(timezone.utc)
         if body.error:

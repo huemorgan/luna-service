@@ -19,6 +19,7 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_PAT }}
 
       - name: Update luna submodule to latest
         run: |
@@ -59,7 +60,7 @@ jobs:
           curl -sf -X POST \
             -H "Authorization: Bearer ${{ secrets.ADMIN_WEBHOOK_SECRET }}" \
             -H "Content-Type: application/json" \
-            -d "{\"image_id\": \"${{ github.event.inputs.image_id }}\", \"status\": \"built\", \"git_sha\": \"$GIT_SHA\"}" \
+            -d "{\"image_id\": \"${{ github.event.inputs.image_id }}\", \"status\": \"built\", \"git_sha\": \"$GIT_SHA\", \"build_run_id\": \"${{ github.run_id }}\"}" \
             "${{ secrets.CONTROL_PLANE_URL }}/api/admin/webhooks/build-complete"
 
       - name: Notify control plane (failure)
@@ -68,5 +69,5 @@ jobs:
           curl -sf -X POST \
             -H "Authorization: Bearer ${{ secrets.ADMIN_WEBHOOK_SECRET }}" \
             -H "Content-Type: application/json" \
-            -d "{\"image_id\": \"${{ github.event.inputs.image_id }}\", \"status\": \"failed\", \"error\": \"Build failed — check Actions logs\"}" \
+            -d "{\"image_id\": \"${{ github.event.inputs.image_id }}\", \"status\": \"failed\", \"error\": \"Build failed — check Actions logs\", \"build_run_id\": \"${{ github.run_id }}\"}" \
             "${{ secrets.CONTROL_PLANE_URL }}/api/admin/webhooks/build-complete" || true
