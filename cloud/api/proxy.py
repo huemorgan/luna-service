@@ -265,16 +265,32 @@ def _rewrite_html_paths(html: str, prefix: str) -> str:
         f'<script>window.__LUNA_BASE="{prefix}";'
         "(function(){"
         "var B=window.__LUNA_BASE;"
+        # Intercept fetch
         "var _f=window.fetch;window.fetch=function(u,o){"
         "if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith(B))u=B+u;"
         "return _f.call(this,u,o);};"
+        # Intercept XMLHttpRequest
         "var _xhr=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){"
         "if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith(B))u=B+u;"
         "return _xhr.apply(this,[m,u].concat([].slice.call(arguments,2)));};"
+        # Intercept iframe src via property descriptor + setAttribute + MutationObserver
+        "function fixSrc(el){"
+        "var s=el.getAttribute('src');"
+        "if(s&&s.startsWith('/')&&!s.startsWith(B))el.setAttribute('src',B+s);"
+        "}"
+        "var _sa=HTMLIFrameElement.prototype.setAttribute;"
+        "HTMLIFrameElement.prototype.setAttribute=function(n,v){"
+        "if(n==='src'&&typeof v==='string'&&v.startsWith('/')&&!v.startsWith(B))v=B+v;"
+        "return _sa.call(this,n,v);};"
         "var dP=Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype,'src');"
-        "Object.defineProperty(HTMLIFrameElement.prototype,'src',{"
+        "if(dP&&dP.set){Object.defineProperty(HTMLIFrameElement.prototype,'src',{"
         "set:function(v){if(typeof v==='string'&&v.startsWith('/')&&!v.startsWith(B))v=B+v;dP.set.call(this,v);},"
-        "get:function(){return dP.get.call(this);}});"
+        "get:function(){return dP.get.call(this);}});}"
+        "new MutationObserver(function(ms){ms.forEach(function(m){"
+        "m.addedNodes.forEach(function(n){"
+        "if(n.tagName==='IFRAME')fixSrc(n);"
+        "if(n.querySelectorAll){n.querySelectorAll('iframe').forEach(fixSrc);}"
+        "});});}).observe(document.documentElement,{childList:true,subtree:true});"
         "})();</script>"
     )
     html = html.replace("</head>", interceptor + "</head>")
