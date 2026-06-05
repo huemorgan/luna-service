@@ -90,6 +90,12 @@ class DockerLocalRuntime:
             await asyncio.sleep(HEALTH_INTERVAL)
         raise RuntimeError(f"Container {container_name} failed health check after {HEALTH_TIMEOUT}s")
 
+    async def start(self, handle: RuntimeHandle) -> None:
+        code, _, err = await _run(["docker", "start", handle.runtime_ref])
+        if code != 0:
+            raise RuntimeError(f"Docker start failed: {err}")
+        log.info("Started container %s", handle.runtime_ref)
+
     async def get_status(self, handle: RuntimeHandle) -> RuntimeStatus:
         code, out, _ = await _run(["docker", "inspect", "-f", "{{.State.Status}}", handle.runtime_ref])
         if code != 0:

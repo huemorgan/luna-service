@@ -88,6 +88,7 @@ async def _patch_db(db_engine):
         patch("cloud.api.admin_routes.get_db_session", _test_session),
         patch("cloud.api.auth_routes.get_db_session", _test_session),
         patch("cloud.api.agent_routes.get_db_session", _test_session),
+        patch("cloud.api.proxy.get_db_session", _test_session),
     ):
         yield
 
@@ -151,6 +152,7 @@ async def sample_agent(db_session: AsyncSession, admin_user: User, account: Acco
         status="running",
         runtime_kind="fly-machine",
         runtime_ref="machine-123",
+        internal_url="https://luna-agents.fly.dev",
         image_version="0.01.001",
     )
     db_session.add(agent)

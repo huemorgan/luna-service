@@ -138,6 +138,17 @@ class FlyMachinesRuntime:
             await asyncio.sleep(HEALTH_INTERVAL)
         raise RuntimeError(f"Machine {machine_id} failed to start after {HEALTH_TIMEOUT}s")
 
+    async def start(self, handle: RuntimeHandle) -> None:
+        client = self._get_client()
+        resp = await client.get(f"/machines/{handle.runtime_ref}")
+        resp.raise_for_status()
+        state = resp.json().get("state", "")
+        if state in ("started", "running"):
+            return
+        await client.post(f"/machines/{handle.runtime_ref}/start")
+        log.info("Starting machine %s", handle.runtime_ref)
+        await self._wait_healthy(handle.runtime_ref)
+
     async def get_status(self, handle: RuntimeHandle) -> RuntimeStatus:
         client = self._get_client()
         resp = await client.get(f"/machines/{handle.runtime_ref}")
