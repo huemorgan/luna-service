@@ -191,9 +191,12 @@ function SectionCard({ icon: Icon, title, children }: {
   );
 }
 
-function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
+function FieldRow({ label, children, noBorder }: { label: string; children: React.ReactNode; noBorder?: boolean }) {
   return (
-    <div className="flex items-center justify-between py-2">
+    <div
+      className="flex items-center justify-between py-2"
+      style={noBorder ? undefined : { borderBottom: '1px solid var(--ink-lighter)' }}
+    >
       <span className="text-sm" style={{ color: 'var(--text-dim)' }}>{label}</span>
       {children}
     </div>
@@ -386,7 +389,7 @@ export default function ImageConfigPage() {
         {/* ---- Machine ---- */}
         {machineDraft && (
         <SectionCard icon={Cpu} title="Machine">
-          <div className="divide-y" style={{ '--tw-divide-color': 'var(--ink-lighter)' } as React.CSSProperties}>
+          <div>
             <FieldRow label="CPU Kind">
               <Select value={machineDraft.cpu_kind} options={CPU_KINDS} onChange={v => updateMachineDraft('cpu_kind', v)} />
             </FieldRow>
@@ -396,7 +399,7 @@ export default function ImageConfigPage() {
             <FieldRow label="Memory">
               <Select value={machineDraft.memory_mb} options={MEMORY_OPTIONS} onChange={v => updateMachineDraft('memory_mb', parseInt(v))} />
             </FieldRow>
-            <FieldRow label="Region">
+            <FieldRow label="Region" noBorder>
               <Select value={machineDraft.region} options={REGIONS} onChange={v => updateMachineDraft('region', v)} />
             </FieldRow>
           </div>
@@ -451,8 +454,8 @@ export default function ImageConfigPage() {
 
         {/* ---- Models ---- */}
         <SectionCard icon={Brain} title="Models">
-          <div className="divide-y" style={{ '--tw-divide-color': 'var(--ink-lighter)' } as React.CSSProperties}>
-            {(['primary', 'fast'] as const).map(role => {
+          <div>
+            {(['primary', 'fast'] as const).map((role, i) => {
               const currentModel = config.models[role].model;
               const inList = ALL_MODELS.some(m => m.model === currentModel);
               const options = inList
@@ -460,7 +463,7 @@ export default function ImageConfigPage() {
                 : [{ value: currentModel, label: currentModel }, ...ALL_MODELS.map(m => ({ value: m.model, label: m.label }))];
 
               return (
-                <FieldRow key={role} label={role === 'primary' ? 'Primary Model' : 'Fast Model'}>
+                <FieldRow key={role} label={role === 'primary' ? 'Primary Model' : 'Fast Model'} noBorder={i === 1}>
                   <Select value={currentModel} options={options} onChange={v => updateModel(role, v)} />
                 </FieldRow>
               );
@@ -470,14 +473,18 @@ export default function ImageConfigPage() {
 
         {/* ---- Plugins ---- */}
         <SectionCard icon={Plug} title="Plugins">
-          <div className="divide-y" style={{ '--tw-divide-color': 'var(--ink-lighter)' } as React.CSSProperties}>
-            {plugins.map(p => {
+          <div>
+            {plugins.map((p, i) => {
               const enabled = config.plugins[p.key] !== false;
+              const isLast = i === plugins.length - 1;
               return (
                 <div
                   key={p.key}
                   className="flex items-center justify-between py-3"
-                  style={{ opacity: enabled || p.required ? 1 : 0.5 }}
+                  style={{
+                    opacity: enabled || p.required ? 1 : 0.5,
+                    borderBottom: isLast ? undefined : '1px solid var(--ink-lighter)',
+                  }}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
