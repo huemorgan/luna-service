@@ -19,7 +19,7 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_PAT }}
+          token: ${{ secrets.REPO_PAT }}
 
       - name: Update luna submodule to latest
         run: |
