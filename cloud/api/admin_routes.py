@@ -388,11 +388,13 @@ async def set_main_image(image_id: str, admin: User = Depends(require_admin)):
 
 
 @router.post("/images/build")
-async def build_image(admin: User = Depends(require_admin)):
+async def build_image(admin: User = Depends(require_admin), version: str | None = None):
     settings = get_settings()
-    version = _read_luna_version()
     if not version:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot read Luna version from submodule")
+        version_result = await _fetch_luna_version_from_github()
+        version = version_result[0]
+    if not version:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot determine Luna version")
 
     fly_app = os.environ.get("FLY_APP", "luna-agents")
     registry_tag = f"registry.fly.io/{fly_app}:{version}"

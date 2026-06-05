@@ -232,10 +232,21 @@ export default function ImagesPage() {
 
   const handleBuild = async () => {
     setBuilding(true);
-    const res = await fetch('/api/admin/images/build', { method: 'POST' });
-    if (res.ok) {
-      await fetchImages();
-      setUpdateCheck(null);
+    try {
+      const version = updateCheck?.submodule_version;
+      const url = version
+        ? `/api/admin/images/build?version=${encodeURIComponent(version)}`
+        : '/api/admin/images/build';
+      const res = await fetch(url, { method: 'POST' });
+      if (res.ok) {
+        await fetchImages();
+        setUpdateCheck(null);
+      } else {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        alert(`Build failed: ${err.detail || JSON.stringify(err)}`);
+      }
+    } catch (e: unknown) {
+      alert(`Build error: ${e instanceof Error ? e.message : e}`);
     }
     setBuilding(false);
   };
