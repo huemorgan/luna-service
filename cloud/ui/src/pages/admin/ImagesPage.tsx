@@ -20,6 +20,7 @@ interface UpdateCheck {
   submodule_version: string | null;
   latest_built: string | null;
   update_available: boolean;
+  source?: string;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -312,11 +313,20 @@ export default function ImagesPage() {
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm" style={{ color: 'var(--text-dim)' }}>
-                Submodule version: <span style={{ color: 'var(--text)' }}>{updateCheck.submodule_version || 'unknown'}</span>
+                Latest version: <span style={{ color: 'var(--text)' }}>{updateCheck.submodule_version || 'unknown'}</span>
+                {updateCheck.source === 'github' && (
+                  <span className="text-[10px] ml-1.5" style={{ color: 'var(--text-dim)' }}>via GitHub</span>
+                )}
               </div>
               <div className="text-sm mt-1" style={{ color: 'var(--text-dim)' }}>
                 Latest built: <span style={{ color: 'var(--text)' }}>{updateCheck.latest_built || 'none'}</span>
               </div>
+              {updateCheck.source === 'disk' && (
+                <div className="flex items-center gap-1.5 text-xs mt-2 px-2.5 py-1.5 rounded-lg" style={{ background: 'rgba(250,204,21,0.08)', color: '#facc15' }}>
+                  <AlertCircle size={12} />
+                  GitHub unavailable — showing deploy-time version (may be stale). Add GITHUB_TOKEN to Render env.
+                </div>
+              )}
             </div>
             {updateCheck.update_available ? (
               <button

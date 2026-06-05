@@ -128,11 +128,11 @@ LUNA_GITHUB_REPO = "huemorgan/luna"
 LUNA_VERSION_PATH = "luna/__init__.py"
 
 
-async def _fetch_luna_version_from_github() -> str | None:
+async def _fetch_luna_version_from_github() -> tuple[str | None, str]:
     """Fetch __version__ from the luna repo's main branch via GitHub API.
 
-    Caches for 5 minutes to avoid rate limits (60 req/hr unauthenticated).
-    Falls back to cloud/.luna-version on disk if the API call fails.
+    Returns (version, source) where source is "github" or "disk".
+    Caches for 5 minutes. Falls back to disk if the API call fails.
     """
     cache_key = "luna_version"
     now = time.monotonic()
@@ -141,29 +141,31 @@ async def _fetch_luna_version_from_github() -> str | None:
         return cached[1]
 
     try:
-        headers: dict[str, str] = {"Accept": "application/vnd.github.v3+json"}
+        api_headers: dict[str, str] = {"Accept": "application/vnd.github.v3+json"}
         gh_token = os.environ.get("GITHUB_TOKEN")
         if gh_token:
-            headers["Authorization"] = f"Bearer {gh_token}"
+            api_headers["Authorization"] = f"Bearer {gh_token}"
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(
                 f"https://api.github.com/repos/{LUNA_GITHUB_REPO}/contents/{LUNA_VERSION_PATH}",
                 params={"ref": "main"},
-                headers=headers,
+                headers=api_headers,
             )
         if resp.status_code == 200:
             content_b64 = resp.json().get("content", "")
             content = base64.b64decode(content_b64).decode("utf-8")
             m = re.search(r'__version__\s*=\s*"(.+?)"', content)
             version = m.group(1) if m else None
-            _github_version_cache[cache_key] = (now, version)
-            return version
+            result = (version, "github")
+            _github_version_cache[cache_key] = (now, result)
+            return result
         log.warning("GitHub API returned %s for luna version check", resp.status_code)
     except Exception as exc:
         log.warning("GitHub API call failed: %s", exc)
 
-    # Fallback: disk
-    return _read_luna_version_from_disk()
+    result = (_read_luna_version_from_disk(), "disk")
+    _github_version_cache[cache_key] = (now, result)
+    return result
 
 
 def _read_luna_version_from_disk() -> str | None:
@@ -261,7 +263,7 @@ async def list_images(admin: User = Depends(require_admin)):
 
 @router.get("/images/check-update")
 async def check_update(admin: User = Depends(require_admin)):
-    submodule_version = await _fetch_luna_version_from_github()
+    submodule_version, source = await _fetch_luna_version_from_github()
     async with get_db_session() as db:
         latest_image = (await db.execute(
             select(LunaImage).order_by(LunaImage.created_at.desc()).limit(1)
@@ -272,6 +274,7 @@ async def check_update(admin: User = Depends(require_admin)):
         "submodule_version": submodule_version,
         "latest_built": latest_built,
         "update_available": submodule_version is not None and submodule_version != latest_built,
+        "source": source,
     }
 
 
