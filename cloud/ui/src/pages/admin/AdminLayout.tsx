@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Moon, Shield, Package, Server, ArrowLeft, LogOut, Loader2 } from 'lucide-react';
+import { Moon, Shield, Package, Server, ArrowLeft, LogOut, Loader2, User, ChevronDown } from 'lucide-react';
 
 interface UserInfo {
   user: { id: string; email: string; name: string | null; avatar_url: string | null; is_admin: boolean };
@@ -59,21 +59,7 @@ export default function AdminLayout() {
             Admin
           </span>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            {user.avatar_url ? (
-              <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-full" />
-            ) : (
-              <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: 'var(--moon)', color: 'var(--ink)' }}>
-                {(user.name || user.email)[0].toUpperCase()}
-              </div>
-            )}
-            <span className="text-sm hidden sm:inline" style={{ color: 'var(--text-dim)' }}>{user.name || user.email}</span>
-          </div>
-          <a href="/auth/logout" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors hover:opacity-80" style={{ color: 'var(--text-dim)' }}>
-            <LogOut size={14} />
-          </a>
-        </div>
+        <ProfileMenu user={user} />
       </header>
 
       <div className="flex flex-1">
@@ -107,6 +93,64 @@ export default function AdminLayout() {
           <Outlet />
         </main>
       </div>
+    </div>
+  );
+}
+
+function ProfileMenu({ user }: { user: UserInfo['user'] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors hover:opacity-80"
+        style={{ color: 'var(--text-dim)' }}
+      >
+        {user.avatar_url ? (
+          <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-full" />
+        ) : (
+          <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: 'var(--moon)', color: 'var(--ink)' }}>
+            {(user.name || user.email)[0].toUpperCase()}
+          </div>
+        )}
+        <span className="text-sm hidden sm:inline" style={{ color: 'var(--text-dim)' }}>{user.name || user.email}</span>
+        <ChevronDown size={14} style={{ color: 'var(--text-dim)', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+      </button>
+
+      {open && (
+        <div
+          className="absolute right-0 top-full mt-2 w-48 rounded-xl border py-1 shadow-lg z-50"
+          style={{ background: 'var(--surface)', borderColor: 'var(--ink-lighter)' }}
+        >
+          <a
+            href="/dashboard"
+            className="flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors hover:opacity-80"
+            style={{ color: 'var(--text)' }}
+          >
+            <User size={14} style={{ color: 'var(--moon)' }} />
+            Personal Account
+          </a>
+          <div style={{ borderTop: '1px solid var(--ink-lighter)', margin: '2px 0' }} />
+          <a
+            href="/auth/logout"
+            className="flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors hover:opacity-80"
+            style={{ color: 'var(--text-dim)' }}
+          >
+            <LogOut size={14} />
+            Sign out
+          </a>
+        </div>
+      )}
     </div>
   );
 }
