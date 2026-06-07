@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Luna — Pricing</title>
+  <meta name="description" content="Pay for value that compounds — everything included, nothing hidden, leave anytime.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <nav class="nav">
+    <div class="container">
+      <a href="index.html" class="nav-logo"><span>🌙</span> Luna</a>
+      <ul class="nav-links">
+        <li><a href="features.html">Features</a></li>
+        <li><a href="for-providers.html">For Providers</a></li>
+        <li><a href="pricing.html" class="active">Pricing</a></li>
+        <li><a href="open-source.html">Open Source</a></li>
+        <li><a href="security.html">Security</a></li>
+        <li><a href="blog.html">Blog</a></li>
+      </ul>
+      <div class="nav-actions">
+        <a href="#" class="btn btn-ghost btn-sm">Sign in</a>
+        <a href="#" class="btn btn-primary btn-sm">Sign up free</a>
+      </div>
+      <button class="nav-hamburger" aria-label="Menu">☰</button>
+    </div>
+  </nav>
+
+  <div id="auth-wall" class="auth-wall">
+    <div class="auth-box">
+      <span class="hero-moon">🌙</span>
+      <h2>Preview Access</h2>
+      <p>Enter the password to view this page.</p>
+      <form id="auth-form">
+        <div class="auth-input-group">
+          <input type="password" id="auth-password" class="auth-input" placeholder="Password" autofocus>
+          <button type="submit" class="btn btn-primary btn-sm">Enter</button>
+        </div>
+        <p id="auth-error" class="auth-error">Incorrect password. Try again.</p>
+      </form>
+    </div>
+  </div>
+
+  <div id="page-content" class="page-content">
+
+    <!-- Hero -->
+    <section class="hero">
+      <div class="hero-content">
+        <span class="hero-moon">🌙</span>
+        <h1>Pay for what compounds. Nothing else.</h1>
+        <p class="subtitle">Hosting, models, storage — one bill. No API keys. No vendor invoices.</p>
+      </div>
+    </section>
+
+    <!-- Pricing Grid -->
+    <section class="section section-alt">
+      <div class="container">
+        <div class="section-header">
+          <h2>Start free. Scale when you're ready.</h2>
+        </div>
+        <div class="pricing-grid">
+          <div class="pricing-card">
+            <h3>Free</h3>
+            <div class="pricing-price">$0<span>/mo</span></div>
+            <p class="pricing-desc">Try everything. No credit card.</p>
+            <ul class="pricing-features">
+              <li>Suspended when idle</li>
+              <li>Small token budget</li>
+              <li>1 GB storage</li>
+              <li>3 credentials</li>
+              <li>Web chat only</li>
+              <li>All plugins included</li>
+              <li>Persistent memory</li>
+              <li>Approval gates</li>
+            </ul>
+            <a href="#" class="btn btn-secondary">Start free</a>
+          </div>
+          <div class="pricing-card featured">
+            <h3>Pro</h3>
+            <div class="pricing-price">$29<span>/mo</span></div>
+            <p class="pricing-desc">Always-on agent. All channels.</p>
+            <ul class="pricing-features">
+              <li>Always-on Luna</li>
+              <li>Generous token budget</li>
+              <li>5 GB storage</li>
+              <li>Unlimited credentials</li>
+              <li>Multi-channel (Slack, WhatsApp, Telegram)</li>
+              <li>Triggers &amp; cron jobs</li>
+              <li>MCP server support</li>
+              <li>Self-improvement enabled</li>
+            </ul>
+            <a href="#" class="btn btn-primary">Get started</a>
+          </div>
+          <div class="pricing-card">
+            <h3>Power</h3>
+            <div class="pricing-price">$99<span>/mo</span></div>
+            <p class="pricing-desc">Dedicated CPU. Code execution.</p>
+            <ul class="pricing-features">
+              <li>Dedicated CPU</li>
+              <li>Large + frontier models</li>
+              <li>20 GB storage</li>
+              <li>Code execution sandbox</li>
+              <li>Priority support</li>
+              <li>SLA guarantee</li>
+              <li>All Pro features</li>
+            </ul>
+            <a href="#" class="btn btn-secondary">Get started</a>
+          </div>
+          <div class="pricing-card">
+            <h3>Enterprise</h3>
+            <div class="pricing-price">Custom</div>
+            <p class="pricing-desc">Dedicated infrastructure. SLA.</p>
+            <ul class="pricing-features">
+              <li>Dedicated infrastructure</li>
+              <li>Custom token commitments</li>
+              <li>SSO &amp; audit logging</li>
+              <li>Data residency options</li>
+              <li>Dedicated account manager</li>
+              <li>All Power features</li>
+            </ul>
+            <a href="#" class="btn btn-secondary">Talk to us</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- All Models Included -->
+    <section class="section">
+      <div class="container">
+        <div class="section-header">
+          <h2>No bills to reconcile.</h2>
+          <p>Claude, GPT, Gemini, web search — all included. Switch models mid-sentence.</p>
+        </div>
+        <p style="max-width:640px; margin:0 auto; text-align:center; color:var(--text-secondary);">Every plan includes access to every model. No API keys to manage, no per-token invoices to track, no vendor accounts to maintain. Pick the best model for each task — we handle the rest.</p>
+        <div class="stats-bar">
+          <div class="stat-item"><span class="stat-value">Anthropic</span></div>
+          <div class="stat-item"><span class="stat-value">OpenAI</span></div>
+          <div class="stat-item"><span class="stat-value">Google</span></div>
+          <div class="stat-item"><span class="stat-value">More</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Self-Host -->
+    <section class="section section-alt">
+      <div class="container">
+        <div class="section-header">
+          <h2>Or run it yourself. Free. Forever.</h2>
+          <p>MIT licensed. Same code, same features. Docker Compose and you're live.</p>
+        </div>
+        <div class="two-col">
+          <div class="two-col-card">
+            <h4>Hosted</h4>
+            <ul>
+              <li>Fully managed — we handle updates, backups, uptime</li>
+              <li>One bill for everything</li>
+              <li>Always-on, zero DevOps</li>
+              <li>Start in 60 seconds</li>
+            </ul>
+          </div>
+          <div class="two-col-card">
+            <h4>Self-Hosted</h4>
+            <ul>
+              <li>Free forever — MIT licensed</li>
+              <li>Your infrastructure, your data</li>
+              <li>Same code, same features</li>
+              <li>Docker Compose and you're live</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Volume Pricing -->
+    <section class="section">
+      <div class="container">
+        <div class="section-header">
+          <h2>Scale your practice, lower your costs.</h2>
+          <p>5+ agents: volume pricing. Each new client costs less.</p>
+        </div>
+        <p style="max-width:640px; margin:0 auto; text-align:center; color:var(--text-secondary);">Running Luna for multiple clients? Volume pricing kicks in at five agents. Every agent after that costs less than the last. The more you grow, the better your margins.</p>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section class="section section-alt">
+      <div class="container">
+        <div class="section-header">
+          <h2>Questions &amp; answers</h2>
+        </div>
+        <div class="faq-list">
+          <div class="faq-item">
+            <div class="faq-question">What happens when I hit my token limit?</div>
+            <div class="faq-answer">You'll get a soft-cap warning before you hit the limit. From there you can wait for your monthly reset, top up with extra tokens, or upgrade to a higher plan.</div>
+          </div>
+          <div class="faq-item">
+            <div class="faq-question">Can I switch plans?</div>
+            <div class="faq-answer">Yes, anytime. Upgrades and downgrades are prorated — you only pay for what you use.</div>
+          </div>
+          <div class="faq-item">
+            <div class="faq-question">Do I need my own API keys?</div>
+            <div class="faq-answer">No. All LLM usage — Claude, GPT, Gemini, web search — is included in your bill. No vendor accounts required.</div>
+          </div>
+          <div class="faq-item">
+            <div class="faq-question">What if I want to self-host?</div>
+            <div class="faq-answer">Luna OSS is MIT licensed. Same agent, your infrastructure, $0. Clone the repo, run Docker Compose, and you're live.</div>
+          </div>
+          <div class="faq-item">
+            <div class="faq-question">What models are included?</div>
+            <div class="faq-answer">Claude (Anthropic), GPT (OpenAI), Gemini (Google), and more. Switch models anytime — even mid-conversation.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Final CTA -->
+    <section class="cta-section section-dark">
+      <div class="container">
+        <h2>Start compounding.</h2>
+        <p>No credit card required.</p>
+        <a href="#" class="btn btn-primary btn-lg" style="position:relative;">Sign up free</a>
+      </div>
+    </section>
+
+  </div>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="index.html" class="nav-logo"><span>🌙</span> Luna</a>
+          <p>AI that compounds your work — persistent, trustworthy, yours.</p>
+        </div>
+        <div class="footer-col">
+          <h4>Product</h4>
+          <ul>
+            <li><a href="features.html">Features</a></li>
+            <li><a href="pricing.html">Pricing</a></li>
+            <li><a href="security.html">Security</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Open Source</h4>
+          <ul>
+            <li><a href="#">GitHub</a></li>
+            <li><a href="open-source.html">Overview</a></li>
+            <li><a href="#">Plugin SDK</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Company</h4>
+          <ul>
+            <li><a href="about.html">About</a></li>
+            <li><a href="blog.html">Blog</a></li>
+            <li><a href="#">Contact</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>&copy; 2026 Novalystrix. All rights reserved.</span>
+        <span>MIT licensed agent platform</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/auth.js"></script>
+</body>
+</html>

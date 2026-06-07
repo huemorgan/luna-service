@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, Loader2, Star, Hammer, RefreshCw, ExternalLink, ChevronDown, ChevronRight, AlertCircle, Trash2, RotateCcw, ArrowUpCircle, Settings } from 'lucide-react';
+import { Package, Loader2, Star, Hammer, RefreshCw, ExternalLink, ChevronDown, ChevronRight, AlertCircle, Trash2, RotateCcw, ArrowUpCircle, Settings, Play } from 'lucide-react';
 
 interface LunaImage {
   id: string;
@@ -37,13 +37,15 @@ function formatDate(iso: string | null): string {
   });
 }
 
-function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure }: {
+function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure, onTestAgent, testingAgent }: {
   img: LunaImage;
   settingMain: string | null;
   onSetMain: (id: string) => void;
   onDelete: (id: string) => void;
   onRetry: () => void;
   onConfigure: (id: string) => void;
+  onTestAgent: (id: string) => void;
+  testingAgent: string | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   const hasDetails = img.build_error || img.git_sha || img.registry_tag || img.build_run_id;
@@ -69,11 +71,6 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure
           <div>
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>v{img.version}</span>
-              {img.is_main && (
-                <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(201,184,255,0.15)', color: 'var(--moon)' }}>
-                  <Star size={10} /> Main
-                </span>
-              )}
               <span className="text-xs capitalize px-2 py-0.5 rounded-full" style={{ background: 'var(--ink-light)', color: STATUS_COLORS[img.build_status] }}>
                 {img.build_status}
               </span>
@@ -98,6 +95,17 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure
               <Settings size={12} /> Configure
             </button>
           )}
+          {img.build_status === 'built' && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onTestAgent(img.id); }}
+              disabled={testingAgent === img.id}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80 disabled:opacity-50"
+              style={{ border: '1px solid var(--ink-lighter)', color: 'var(--moon)' }}
+            >
+              {testingAgent === img.id ? <Loader2 className="animate-spin" size={12} /> : <Play size={12} />}
+              Test Agent
+            </button>
+          )}
           {img.build_status === 'failed' && (
             <button
               onClick={(e) => { e.stopPropagation(); onRetry(); }}
@@ -106,6 +114,14 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure
             >
               <RotateCcw size={12} /> Retry
             </button>
+          )}
+          {img.build_status === 'built' && img.is_main && (
+            <span
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+              style={{ border: '1px solid rgba(201,184,255,0.3)', color: 'var(--moon)' }}
+            >
+              <Star size={12} /> Main
+            </span>
           )}
           {img.build_status === 'built' && !img.is_main && (
             <button
@@ -206,6 +222,7 @@ export default function ImagesPage() {
   const [settingMain, setSettingMain] = useState<string | null>(null);
   const [migrating, setMigrating] = useState(false);
   const [migrateResult, setMigrateResult] = useState<{ updated: number; errors: { agent: string; error: string }[] } | null>(null);
+  const [testingAgent, setTestingAgent] = useState<string | null>(null);
 
   const fetchImages = useCallback(async () => {
     const res = await fetch('/api/admin/images');
@@ -283,6 +300,29 @@ export default function ImagesPage() {
       await fetchImages();
     }
     setMigrating(false);
+  };
+
+  const handleTestAgent = async (imageId: string) => {
+    const img = images.find(i => i.id === imageId);
+    const name = `Test ${img?.version || 'Agent'}`;
+    setTestingAgent(imageId);
+    try {
+      const res = await fetch(`/api/admin/images/${imageId}/test-agent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        alert(`Test agent created: ${data.slug}\nGo to Dashboard to open it once provisioning completes.`);
+      } else {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        alert(`Failed: ${err.detail || JSON.stringify(err)}`);
+      }
+    } catch (e: unknown) {
+      alert(`Error: ${e instanceof Error ? e.message : e}`);
+    }
+    setTestingAgent(null);
   };
 
   if (loading) {
@@ -379,6 +419,8 @@ export default function ImagesPage() {
               onDelete={handleDelete}
               onRetry={handleRetry}
               onConfigure={(id) => navigate(`/admin/images/${id}`)}
+              onTestAgent={handleTestAgent}
+              testingAgent={testingAgent}
             />
           ))}
         </div>

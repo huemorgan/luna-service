@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Luna — Blog</title>
+  <meta name="description" content="Technical deep-dives, product updates, and the thinking behind the decisions.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <nav class="nav">
+    <div class="container">
+      <a href="index.html" class="nav-logo"><span>🌙</span> Luna</a>
+      <ul class="nav-links">
+        <li><a href="features.html">Features</a></li>
+        <li><a href="for-providers.html">For Providers</a></li>
+        <li><a href="pricing.html">Pricing</a></li>
+        <li><a href="open-source.html">Open Source</a></li>
+        <li><a href="security.html">Security</a></li>
+        <li><a href="blog.html" class="active">Blog</a></li>
+      </ul>
+      <div class="nav-actions">
+        <a href="#" class="btn btn-ghost btn-sm">Sign in</a>
+        <a href="#" class="btn btn-primary btn-sm">Sign up free</a>
+      </div>
+      <button class="nav-hamburger" aria-label="Menu">☰</button>
+    </div>
+  </nav>
+
+  <div id="auth-wall" class="auth-wall">
+    <div class="auth-box">
+      <span class="hero-moon">🌙</span>
+      <h2>Preview Access</h2>
+      <p>Enter the password to view this page.</p>
+      <form id="auth-form">
+        <div class="auth-input-group">
+          <input type="password" id="auth-password" class="auth-input" placeholder="Password" autofocus>
+          <button type="submit" class="btn btn-primary btn-sm">Enter</button>
+        </div>
+        <p id="auth-error" class="auth-error">Incorrect password. Try again.</p>
+      </form>
+    </div>
+  </div>
+
+  <div id="page-content" class="page-content">
+
+    <section class="hero">
+      <div class="hero-content">
+        <span class="hero-moon">🌙</span>
+        <h1>From the Luna team.</h1>
+        <p class="subtitle">Technical deep-dives, product updates, and the thinking behind the decisions.</p>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="blog-grid">
+
+          <a href="#" class="blog-card">
+            <span class="tag">Architecture</span>
+            <h3>Why your AI forgets you (and what to do about it)</h3>
+            <p>The memory problem. Why Postgres, not files. Why persistence compounds.</p>
+          </a>
+
+          <a href="#" class="blog-card">
+            <span class="tag">Trust</span>
+            <h3>The AI trust problem isn't prompts — it's architecture</h3>
+            <p>Why prompt-based approvals fail. How Luna's approval gates actually work.</p>
+          </a>
+
+          <a href="#" class="blog-card">
+            <span class="tag">Engineering</span>
+            <h3>4,600 lines: why a small core matters for AI agents</h3>
+            <p>Plugin architecture. Why extensibility beats monoliths. Why your agent should grow, not bloat.</p>
+          </a>
+
+          <a href="#" class="blog-card">
+            <span class="tag">Story</span>
+            <h3>We built Luna because we needed it</h3>
+            <p>The gap in the market. Why open source. Why this architecture.</p>
+          </a>
+
+          <a href="#" class="blog-card">
+            <span class="tag">Infrastructure</span>
+            <h3>What scale-to-zero means for your AI bill</h3>
+            <p>Fly Machines suspend/resume. Idle agents cost nothing. What this enables.</p>
+          </a>
+
+          <a href="#" class="blog-card">
+            <span class="tag">Business</span>
+            <h3>One bill vs. BYOK: why we include all models</h3>
+            <p>The business decision. Why managing API keys is friction that kills compounding.</p>
+          </a>
+
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="index.html" class="nav-logo"><span>🌙</span> Luna</a>
+          <p>AI that compounds your work — persistent, trustworthy, yours.</p>
+        </div>
+        <div class="footer-col">
+          <h4>Product</h4>
+          <ul>
+            <li><a href="features.html">Features</a></li>
+            <li><a href="pricing.html">Pricing</a></li>
+            <li><a href="security.html">Security</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Open Source</h4>
+          <ul>
+            <li><a href="#">GitHub</a></li>
+            <li><a href="open-source.html">Overview</a></li>
+            <li><a href="#">Plugin SDK</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Company</h4>
+          <ul>
+            <li><a href="about.html">About</a></li>
+            <li><a href="blog.html">Blog</a></li>
+            <li><a href="#">Contact</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>&copy; 2026 Novalystrix. All rights reserved.</span>
+        <span>MIT licensed agent platform</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/auth.js"></script>
+</body>
+</html>

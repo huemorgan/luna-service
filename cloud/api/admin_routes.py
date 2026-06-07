@@ -617,3 +617,75 @@ async def migrate_all_machines(admin: User = Depends(require_admin)):
         await db.commit()
 
     return {"ok": True, "updated": updated, "errors": errors, "version": main_image.version}
+
+
+# ── Test agent from specific image ───────────────────────────────────────────
+
+
+class TestAgentRequest(BaseModel):
+    name: str = "Test Agent"
+
+
+@router.post("/images/{image_id}/test-agent", status_code=201)
+async def create_test_agent(
+    image_id: str,
+    body: TestAgentRequest = TestAgentRequest(),
+    admin: User = Depends(require_admin),
+):
+    """Provision a new agent on the admin's account using a specific image (not necessarily main)."""
+    async with get_db_session() as db:
+        image = (await db.execute(
+            select(LunaImage).where(LunaImage.id == uuid.UUID(image_id))
+        )).scalar_one_or_none()
+        if not image:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
+        if image.build_status != "built":
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Image is not built")
+
+        from cloud.db.models import Account, Membership
+        membership = (await db.execute(
+            select(Membership).where(
+                Membership.user_id == admin.id,
+                Membership.status == "active",
+            )
+        )).scalar_one_or_none()
+        if not membership:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Admin has no active account")
+
+        account = (await db.execute(
+            select(Account).where(Account.id == membership.account_id)
+        )).scalar_one()
+
+        name = body.name.strip() or f"Test {image.version}"
+        base_slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "test"
+        slug = f"{account.slug}-{base_slug}"
+        suffix = 1
+        while (await db.execute(select(Agent).where(Agent.slug == slug))).scalar_one_or_none():
+            suffix += 1
+            slug = f"{account.slug}-{base_slug}-{suffix}"
+
+        agent = Agent(
+            account_id=account.id,
+            creator_id=admin.id,
+            name=name,
+            slug=slug,
+            status="provisioning",
+        )
+        db.add(agent)
+        await db.commit()
+        await db.refresh(agent)
+        agent_id = str(agent.id)
+
+        db.add(AuditLog(
+            actor_user_id=admin.id, action="admin.test_agent",
+            metadata_={"image_id": image_id, "version": image.version, "agent_slug": slug},
+        ))
+        await db.commit()
+
+    from cloud.provisioning.workflow import provision_luna_for_account_with_image
+    import asyncio
+    asyncio.create_task(provision_luna_for_account_with_image(
+        str(account.id), agent_id=agent_id, image_id=image_id,
+    ))
+
+    return {"ok": True, "agent_id": agent_id, "slug": slug, "image_version": image.version}

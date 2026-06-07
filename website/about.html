@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Luna — About</title>
+  <meta name="description" content="AI that compounds your work. Persistent, trustworthy, yours.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <nav class="nav">
+    <div class="container">
+      <a href="index.html" class="nav-logo"><span>🌙</span> Luna</a>
+      <ul class="nav-links">
+        <li><a href="features.html">Features</a></li>
+        <li><a href="for-providers.html">For Providers</a></li>
+        <li><a href="pricing.html">Pricing</a></li>
+        <li><a href="open-source.html">Open Source</a></li>
+        <li><a href="security.html">Security</a></li>
+        <li><a href="blog.html">Blog</a></li>
+      </ul>
+      <div class="nav-actions">
+        <a href="#" class="btn btn-ghost btn-sm">Sign in</a>
+        <a href="#" class="btn btn-primary btn-sm">Sign up free</a>
+      </div>
+      <button class="nav-hamburger" aria-label="Menu">☰</button>
+    </div>
+  </nav>
+
+  <div id="auth-wall" class="auth-wall">
+    <div class="auth-box">
+      <span class="hero-moon">🌙</span>
+      <h2>Preview Access</h2>
+      <p>Enter the password to view this page.</p>
+      <form id="auth-form">
+        <div class="auth-input-group">
+          <input type="password" id="auth-password" class="auth-input" placeholder="Password" autofocus>
+          <button type="submit" class="btn btn-primary btn-sm">Enter</button>
+        </div>
+        <p id="auth-error" class="auth-error">Incorrect password. Try again.</p>
+      </form>
+    </div>
+  </div>
+
+  <div id="page-content" class="page-content">
+
+    <section class="hero">
+      <div class="hero-content">
+        <span class="hero-moon">🌙</span>
+        <h1>AI that compounds your work.</h1>
+        <p class="subtitle">Persistent, trustworthy, yours.</p>
+      </div>
+    </section>
+
+    <section class="section section-alt">
+      <div class="container">
+        <div class="section-header">
+          <p>We built Luna because we needed an AI agent that actually followed through. One that remembered what we told it, asked before it acted, learned from its mistakes, and could be taken with us if we left. Nothing like that existed. So we built it. And we made it open source — because the best tools should belong to the people who use them.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="section-header">
+          <h2>The Principles</h2>
+        </div>
+        <div class="cards-grid">
+          <div class="card">
+            <span class="card-icon">🔓</span>
+            <h3>Open by default</h3>
+            <p>The agent platform is MIT licensed. Every capability, open. If we break this promise, you have a fork.</p>
+          </div>
+          <div class="card">
+            <span class="card-icon">🛡️</span>
+            <h3>Trust by architecture</h3>
+            <p>Approvals are hard gates, not prompts. Isolation is physical, not logical. Privacy is cryptographic, not policy.</p>
+          </div>
+          <div class="card">
+            <span class="card-icon">📈</span>
+            <h3>Compounding value</h3>
+            <p>Memory persists. Behavior improves. Plugins extend. Every interaction makes the next one better.</p>
+          </div>
+          <div class="card">
+            <span class="card-icon">🤝</span>
+            <h3>Yours to keep</h3>
+            <p>Self-host for free. Export everything. Your agent, your data — open by design, not by concession.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-alt">
+      <div class="container">
+        <div class="section-header">
+          <p>Luna is built by Novalystrix. We're a small team that believes AI agents should work for people, not platforms.</p>
+          <br>
+          <a href="mailto:hello@luna.com.ai" class="btn btn-secondary">Contact us</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta-section section-dark">
+      <div class="container">
+        <h2>Join us.</h2>
+        <p>Try Luna. Star it. Build on it.</p>
+        <a href="#" class="btn btn-primary btn-lg" style="position:relative;">Sign up free</a>
+      </div>
+    </section>
+
+  </div>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="index.html" class="nav-logo"><span>🌙</span> Luna</a>
+          <p>AI that compounds your work — persistent, trustworthy, yours.</p>
+        </div>
+        <div class="footer-col">
+          <h4>Product</h4>
+          <ul>
+            <li><a href="features.html">Features</a></li>
+            <li><a href="pricing.html">Pricing</a></li>
+            <li><a href="security.html">Security</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Open Source</h4>
+          <ul>
+            <li><a href="#">GitHub</a></li>
+            <li><a href="open-source.html">Overview</a></li>
+            <li><a href="#">Plugin SDK</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Company</h4>
+          <ul>
+            <li><a href="about.html">About</a></li>
+            <li><a href="blog.html">Blog</a></li>
+            <li><a href="#">Contact</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>&copy; 2026 Novalystrix. All rights reserved.</span>
+        <span>MIT licensed agent platform</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/auth.js"></script>
+</body>
+</html>

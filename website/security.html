@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Luna — Security & Privacy</title>
+  <meta name="description" content="Physical isolation. Per-tenant encryption. Zero conversation telemetry. You shouldn't have to trust us — the architecture makes it so you don't have to.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <nav class="nav">
+    <div class="container">
+      <a href="index.html" class="nav-logo"><span>🌙</span> Luna</a>
+      <ul class="nav-links">
+        <li><a href="features.html">Features</a></li>
+        <li><a href="for-providers.html">For Providers</a></li>
+        <li><a href="pricing.html">Pricing</a></li>
+        <li><a href="open-source.html">Open Source</a></li>
+        <li><a href="security.html" class="active">Security</a></li>
+        <li><a href="blog.html">Blog</a></li>
+      </ul>
+      <div class="nav-actions">
+        <a href="#" class="btn btn-ghost btn-sm">Sign in</a>
+        <a href="#" class="btn btn-primary btn-sm">Sign up free</a>
+      </div>
+      <button class="nav-hamburger" aria-label="Menu">☰</button>
+    </div>
+  </nav>
+
+  <div id="auth-wall" class="auth-wall">
+    <div class="auth-box">
+      <span class="hero-moon">🌙</span>
+      <h2>Preview Access</h2>
+      <p>Enter the password to view this page.</p>
+      <form id="auth-form">
+        <div class="auth-input-group">
+          <input type="password" id="auth-password" class="auth-input" placeholder="Password" autofocus>
+          <button type="submit" class="btn btn-primary btn-sm">Enter</button>
+        </div>
+        <p id="auth-error" class="auth-error">Incorrect password. Try again.</p>
+      </form>
+    </div>
+  </div>
+
+  <div id="page-content" class="page-content">
+
+    <!-- Hero -->
+    <section class="hero">
+      <div class="hero-content">
+        <span class="hero-moon">🌙</span>
+        <h1>You don't have to trust us. The architecture handles it.</h1>
+        <p class="subtitle">Physical isolation. Per-tenant encryption. Zero conversation telemetry.</p>
+      </div>
+    </section>
+
+    <!-- Your agent is physically yours -->
+    <section class="section section-alt">
+      <div class="container">
+        <div class="feature-row">
+          <div class="feature-text">
+            <h2>Your agent is physically yours.</h2>
+            <p class="subtitle">Own microVM. Own database. Own encryption key. Not shared. Not "logically separated."</p>
+            <p>Every agent runs in a separate Fly Machine. An exploit in one agent cannot reach another. This is what you tell your compliance team.</p>
+          </div>
+          <div class="feature-visual">
+            <div class="placeholder">
+              <span class="placeholder-icon">🏗️</span>
+              Isolated microVM per tenant
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- We literally can't read your secrets -->
+    <section class="section">
+      <div class="container">
+        <div class="feature-row reverse">
+          <div class="feature-text">
+            <h2>We literally can't read your secrets.</h2>
+            <p class="subtitle">Per-tenant vault keys. Decrypted only in your agent's runtime memory. Never on disk.</p>
+            <p>Master key derives per-tenant keys. We cannot decrypt your credentials. Raw secrets exist only in runtime memory. This isn't a policy. It's cryptography.</p>
+          </div>
+          <div class="feature-visual">
+            <div class="placeholder">
+              <span class="placeholder-icon">🔐</span>
+              Per-tenant encryption vault
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Your conversations are yours alone -->
+    <section class="section section-alt">
+      <div class="container">
+        <div class="feature-row">
+          <div class="feature-text">
+            <h2>Your conversations are yours alone.</h2>
+            <p class="subtitle">We track uptime and error rates. We never see your messages, files, or credentials.</p>
+            <p>No conversation logging, no content analysis, no training on your data. Support impersonation requires your explicit consent.</p>
+          </div>
+          <div class="feature-visual">
+            <div class="two-col-cards">
+              <div class="info-card">
+                <h4>What we see</h4>
+                <ul>
+                  <li>Uptime metrics</li>
+                  <li>Error rates</li>
+                  <li>Token counts</li>
+                  <li>Cost aggregates</li>
+                </ul>
+              </div>
+              <div class="info-card">
+                <h4>What we never see</h4>
+                <ul>
+                  <li>Message content</li>
+                  <li>Files &amp; attachments</li>
+                  <li>Vault credentials</li>
+                  <li>Conversation history</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Your compliance team will be happy -->
+    <section class="section">
+      <div class="container">
+        <div class="feature-row reverse">
+          <div class="feature-text">
+            <h2>Your compliance team will be happy.</h2>
+            <p class="subtitle">SOC 2 control plane. Encrypted transit. HttpOnly sessions. GDPR by architecture.</p>
+            <p>Render.com (SOC 2) for control plane, Fly.io for compute, Cloudflare R2 for storage. HttpOnly + Secure + SameSite cookies. SOC 2 in progress. GDPR by construction. Enterprise: custom data residency.</p>
+          </div>
+          <div class="feature-visual">
+            <div class="placeholder">
+              <span class="placeholder-icon">✅</span>
+              Compliance-ready infrastructure
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Final CTA -->
+    <section class="cta-section section-dark">
+      <div class="container">
+        <h2>See it for yourself.</h2>
+        <p>Start free. Your data stays yours from day one.</p>
+        <a href="#" class="btn btn-primary btn-lg" style="position:relative;">Sign up free</a>
+      </div>
+    </section>
+
+  </div>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="index.html" class="nav-logo"><span>🌙</span> Luna</a>
+          <p>AI that compounds your work — persistent, trustworthy, yours.</p>
+        </div>
+        <div class="footer-col">
+          <h4>Product</h4>
+          <ul>
+            <li><a href="features.html">Features</a></li>
+            <li><a href="pricing.html">Pricing</a></li>
+            <li><a href="security.html">Security</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Open Source</h4>
+          <ul>
+            <li><a href="#">GitHub</a></li>
+            <li><a href="open-source.html">Overview</a></li>
+            <li><a href="#">Plugin SDK</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Company</h4>
+          <ul>
+            <li><a href="about.html">About</a></li>
+            <li><a href="blog.html">Blog</a></li>
+            <li><a href="#">Contact</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>&copy; 2026 Novalystrix. All rights reserved.</span>
+        <span>MIT licensed agent platform</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/auth.js"></script>
+</body>
+</html>
