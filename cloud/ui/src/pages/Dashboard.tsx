@@ -253,6 +253,8 @@ function AgentCard({
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const dotColor = STATUS_DOT[agent.status] || '#94a3b8';
+  const stuckProvisioning = agent.status === 'provisioning' && agent.created_at
+    && (Date.now() - new Date(agent.created_at).getTime()) > 5 * 60 * 1000;
 
   return (
     <div
@@ -272,11 +274,17 @@ function AgentCard({
               {agent.name}
             </Link>
             <div className="flex items-center gap-3 mt-1">
-              <span className="text-xs capitalize" style={{ color: 'var(--text-dim)' }}>
-                {agent.status === 'provisioning' && (
+              <span className="text-xs capitalize" style={{ color: stuckProvisioning ? '#facc15' : 'var(--text-dim)' }}>
+                {agent.status === 'provisioning' && !stuckProvisioning && (
                   <span className="inline-flex items-center gap-1">
                     <Loader2 className="animate-spin" size={10} />
                     Setting up...
+                  </span>
+                )}
+                {stuckProvisioning && (
+                  <span className="inline-flex items-center gap-1">
+                    <AlertTriangle size={10} />
+                    Setup failed
                   </span>
                 )}
                 {agent.status !== 'provisioning' && agent.status}
@@ -350,7 +358,20 @@ function AgentCard({
             </button>
           )}
 
-          {agent.status !== 'provisioning' && (
+          {stuckProvisioning && (
+            <button
+              onClick={() => onAction(agent.id, 'retry')}
+              disabled={isLoading}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all hover:bg-[rgba(250,204,21,0.1)] disabled:opacity-50"
+              style={{ color: '#facc15', border: '1px solid rgba(250,204,21,0.3)' }}
+              title="Retry provisioning"
+            >
+              <RotateCcw size={12} />
+              Retry
+            </button>
+          )}
+
+          {(agent.status !== 'provisioning' || stuckProvisioning) && (
             confirmDelete ? (
               <div className="flex items-center gap-1">
                 <button
