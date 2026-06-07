@@ -315,7 +315,7 @@ function AgentCard({
             <button
               onClick={() => onAction(agent.id, 'stop')}
               disabled={isLoading}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs transition-colors hover:opacity-80 disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs transition-all hover:bg-[var(--ink-light)] disabled:opacity-50"
               style={{ color: 'var(--text-dim)', border: '1px solid var(--ink-lighter)' }}
               title="Stop agent"
             >
@@ -328,7 +328,7 @@ function AgentCard({
             <button
               onClick={() => onAction(agent.id, 'start')}
               disabled={isLoading}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs transition-colors hover:opacity-80 disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs transition-all hover:bg-[var(--ink-light)] disabled:opacity-50"
               style={{ color: 'var(--text-dim)', border: '1px solid var(--ink-lighter)' }}
               title="Start agent"
             >
@@ -341,7 +341,7 @@ function AgentCard({
             <button
               onClick={() => onAction(agent.id, 'retry')}
               disabled={isLoading}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition-colors hover:opacity-80 disabled:opacity-50"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition-all hover:bg-[rgba(250,204,21,0.1)] disabled:opacity-50"
               style={{ color: '#facc15', border: '1px solid rgba(250,204,21,0.3)' }}
               title="Retry provisioning"
             >
@@ -373,7 +373,7 @@ function AgentCard({
               <button
                 onClick={() => setConfirmDelete(true)}
                 disabled={isLoading}
-                className="flex items-center gap-1 px-2 py-2 rounded-lg text-xs transition-colors hover:opacity-80 disabled:opacity-50"
+                className="flex items-center gap-1 px-2 py-2 rounded-lg text-xs transition-all hover:bg-[rgba(239,68,68,0.1)] disabled:opacity-50"
                 style={{ color: 'var(--text-dim)' }}
                 title="Delete agent"
               >
