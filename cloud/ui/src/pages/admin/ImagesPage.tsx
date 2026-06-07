@@ -364,20 +364,16 @@ export default function ImagesPage() {
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm" style={{ color: 'var(--text-dim)' }}>
-                Latest version: <span style={{ color: 'var(--text)' }}>{updateCheck.submodule_version || 'unknown'}</span>
-                {updateCheck.source === 'github' && (
-                  <span className="text-[10px] ml-1.5" style={{ color: 'var(--text-dim)' }}>via GitHub</span>
-                )}
+                Latest version
+                {updateCheck.source === 'github'
+                  ? <span className="text-[10px] ml-1" style={{ color: '#22c55e' }}>(github)</span>
+                  : <span className="text-[10px] ml-1" style={{ color: '#facc15' }}>(github error — local fallback)</span>
+                }
+                : <span style={{ color: 'var(--text)' }}>{updateCheck.submodule_version || 'unknown'}</span>
               </div>
               <div className="text-sm mt-1" style={{ color: 'var(--text-dim)' }}>
                 Latest built: <span style={{ color: 'var(--text)' }}>{updateCheck.latest_built || 'none'}</span>
               </div>
-              {updateCheck.source === 'disk' && (
-                <div className="flex items-center gap-1.5 text-xs mt-2 px-2.5 py-1.5 rounded-lg" style={{ background: 'rgba(250,204,21,0.08)', color: '#facc15' }}>
-                  <AlertCircle size={12} />
-                  GitHub unavailable — showing deploy-time version (may be stale). Add GITHUB_TOKEN to Render env.
-                </div>
-              )}
             </div>
             {updateCheck.update_available ? (
               <button
