@@ -10,11 +10,13 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from cloud.auth.deps import require_admin
 from cloud.config import get_settings
@@ -24,6 +26,40 @@ from cloud.db.session import get_session as get_db_session
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+# ── Audit helpers ─────────────────────────────────────────────────────────────
+
+def _client_ip(request: Request) -> str:
+    """Extract client IP from X-Forwarded-For (Render sets this) or fall back."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+async def _audit(
+    db: AsyncSession,
+    *,
+    action: str,
+    actor: User | None = None,
+    actor_ip: str | None = None,
+    target: str | None = None,
+    account_id: uuid.UUID | None = None,
+    metadata: dict | None = None,
+    before_state: dict | None = None,
+    after_state: dict | None = None,
+) -> None:
+    db.add(AuditLog(
+        actor_user_id=actor.id if actor else None,
+        actor_ip=actor_ip,
+        action=action,
+        target=target,
+        account_id=account_id,
+        metadata_=metadata,
+        before_state=before_state,
+        after_state=after_state,
+    ))
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -75,7 +111,8 @@ async def list_users(admin: User = Depends(require_admin)):
 
 
 @router.post("/admins")
-async def add_admin(body: AddAdminRequest, admin: User = Depends(require_admin)):
+async def add_admin(body: AddAdminRequest, request: Request, admin: User = Depends(require_admin)):
+    ip = _client_ip(request)
     async with get_db_session() as db:
         user = (await db.execute(
             select(User).where(User.email == body.email.strip().lower())
@@ -86,16 +123,16 @@ async def add_admin(body: AddAdminRequest, admin: User = Depends(require_admin))
             return {"id": str(user.id), "email": user.email, "name": user.name, "already": True}
 
         user.is_admin = True
-        db.add(AuditLog(
-            actor_user_id=admin.id, action="admin.add_admin",
-            target=str(user.id), metadata_={"email": user.email},
-        ))
+        await _audit(db, action="admin.added", actor=admin, actor_ip=ip,
+                     target=str(user.id), metadata={"email": user.email},
+                     before_state={"is_admin": False}, after_state={"is_admin": True})
         await db.commit()
     return {"id": str(user.id), "email": user.email, "name": user.name}
 
 
 @router.delete("/admins/{user_id}")
-async def remove_admin(user_id: str, admin: User = Depends(require_admin)):
+async def remove_admin(user_id: str, request: Request, admin: User = Depends(require_admin)):
+    ip = _client_ip(request)
     async with get_db_session() as db:
         target = (await db.execute(
             select(User).where(User.id == uuid.UUID(user_id))
@@ -111,10 +148,9 @@ async def remove_admin(user_id: str, admin: User = Depends(require_admin)):
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot remove the last admin")
 
         target.is_admin = False
-        db.add(AuditLog(
-            actor_user_id=admin.id, action="admin.remove_admin",
-            target=str(target.id), metadata_={"email": target.email},
-        ))
+        await _audit(db, action="admin.removed", actor=admin, actor_ip=ip,
+                     target=str(target.id), metadata={"email": target.email},
+                     before_state={"is_admin": True}, after_state={"is_admin": False})
         await db.commit()
     return {"ok": True}
 
@@ -314,8 +350,9 @@ class ImageConfigUpdate(BaseModel):
 
 @router.put("/images/{image_id}/config")
 async def update_image_config(
-    image_id: str, body: ImageConfigUpdate, admin: User = Depends(require_admin),
+    image_id: str, body: ImageConfigUpdate, request: Request, admin: User = Depends(require_admin),
 ):
+    ip = _client_ip(request)
     async with get_db_session() as db:
         img = (await db.execute(
             select(LunaImage).where(LunaImage.id == uuid.UUID(image_id))
@@ -323,8 +360,9 @@ async def update_image_config(
         if not img:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
 
-        current = {**DEFAULT_IMAGE_CONFIG, **(img.image_config or {})}
+        before = {**DEFAULT_IMAGE_CONFIG, **(img.image_config or {})}
         patch = body.model_dump(exclude_none=True)
+        current = {**before}
         for key, val in patch.items():
             if isinstance(val, dict) and isinstance(current.get(key), dict):
                 current[key] = {**current[key], **val}
@@ -332,10 +370,9 @@ async def update_image_config(
                 current[key] = val
 
         img.image_config = current
-        db.add(AuditLog(
-            actor_user_id=admin.id, action="admin.update_image_config",
-            target=str(img.id), metadata_={"version": img.version, "patch": patch},
-        ))
+        await _audit(db, action="image.config_updated", actor=admin, actor_ip=ip,
+                     target=str(img.id), metadata={"version": img.version, "patch": patch},
+                     before_state=before, after_state=current)
         await db.commit()
     return current
 
@@ -346,7 +383,8 @@ async def get_plugin_meta(admin: User = Depends(require_admin)):
 
 
 @router.delete("/images/{image_id}")
-async def delete_image(image_id: str, admin: User = Depends(require_admin)):
+async def delete_image(image_id: str, request: Request, admin: User = Depends(require_admin)):
+    ip = _client_ip(request)
     async with get_db_session() as db:
         img = (await db.execute(
             select(LunaImage).where(LunaImage.id == uuid.UUID(image_id))
@@ -355,17 +393,18 @@ async def delete_image(image_id: str, admin: User = Depends(require_admin)):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
         if img.is_main:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot delete the main image")
+        before = {"version": img.version, "registry_tag": img.registry_tag, "build_status": img.build_status}
         await db.delete(img)
-        db.add(AuditLog(
-            actor_user_id=admin.id, action="admin.delete_image",
-            target=str(img.id), metadata_={"version": img.version},
-        ))
+        await _audit(db, action="image.deleted", actor=admin, actor_ip=ip,
+                     target=str(img.id), metadata={"version": img.version},
+                     before_state=before)
         await db.commit()
     return {"ok": True}
 
 
 @router.post("/images/{image_id}/set-main")
-async def set_main_image(image_id: str, admin: User = Depends(require_admin)):
+async def set_main_image(image_id: str, request: Request, admin: User = Depends(require_admin)):
+    ip = _client_ip(request)
     async with get_db_session() as db:
         img = (await db.execute(
             select(LunaImage).where(LunaImage.id == uuid.UUID(image_id))
@@ -375,20 +414,26 @@ async def set_main_image(image_id: str, admin: User = Depends(require_admin)):
         if img.build_status != "built":
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only built images can be set as main")
 
+        prev_main = (await db.execute(
+            select(LunaImage).where(LunaImage.is_main == True)  # noqa: E712
+        )).scalar_one_or_none()
+        prev_info = {"version": prev_main.version, "id": str(prev_main.id)} if prev_main else None
+
         await db.execute(
             LunaImage.__table__.update().values(is_main=False)
         )
         img.is_main = True
-        db.add(AuditLog(
-            actor_user_id=admin.id, action="admin.set_main_image",
-            target=str(img.id), metadata_={"version": img.version},
-        ))
+        await _audit(db, action="image.promoted_to_main", actor=admin, actor_ip=ip,
+                     target=str(img.id), metadata={"version": img.version},
+                     before_state={"previous_main": prev_info},
+                     after_state={"new_main": {"version": img.version, "id": str(img.id)}})
         await db.commit()
     return {"ok": True, "version": img.version}
 
 
 @router.post("/images/build")
-async def build_image(admin: User = Depends(require_admin), version: str | None = None):
+async def build_image(request: Request, admin: User = Depends(require_admin), version: str | None = None):
+    ip = _client_ip(request)
     settings = get_settings()
     if not version:
         version_result = await _fetch_luna_version_from_github()
@@ -422,6 +467,11 @@ async def build_image(admin: User = Depends(require_admin), version: str | None 
         await db.commit()
         await db.refresh(img)
         image_id = str(img.id)
+
+        await _audit(db, action="image.build_triggered", actor=admin, actor_ip=ip,
+                     target=image_id, metadata={"version": version, "registry_tag": registry_tag},
+                     after_state={"version": version, "build_status": "building"})
+        await db.commit()
 
     if settings.github_pat:
         try:
@@ -460,8 +510,10 @@ async def build_image(admin: User = Depends(require_admin), version: str | None 
 @router.post("/webhooks/build-complete")
 async def build_complete(
     body: BuildWebhookPayload,
+    request: Request,
     authorization: str = Header(...),
 ):
+    ip = _client_ip(request)
     settings = get_settings()
     expected = f"Bearer {settings.admin_webhook_secret}"
     if authorization != expected:
@@ -474,6 +526,7 @@ async def build_complete(
         if not img:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
 
+        before = {"build_status": img.build_status}
         img.build_status = body.status
         img.git_sha = body.git_sha
         if body.build_run_id:
@@ -482,6 +535,15 @@ async def build_complete(
             img.built_at = datetime.now(timezone.utc)
         if body.error:
             img.build_error = body.error
+
+        action = "image.build_completed" if body.status == "built" else "image.build_failed"
+        await _audit(db, action=action, actor_ip=ip,
+                     target=str(img.id),
+                     metadata={"version": img.version, "git_sha": body.git_sha,
+                               "build_run_id": body.build_run_id, "error": body.error,
+                               "actor_type": "system"},
+                     before_state=before,
+                     after_state={"build_status": body.status})
         await db.commit()
 
     return {"ok": True}
@@ -528,8 +590,9 @@ async def list_machines(admin: User = Depends(require_admin)):
 
 
 @router.post("/machines/{machine_id}/update-image")
-async def update_machine_image(machine_id: str, admin: User = Depends(require_admin)):
+async def update_machine_image(machine_id: str, request: Request, admin: User = Depends(require_admin)):
     """Update a single machine to the current main image."""
+    ip = _client_ip(request)
     async with get_db_session() as db:
         main_image = (await db.execute(
             select(LunaImage).where(LunaImage.is_main == True, LunaImage.build_status == "built")  # noqa: E712
@@ -542,6 +605,7 @@ async def update_machine_image(machine_id: str, admin: User = Depends(require_ad
         )).scalar_one_or_none()
         if not agent:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "No agent found for this machine")
+        old_version = agent.image_version
 
     if not os.environ.get("FLY_API_TOKEN"):
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Fly API not configured")
@@ -558,18 +622,19 @@ async def update_machine_image(machine_id: str, admin: User = Depends(require_ad
             select(Agent).where(Agent.runtime_ref == machine_id)
         )).scalar_one()
         agent.image_version = main_image.version
-        db.add(AuditLog(
-            actor_user_id=admin.id, action="admin.update_machine_image",
-            target=machine_id, metadata_={"version": main_image.version, "agent": agent.slug},
-        ))
+        await _audit(db, action="machine.image_updated", actor=admin, actor_ip=ip,
+                     target=machine_id, metadata={"version": main_image.version, "agent": agent.slug},
+                     before_state={"version": old_version},
+                     after_state={"version": main_image.version})
         await db.commit()
 
     return {"ok": True, "version": main_image.version}
 
 
 @router.post("/machines/migrate-all")
-async def migrate_all_machines(admin: User = Depends(require_admin)):
+async def migrate_all_machines(request: Request, admin: User = Depends(require_admin)):
     """Update all machines to the current main image."""
+    ip = _client_ip(request)
     async with get_db_session() as db:
         main_image = (await db.execute(
             select(LunaImage).where(LunaImage.is_main == True, LunaImage.build_status == "built")  # noqa: E712
@@ -593,6 +658,7 @@ async def migrate_all_machines(admin: User = Depends(require_admin)):
     from cloud.runtime.fly_machines import FlyMachinesRuntime
     fly = FlyMachinesRuntime()
 
+    before_versions = {a.slug: a.image_version for a in agents}
     updated = 0
     errors = []
     for agent in agents:
@@ -610,13 +676,95 @@ async def migrate_all_machines(admin: User = Depends(require_admin)):
             errors.append({"machine_id": agent.runtime_ref, "agent": agent.slug, "error": str(e)})
 
     async with get_db_session() as db:
-        db.add(AuditLog(
-            actor_user_id=admin.id, action="admin.migrate_all",
-            metadata_={"version": main_image.version, "updated": updated, "errors": len(errors)},
-        ))
+        await _audit(db, action="machine.migrate_all", actor=admin, actor_ip=ip,
+                     metadata={"version": main_image.version, "updated": updated, "errors": len(errors)},
+                     before_state={"agent_versions": before_versions},
+                     after_state={"version": main_image.version, "updated_count": updated})
         await db.commit()
 
     return {"ok": True, "updated": updated, "errors": errors, "version": main_image.version}
+
+
+# ── Audit log ─────────────────────────────────────────────────────────────────
+
+@router.get("/audit-log")
+async def list_audit_log(
+    admin: User = Depends(require_admin),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=100),
+    action: Optional[str] = Query(None),
+    actor_id: Optional[str] = Query(None),
+    target: Optional[str] = Query(None),
+    from_date: Optional[str] = Query(None, alias="from"),
+    to_date: Optional[str] = Query(None, alias="to"),
+    q: Optional[str] = Query(None),
+):
+    async with get_db_session() as db:
+        query = select(AuditLog).order_by(AuditLog.created_at.desc())
+        count_query = select(func.count()).select_from(AuditLog)
+
+        if action:
+            query = query.where(AuditLog.action.startswith(action))
+            count_query = count_query.where(AuditLog.action.startswith(action))
+        if actor_id:
+            uid = uuid.UUID(actor_id)
+            query = query.where(AuditLog.actor_user_id == uid)
+            count_query = count_query.where(AuditLog.actor_user_id == uid)
+        if target:
+            query = query.where(AuditLog.target == target)
+            count_query = count_query.where(AuditLog.target == target)
+        if from_date:
+            from_dt = datetime.fromisoformat(from_date)
+            query = query.where(AuditLog.created_at >= from_dt)
+            count_query = count_query.where(AuditLog.created_at >= from_dt)
+        if to_date:
+            to_dt = datetime.fromisoformat(to_date)
+            query = query.where(AuditLog.created_at <= to_dt)
+            count_query = count_query.where(AuditLog.created_at <= to_dt)
+        if q:
+            from sqlalchemy import cast, String
+            pattern = f"%{q}%"
+            query = query.where(
+                AuditLog.action.ilike(pattern) | cast(AuditLog.metadata_, String).ilike(pattern)
+            )
+            count_query = count_query.where(
+                AuditLog.action.ilike(pattern) | cast(AuditLog.metadata_, String).ilike(pattern)
+            )
+
+        total = (await db.execute(count_query)).scalar() or 0
+
+        offset = (page - 1) * per_page
+        rows = (await db.execute(query.offset(offset).limit(per_page))).scalars().all()
+
+        actor_ids = {r.actor_user_id for r in rows if r.actor_user_id}
+        actors_by_id: dict[uuid.UUID, User] = {}
+        if actor_ids:
+            actors = (await db.execute(
+                select(User).where(User.id.in_(actor_ids))
+            )).scalars().all()
+            actors_by_id = {a.id: a for a in actors}
+
+    items = []
+    for row in rows:
+        actor_user = actors_by_id.get(row.actor_user_id) if row.actor_user_id else None
+        items.append({
+            "id": str(row.id),
+            "action": row.action,
+            "actor": {
+                "id": str(actor_user.id),
+                "name": actor_user.name,
+                "email": actor_user.email,
+                "avatar_url": actor_user.avatar_url,
+            } if actor_user else None,
+            "actor_ip": row.actor_ip,
+            "target": row.target,
+            "metadata": row.metadata_,
+            "before_state": row.before_state,
+            "after_state": row.after_state,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        })
+
+    return {"items": items, "total": total, "page": page, "per_page": per_page}
 
 
 # ── Test agent from specific image ───────────────────────────────────────────
@@ -629,6 +777,7 @@ class TestAgentRequest(BaseModel):
 @router.post("/images/{image_id}/test-agent", status_code=201)
 async def create_test_agent(
     image_id: str,
+    request: Request,
     body: TestAgentRequest = TestAgentRequest(),
     admin: User = Depends(require_admin),
 ):
@@ -676,10 +825,9 @@ async def create_test_agent(
         await db.refresh(agent)
         agent_id = str(agent.id)
 
-        db.add(AuditLog(
-            actor_user_id=admin.id, action="admin.test_agent",
-            metadata_={"image_id": image_id, "version": image.version, "agent_slug": slug},
-        ))
+        await _audit(db, action="agent.test_created", actor=admin, actor_ip=_client_ip(request),
+                     target=agent_id, metadata={"image_id": image_id, "version": image.version, "agent_slug": slug},
+                     after_state={"agent_id": agent_id, "slug": slug, "image_version": image.version})
         await db.commit()
 
     from cloud.provisioning.workflow import provision_luna_for_account_with_image

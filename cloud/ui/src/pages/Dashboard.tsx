@@ -1,8 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Moon, LogOut, Bot, Loader2, Plus, ExternalLink,
-  RotateCcw, Square, Play, Trash2, AlertTriangle, Shield,
+  RotateCcw, Square, Play, Trash2, AlertTriangle, Shield, ChevronDown,
 } from 'lucide-react';
 
 interface UserInfo {
@@ -125,7 +125,7 @@ export default function Dashboard() {
   }
 
   if (!data) return null;
-  const { user, account } = data;
+  const { user } = data;
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--ink)' }}>
@@ -137,22 +137,7 @@ export default function Dashboard() {
           <Moon size={24} style={{ color: 'var(--moon)' }} />
           <span className="text-lg font-semibold" style={{ color: 'var(--text)' }}>Luna Service</span>
         </div>
-        <div className="flex items-center gap-4">
-          {account && (
-            <span className="text-sm px-3 py-1 rounded-full" style={{ background: 'var(--ink-light)', color: 'var(--text-dim)' }}>
-              {account.name}
-            </span>
-          )}
-          <div className="flex items-center gap-2">
-            {user.avatar_url ? (
-              <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-full" />
-            ) : (
-              <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: 'var(--moon)', color: 'var(--ink)' }}>
-                {(user.name || user.email)[0].toUpperCase()}
-              </div>
-            )}
-            <span className="text-sm hidden sm:inline" style={{ color: 'var(--text-dim)' }}>{user.name || user.email}</span>
-          </div>
+        <div className="flex items-center gap-3">
           {user.is_admin && (
             <Link
               to="/admin"
@@ -163,14 +148,7 @@ export default function Dashboard() {
               Admin
             </Link>
           )}
-          <a
-            href="/auth/logout"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors hover:opacity-80"
-            style={{ color: 'var(--text-dim)' }}
-          >
-            <LogOut size={14} />
-            Sign out
-          </a>
+          <ProfileMenu user={user} />
         </div>
       </header>
 
@@ -414,6 +392,55 @@ function AgentCard({
         >
           <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" style={{ color: '#ef4444' }} />
           <span style={{ color: '#fca5a5' }}>{agent.error_message}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProfileMenu({ user }: { user: UserInfo['user'] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors hover:opacity-80"
+        style={{ color: 'var(--text-dim)' }}
+      >
+        {user.avatar_url ? (
+          <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-full" />
+        ) : (
+          <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: 'var(--moon)', color: 'var(--ink)' }}>
+            {(user.name || user.email)[0].toUpperCase()}
+          </div>
+        )}
+        <span className="text-sm hidden sm:inline" style={{ color: 'var(--text-dim)' }}>{user.name || user.email}</span>
+        <ChevronDown size={14} style={{ color: 'var(--text-dim)', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+      </button>
+
+      {open && (
+        <div
+          className="absolute right-0 top-full mt-2 w-48 rounded-xl border py-1 shadow-lg z-50"
+          style={{ background: 'var(--surface)', borderColor: 'var(--ink-lighter)' }}
+        >
+          <a
+            href="/auth/logout"
+            className="flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors hover:opacity-80"
+            style={{ color: 'var(--text-dim)' }}
+          >
+            <LogOut size={14} />
+            Sign out
+          </a>
         </div>
       )}
     </div>

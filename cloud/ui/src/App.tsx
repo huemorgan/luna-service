@@ -7,6 +7,7 @@ import AdminLayout from './pages/admin/AdminLayout';
 import AdminsPage from './pages/admin/AdminsPage';
 import ImagesPage from './pages/admin/ImagesPage';
 import MachinesPage from './pages/admin/MachinesPage';
+import ChangelogPage from './pages/admin/ChangelogPage';
 import ImageConfigPage from './pages/admin/ImageConfigPage';
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="images" element={<ImagesPage />} />
           <Route path="images/:imageId" element={<ImageConfigPage />} />
           <Route path="machines" element={<MachinesPage />} />
+          <Route path="changelog" element={<ChangelogPage />} />
         </Route>
         <Route path="/:slug" element={<UserLuna />} />
       </Routes>

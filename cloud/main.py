@@ -78,6 +78,20 @@ async def lifespan(app: FastAPI):
         await conn.execute(text(
             "ALTER TABLE luna_images ADD COLUMN IF NOT EXISTS image_config JSONB"
         ))
+        for col, coltype in [
+            ("actor_ip", "TEXT"),
+            ("before_state", "JSONB"),
+            ("after_state", "JSONB"),
+        ]:
+            await conn.execute(text(
+                f"ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS {col} {coltype}"
+            ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_audit_log_action ON audit_log (action)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_audit_log_created_at ON audit_log (created_at DESC)"
+        ))
         await conn.execute(text(
             "UPDATE users SET is_admin = true WHERE email = 'vaselin@gmail.com' AND is_admin = false"
         ))
