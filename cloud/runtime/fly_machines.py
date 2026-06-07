@@ -212,6 +212,38 @@ class FlyMachinesRuntime:
         resp.raise_for_status()
         return resp.json()
 
+    async def warm_image_cache(self, image_tag: str, region: str | None = None) -> None:
+        """Pull an image into Fly's regional cache by creating and destroying a throwaway machine."""
+        import asyncio
+        client = self._get_client()
+        target_region = region or self.region
+        payload = {
+            "name": f"cache-warm-{target_region}-{id(self)}",
+            "region": target_region,
+            "config": {
+                "image": image_tag,
+                "auto_destroy": True,
+                "restart": {"policy": "no"},
+                "guest": {"cpu_kind": "shared", "cpus": 1, "memory_mb": 256},
+            },
+        }
+        resp = await client.post("/machines", json=payload)
+        if resp.status_code not in (200, 201):
+            raise RuntimeError(f"Cache warm failed ({resp.status_code}): {resp.text}")
+
+        machine_id = resp.json()["id"]
+        log.info("Cache-warming %s in %s (machine %s)", image_tag, target_region, machine_id)
+
+        try:
+            for _ in range(HEALTH_TIMEOUT // HEALTH_INTERVAL):
+                resp = await client.get(f"/machines/{machine_id}/wait?state=started&timeout=10")
+                if resp.status_code == 200:
+                    break
+                await asyncio.sleep(HEALTH_INTERVAL)
+        finally:
+            await client.delete(f"/machines/{machine_id}?force=true")
+            log.info("Cache-warm machine %s destroyed", machine_id)
+
     async def describe(self, machine_id: str) -> dict | None:
         """Return the full Fly Machine record, or None if it no longer exists.
 

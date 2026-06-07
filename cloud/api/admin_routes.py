@@ -275,6 +275,7 @@ def _image_dict(img: LunaImage, agent_count: int = 0) -> dict:
         "built_at": img.built_at.isoformat() if img.built_at else None,
         "agent_count": agent_count,
         "image_config": {**DEFAULT_IMAGE_CONFIG, **(img.image_config or {})},
+        "cache_warmed_at": img.cache_warmed_at.isoformat() if img.cache_warmed_at else None,
     }
 
 
@@ -428,7 +429,74 @@ async def set_main_image(image_id: str, request: Request, admin: User = Depends(
                      before_state={"previous_main": prev_info},
                      after_state={"new_main": {"version": img.version, "id": str(img.id)}})
         await db.commit()
+        registry_tag = img.registry_tag
+        image_config = {**DEFAULT_IMAGE_CONFIG, **(img.image_config or {})}
+
+    import asyncio
+    asyncio.create_task(_warm_image_background(image_id, registry_tag, image_config))
+
     return {"ok": True, "version": img.version}
+
+
+async def _warm_image_background(image_id: str, registry_tag: str, image_config: dict) -> None:
+    """Background task: warm the image cache and update the DB timestamp."""
+    try:
+        if not os.environ.get("FLY_API_TOKEN"):
+            return
+        from cloud.runtime.fly_machines import FlyMachinesRuntime
+        fly = FlyMachinesRuntime()
+        region = image_config.get("machine", {}).get("region", os.environ.get("FLY_REGION", "sjc"))
+        await fly.warm_image_cache(registry_tag, region=region)
+
+        async with get_db_session() as db:
+            img = (await db.execute(
+                select(LunaImage).where(LunaImage.id == uuid.UUID(image_id))
+            )).scalar_one()
+            img.cache_warmed_at = datetime.now(timezone.utc)
+            await _audit(db, action="image.cache_warmed",
+                         target=image_id, metadata={"version": img.version, "region": region})
+            await db.commit()
+        log.info("Image cache warmed for %s in %s", registry_tag, region)
+    except Exception as e:
+        log.error("Image cache warming failed for %s: %s", registry_tag, e)
+
+
+@router.post("/images/{image_id}/warm-cache")
+async def warm_image_cache(image_id: str, request: Request, admin: User = Depends(require_admin)):
+    """Manually trigger image cache warming."""
+    ip = _client_ip(request)
+    async with get_db_session() as db:
+        img = (await db.execute(
+            select(LunaImage).where(LunaImage.id == uuid.UUID(image_id))
+        )).scalar_one_or_none()
+        if not img:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
+        if img.build_status != "built":
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only built images can be warmed")
+        registry_tag = img.registry_tag
+        image_config = {**DEFAULT_IMAGE_CONFIG, **(img.image_config or {})}
+
+    if not os.environ.get("FLY_API_TOKEN"):
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Fly API not configured")
+
+    from cloud.runtime.fly_machines import FlyMachinesRuntime
+    fly = FlyMachinesRuntime()
+    region = image_config.get("machine", {}).get("region", os.environ.get("FLY_REGION", "sjc"))
+    try:
+        await fly.warm_image_cache(registry_tag, region=region)
+    except Exception as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Cache warming failed: {e}")
+
+    async with get_db_session() as db:
+        img = (await db.execute(
+            select(LunaImage).where(LunaImage.id == uuid.UUID(image_id))
+        )).scalar_one()
+        img.cache_warmed_at = datetime.now(timezone.utc)
+        await _audit(db, action="image.cache_warmed", actor=admin, actor_ip=ip,
+                     target=str(img.id), metadata={"version": img.version, "region": region})
+        await db.commit()
+
+    return {"ok": True, "region": region, "cache_warmed_at": img.cache_warmed_at.isoformat()}
 
 
 @router.post("/images/build")

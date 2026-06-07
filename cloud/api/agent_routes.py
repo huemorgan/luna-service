@@ -15,7 +15,7 @@ from sqlalchemy import select
 
 from cloud.auth.deps import require_active_account
 from cloud.config import get_settings
-from cloud.db.models import Account, Agent, User
+from cloud.db.models import Account, Agent, LunaImage, User
 from cloud.db.session import get_session as get_db_session
 from cloud.storage.r2 import list_prefix_stats, r2_configured
 
@@ -382,6 +382,16 @@ async def get_agent_details(
     compute = dict(metrics.get("compute") or {})
     if compute.get("region"):
         compute["region_label"] = FLY_REGIONS.get(compute["region"], compute["region"])
+
+    image_tag = compute.get("image", "")
+    if image_tag:
+        async with get_db_session() as db:
+            luna_img = (await db.execute(
+                select(LunaImage).where(LunaImage.registry_tag == image_tag)
+            )).scalar_one_or_none()
+            if luna_img:
+                compute["image_version"] = luna_img.version
+                compute["image_cache_warmed_at"] = luna_img.cache_warmed_at.isoformat() if luna_img.cache_warmed_at else None
 
     public_url = f"{settings.base_url.rstrip('/')}/a/{agent.slug}/" if agent.slug else None
 

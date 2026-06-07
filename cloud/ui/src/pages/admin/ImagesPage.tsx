@@ -14,6 +14,7 @@ interface LunaImage {
   created_at: string | null;
   built_at: string | null;
   agent_count: number;
+  cache_warmed_at: string | null;
 }
 
 interface UpdateCheck {
@@ -37,7 +38,7 @@ function formatDate(iso: string | null): string {
   });
 }
 
-function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure, onTestAgent, testingAgent }: {
+function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure, onTestAgent, testingAgent, onWarmCache, warmingCache }: {
   img: LunaImage;
   settingMain: string | null;
   onSetMain: (id: string) => void;
@@ -46,6 +47,8 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure
   onConfigure: (id: string) => void;
   onTestAgent: (id: string) => void;
   testingAgent: string | null;
+  onWarmCache: (id: string) => void;
+  warmingCache: string | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   const hasDetails = img.build_error || img.git_sha || img.registry_tag || img.build_run_id;
@@ -81,6 +84,19 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure
                 <span className="text-xs font-mono" style={{ color: 'var(--text-dim)' }}>{img.git_sha.slice(0, 7)}</span>
               )}
               <span className="text-xs" style={{ color: 'var(--text-dim)' }}>{img.agent_count} agent{img.agent_count !== 1 ? 's' : ''}</span>
+              {img.build_status === 'built' && (
+                img.cache_warmed_at ? (
+                  <span className="flex items-center gap-1 text-xs" style={{ color: '#22c55e' }}>
+                    <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: '#22c55e' }} />
+                    Cache warm
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-dim)', opacity: 0.6 }}>
+                    <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: '#6b7280' }} />
+                    Cache cold
+                  </span>
+                )
+              )}
             </div>
           </div>
         </div>
@@ -104,6 +120,17 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure
             >
               {testingAgent === img.id ? <Loader2 className="animate-spin" size={12} /> : <Play size={12} />}
               Test Agent
+            </button>
+          )}
+          {img.build_status === 'built' && !img.cache_warmed_at && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onWarmCache(img.id); }}
+              disabled={warmingCache === img.id}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80 disabled:opacity-50"
+              style={{ border: '1px solid var(--ink-lighter)', color: 'var(--moon)' }}
+            >
+              {warmingCache === img.id ? <Loader2 className="animate-spin" size={12} /> : <RefreshCw size={12} />}
+              Warm Cache
             </button>
           )}
           {img.build_status === 'failed' && (
@@ -223,6 +250,7 @@ export default function ImagesPage() {
   const [migrating, setMigrating] = useState(false);
   const [migrateResult, setMigrateResult] = useState<{ updated: number; errors: { agent: string; error: string }[] } | null>(null);
   const [testingAgent, setTestingAgent] = useState<string | null>(null);
+  const [warmingCache, setWarmingCache] = useState<string | null>(null);
 
   const fetchImages = useCallback(async () => {
     const res = await fetch('/api/admin/images');
@@ -325,6 +353,22 @@ export default function ImagesPage() {
     setTestingAgent(null);
   };
 
+  const handleWarmCache = async (imageId: string) => {
+    setWarmingCache(imageId);
+    try {
+      const res = await fetch(`/api/admin/images/${imageId}/warm-cache`, { method: 'POST' });
+      if (res.ok) {
+        await fetchImages();
+      } else {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        alert(`Warming failed: ${err.detail || JSON.stringify(err)}`);
+      }
+    } catch (e: unknown) {
+      alert(`Error: ${e instanceof Error ? e.message : e}`);
+    }
+    setWarmingCache(null);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -417,6 +461,8 @@ export default function ImagesPage() {
               onConfigure={(id) => navigate(`/admin/images/${id}`)}
               onTestAgent={handleTestAgent}
               testingAgent={testingAgent}
+              onWarmCache={handleWarmCache}
+              warmingCache={warmingCache}
             />
           ))}
         </div>

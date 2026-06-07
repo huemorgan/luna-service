@@ -43,6 +43,8 @@ interface DetailPayload {
     created_at?: string;
     last_started_at?: string;
     error?: string;
+    image_version?: string;
+    image_cache_warmed_at?: string | null;
   };
   metrics_cached_at: string | null;
   coming_soon: {
@@ -180,7 +182,22 @@ export default function AgentDetail() {
         <span>{compute.region}{compute.region_label && compute.region_label !== compute.region ? ` (${compute.region_label})` : ''}</span>
       ) : '—',
     },
-    { label: 'Image', value: <code className="font-mono text-xs break-all">{compute.image || '—'}</code> },
+    { label: 'Image', value: <code className="font-mono text-xs break-all">{compute.image_version ? `v${compute.image_version}` : (compute.image || '—')}</code> },
+    {
+      label: 'Image cache',
+      value: compute.image_cache_warmed_at ? (
+        <span className="inline-flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full inline-block" style={{ background: '#22c55e' }} />
+          <span style={{ color: '#22c55e' }}>Warm</span>
+          <span className="text-xs" style={{ color: 'var(--text-dim)' }}>· {timeAgo(compute.image_cache_warmed_at)}</span>
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full inline-block" style={{ background: '#6b7280' }} />
+          <span style={{ color: 'var(--text-dim)' }}>Cold</span>
+        </span>
+      ),
+    },
     { label: 'Size', value: <SizePresetSelect current={compute.size || {}} /> },
     {
       label: 'State',
