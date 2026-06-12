@@ -9,6 +9,7 @@ import ImagesPage from './pages/admin/ImagesPage';
 import MachinesPage from './pages/admin/MachinesPage';
 import ChangelogPage from './pages/admin/ChangelogPage';
 import ImageConfigPage from './pages/admin/ImageConfigPage';
+import ServicesPage from './pages/admin/ServicesPage';
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
           <Route path="images" element={<ImagesPage />} />
           <Route path="images/:imageId" element={<ImageConfigPage />} />
           <Route path="machines" element={<MachinesPage />} />
+          <Route path="services" element={<ServicesPage />} />
           <Route path="changelog" element={<ChangelogPage />} />
         </Route>
         <Route path="/:slug" element={<UserLuna />} />
