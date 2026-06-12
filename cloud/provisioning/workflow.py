@@ -13,6 +13,7 @@ from sqlalchemy import select
 from cloud.db.models import Account, Agent, LunaImage
 from cloud.db.session import get_session as get_db_session
 from cloud.db.tenant_provisioner import _safe_schema, provision_tenant_schema
+from cloud.gateway.provision_env import build_gateway_env
 from cloud.runtime.base import AgentSpec
 from cloud.runtime.docker_local import DockerLocalRuntime
 from cloud.runtime.fly_machines import FlyMachinesRuntime
@@ -25,7 +26,7 @@ def _get_runtime():
     kind = os.environ.get("CLOUD_RUNTIME", "docker-local")
     if kind == "docker-local":
         return DockerLocalRuntime()
-    if kind == "fly-machines":
+    if kind in ("fly-machines", "fly"):
         return FlyMachinesRuntime()
     raise ValueError(f"Unknown runtime: {kind}")
 
@@ -130,11 +131,10 @@ async def provision_luna_for_account(account_id: str, *, agent_id: str | None = 
 
     luna_db_url = _build_luna_db_url(tenant_db_url)
 
-    llm_keys = {}
-    for key in ("LUNA_ANTHROPIC_API_KEY", "LUNA_OPENAI_API_KEY", "LUNA_TAVILY_API_KEY"):
-        val = os.environ.get(key, "")
-        if val:
-            llm_keys[key] = val
+    # Gateway env: proxy base URLs + tenant token — no real provider keys.
+    async with get_db_session() as db:
+        llm_keys = await build_gateway_env(db, agent.id)
+        await db.commit()
 
     # Look up the main image to use for provisioning
     image_tag = "local-luna-luna:latest"
@@ -149,6 +149,18 @@ async def provision_luna_for_account(account_id: str, *, agent_id: str | None = 
             image_version = main_image.version
             image_config = main_image.image_config or {}
 
+    try:
+        runtime = _get_runtime()
+    except Exception as e:
+        log.error("Runtime init failed for %s: %s", account.slug, e)
+        async with get_db_session() as db:
+            agent = (await db.execute(select(Agent).where(Agent.id == agent.id))).scalar_one()
+            agent.status = "error"
+            agent.error_message = f"Runtime configuration error: {e}"
+            agent.error_at = datetime.now(timezone.utc)
+            await db.commit()
+        raise
+
     spec = AgentSpec(
         account_slug=account.slug,
         agent_slug=agent.slug,
@@ -161,7 +173,6 @@ async def provision_luna_for_account(account_id: str, *, agent_id: str | None = 
         image_config=image_config,
     )
 
-    runtime = _get_runtime()
     try:
         handle = await runtime.provision(spec)
     except Exception as e:
@@ -252,13 +263,24 @@ async def provision_luna_for_account_with_image(
     proxy_secret = os.environ.get("CLOUD_TRUSTED_PROXY_SECRET", secrets.token_urlsafe(32))
     luna_db_url = _build_luna_db_url(tenant_db_url)
 
-    llm_keys = {}
-    for key in ("LUNA_ANTHROPIC_API_KEY", "LUNA_OPENAI_API_KEY", "LUNA_TAVILY_API_KEY"):
-        val = os.environ.get(key, "")
-        if val:
-            llm_keys[key] = val
+    # Gateway env: proxy base URLs + tenant token — no real provider keys.
+    async with get_db_session() as db:
+        llm_keys = await build_gateway_env(db, agent.id)
+        await db.commit()
 
     image_config = image.image_config or {}
+
+    try:
+        runtime = _get_runtime()
+    except Exception as e:
+        log.error("Runtime init failed for %s: %s", agent.slug, e)
+        async with get_db_session() as db:
+            agent = (await db.execute(select(Agent).where(Agent.id == agent.id))).scalar_one()
+            agent.status = "error"
+            agent.error_message = f"Runtime configuration error: {e}"
+            agent.error_at = datetime.now(timezone.utc)
+            await db.commit()
+        raise
 
     spec = AgentSpec(
         account_slug=account.slug,
@@ -272,7 +294,6 @@ async def provision_luna_for_account_with_image(
         image_config=image_config,
     )
 
-    runtime = _get_runtime()
     try:
         handle = await runtime.provision(spec)
     except Exception as e:

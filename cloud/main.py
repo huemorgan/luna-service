@@ -13,6 +13,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from cloud.api.admin_routes import router as admin_router
 from cloud.api.agent_routes import router as agent_router
 from cloud.api.auth_routes import router as auth_router
+from cloud.api.gateway_admin_routes import router as gateway_admin_router
+from cloud.api.gateway_proxy import router as gateway_proxy_router
 from cloud.api.proxy import router as proxy_router
 from cloud.config import get_settings
 from cloud.db.models import Base
@@ -23,7 +25,7 @@ UI_DIR = Path(__file__).parent / "ui" / "dist"
 RESERVED_PREFIXES = (
     "/api/", "/auth/", "/healthz",
     "/assets/", "/favicon", "/icons",
-    "/a/",
+    "/a/", "/proxy/",
 )
 
 
@@ -108,6 +110,13 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("""
             DELETE FROM agents WHERE status IN ('error', 'provisioning') AND runtime_ref IS NULL AND slug IS NULL
         """))
+
+    # Seed the credential-gateway service registry (insert-if-missing only)
+    from cloud.db.session import get_session as _get_db
+    from cloud.gateway.registry import seed_services
+    async with _get_db() as db:
+        await seed_services(db)
+        await db.commit()
     yield
     await dispose_engine()
 
@@ -143,7 +152,9 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_router)
     app.include_router(admin_router)
+    app.include_router(gateway_admin_router)
     app.include_router(agent_router)
+    app.include_router(gateway_proxy_router)
     app.include_router(proxy_router)
 
     return app
