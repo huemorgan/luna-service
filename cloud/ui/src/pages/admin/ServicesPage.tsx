@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   KeyRound, Loader2, Plus, Trash2, ChevronDown, ChevronRight,
-  Snowflake, CheckCircle2, XCircle, BarChart3,
+  Snowflake, BarChart3,
 } from 'lucide-react';
 
 interface Service {
@@ -83,7 +83,7 @@ export default function ServicesPage() {
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-xl font-bold flex items-center gap-2" style={{ color: 'var(--text)' }}>
           <KeyRound size={20} style={{ color: 'var(--moon)' }} />
-          Services
+          Key Registry
         </h2>
         <button
           onClick={() => setShowAddService(v => !v)}
@@ -147,12 +147,6 @@ function ServiceRow({ svc, expanded, onToggleExpand, onToggleField, onError, onC
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{svc.display_name}</span>
             <code className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--ink)', color: 'var(--text-dim)' }}>{svc.slug}</code>
-            {!svc.enabled && (
-              <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,107,107,0.15)', color: '#ff6b6b' }}>disabled</span>
-            )}
-            {svc.provision_by_default && (
-              <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(120,220,160,0.15)', color: '#78dca0' }}>provisioned</span>
-            )}
           </div>
           <div className="text-xs mt-0.5" style={{ color: 'var(--text-dim)' }}>
             {svc.upstream_url} · {svc.auth_style} · {svc.key_count} key{svc.key_count === 1 ? '' : 's'}
@@ -167,8 +161,8 @@ function ServiceRow({ svc, expanded, onToggleExpand, onToggleField, onError, onC
             <span>Vault: <code>{svc.luna_credential_name}</code></span>
           </div>
           <div className="flex items-center gap-3 mb-4">
-            <Toggle label="Enabled" value={svc.enabled} onChange={() => onToggleField(svc, 'enabled')} />
-            <Toggle label="Provision by default" value={svc.provision_by_default} onChange={() => onToggleField(svc, 'provision_by_default')} />
+            <OnOffPill label="Enabled" description="gateway accepts requests" value={svc.enabled} onChange={() => onToggleField(svc, 'enabled')} />
+            <OnOffPill label="Provision by default" description="auto-add key for new agents" value={svc.provision_by_default} onChange={() => onToggleField(svc, 'provision_by_default')} />
           </div>
           <KeyPool slug={svc.slug} onError={onError} onChanged={onChanged} />
         </div>
@@ -177,18 +171,29 @@ function ServiceRow({ svc, expanded, onToggleExpand, onToggleField, onError, onC
   );
 }
 
-function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: () => void }) {
+function OnOffPill({ label, description, value, onChange }: {
+  label: string;
+  description?: string;
+  value: boolean;
+  onChange: () => void;
+}) {
   return (
     <button
       onClick={onChange}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+      className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
       style={{
-        background: value ? 'rgba(120,220,160,0.15)' : 'var(--ink)',
-        color: value ? '#78dca0' : 'var(--text-dim)',
+        background: value ? 'rgba(34,197,94,0.12)' : 'var(--ink)',
+        color: value ? '#22c55e' : 'var(--text-dim)',
       }}
     >
-      {value ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
+      <span
+        className="w-2 h-2 rounded-full flex-shrink-0"
+        style={{ background: value ? '#22c55e' : '#6b7280' }}
+      />
       {label}
+      {description && (
+        <span style={{ color: 'var(--text-dim)', fontWeight: 400 }}>— {description}</span>
+      )}
     </button>
   );
 }

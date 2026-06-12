@@ -60,6 +60,9 @@ class FlyMachinesRuntime:
                     log.info("Restarted machine %s (id=%s)", machine_name, mid)
                     await self._wait_healthy(mid)
                     return RuntimeHandle("fly-machine", mid, url)
+                log.warning("Machine %s in state '%s' — destroying before recreate", machine_name, state)
+                await client.delete(f"/machines/{mid}?force=true")
+                log.info("Destroyed stale machine %s (id=%s)", machine_name, mid)
 
         ic = spec.image_config
         machine_cfg = ic.get("machine", {})
@@ -72,7 +75,6 @@ class FlyMachinesRuntime:
             "LUNA_AUTH_MODE": "trusted_proxy",
             "LUNA_TRUSTED_PROXY_SECRET": spec.trusted_proxy_secret,
             "LUNA_DATABASE_URL": spec.db_url,
-            "LUNA_DB_SCHEMA": spec.db_schema,
             "LUNA_VAULT_MASTER_KEY": spec.vault_key,
             "LUNA_REDIS_URL": "",
             "LUNA_CORS_ORIGINS": "*",
@@ -210,6 +212,29 @@ class FlyMachinesRuntime:
         config["image"] = new_image
         resp = await client.post(f"/machines/{machine_id}", json={"config": config})
         resp.raise_for_status()
+        return resp.json()
+
+    async def update_machine_env(self, machine_id: str, env_updates: dict[str, str],
+                                 remove_keys: list[str] | None = None) -> dict:
+        """Merge env vars into a machine's config in place (keeps volume + id).
+
+        Updating config triggers Fly to recreate the machine with the new env
+        and restart it. Used by the 014 fleet migration to repoint each agent
+        at its isolated DB and rotate its trusted-proxy secret.
+        """
+        client = self._get_client()
+        resp = await client.get(f"/machines/{machine_id}")
+        resp.raise_for_status()
+        machine = resp.json()
+        config = machine.get("config", {})
+        env = dict(config.get("env", {}))
+        env.update(env_updates)
+        for k in (remove_keys or []):
+            env.pop(k, None)
+        config["env"] = env
+        resp = await client.post(f"/machines/{machine_id}", json={"config": config})
+        resp.raise_for_status()
+        await self._wait_healthy(machine_id)
         return resp.json()
 
     async def warm_image_cache(self, image_tag: str, region: str | None = None) -> None:

@@ -121,7 +121,10 @@ async def _proxy_request(
     request: Request, user: User, agent: Agent, agent_slug: str, path: str,
 ) -> Response:
     """Build and send the proxied request. Returns the response."""
-    proxy_secret = os.environ.get("CLOUD_TRUSTED_PROXY_SECRET", "dev-proxy-secret")
+    from cloud.runtime.proxy_secret import derive_proxy_secret
+
+    root_secret = os.environ.get("CLOUD_TRUSTED_PROXY_SECRET", "dev-proxy-secret")
+    proxy_secret = derive_proxy_secret(root_secret, str(agent.id))
 
     target_url = f"{agent.internal_url}/{path}"
     if request.url.query:
