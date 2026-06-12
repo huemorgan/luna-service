@@ -180,19 +180,29 @@ function OnOffPill({ label, description, value, onChange }: {
   return (
     <button
       onClick={onChange}
-      className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-      style={{
-        background: value ? 'rgba(34,197,94,0.12)' : 'var(--ink)',
-        color: value ? '#22c55e' : 'var(--text-dim)',
-      }}
+      className="flex items-center gap-2.5 text-xs font-medium group"
+      style={{ color: 'var(--text-dim)' }}
     >
       <span
-        className="w-2 h-2 rounded-full flex-shrink-0"
-        style={{ background: value ? '#22c55e' : '#6b7280' }}
-      />
-      {label}
+        className="relative inline-flex items-center flex-shrink-0 rounded-full transition-colors duration-200"
+        style={{
+          width: 36,
+          height: 20,
+          background: value ? '#22c55e' : '#4b5563',
+        }}
+      >
+        <span
+          className="inline-block rounded-full bg-white shadow transition-transform duration-200"
+          style={{
+            width: 16,
+            height: 16,
+            transform: value ? 'translateX(18px)' : 'translateX(2px)',
+          }}
+        />
+      </span>
+      <span style={{ color: value ? 'var(--text)' : 'var(--text-dim)' }}>{label}</span>
       {description && (
-        <span style={{ color: 'var(--text-dim)', fontWeight: 400 }}>— {description}</span>
+        <span style={{ fontWeight: 400 }}>— {description}</span>
       )}
     </button>
   );
