@@ -66,6 +66,11 @@ def _host_for_runtime(url: str) -> str:
             r"@\1.oregon-postgres.render.com/",
             url,
         )
+    elif runtime_kind == "docker-local":
+        # Luna only speaks asyncpg — keep the driver even after the host swap
+        # above removed "localhost" from the URL.
+        if "+asyncpg" not in url:
+            url = url.replace("postgresql://", "postgresql+asyncpg://")
     elif "localhost" not in url:
         url = url.replace("postgresql+asyncpg://", "postgresql://")
 
