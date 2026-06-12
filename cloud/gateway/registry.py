@@ -22,7 +22,10 @@ SEED_SERVICES: list[dict] = [
     {
         "slug": "openai",
         "display_name": "OpenAI",
-        "upstream_url": "https://api.openai.com",
+        # The OpenAI SDK's default base is .../v1, so with a base_url override
+        # it appends bare paths (/embeddings, /chat/completions) — the /v1
+        # must live here.
+        "upstream_url": "https://api.openai.com/v1",
         "auth_style": "header:Authorization:Bearer",
         "enabled": True,
         "provision_by_default": True,
