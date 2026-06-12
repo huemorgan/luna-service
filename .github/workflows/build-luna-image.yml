@@ -47,6 +47,7 @@ jobs:
         run: |
           flyctl auth docker
           docker build \
+            -f ../docker/luna-hosted.Dockerfile \
             -t registry.fly.io/luna-agents:${{ github.event.inputs.version }} \
             -t registry.fly.io/luna-agents:latest \
             .
