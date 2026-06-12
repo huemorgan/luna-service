@@ -11,7 +11,7 @@ const NAV_ITEMS = [
   { to: '/admin/admins', label: 'Admins', icon: Shield },
   { to: '/admin/images', label: 'Luna Images', icon: Package },
   { to: '/admin/machines', label: 'Machines', icon: Server },
-  { to: '/admin/services', label: 'Services', icon: KeyRound },
+  { to: '/admin/services', label: 'Key Registry', icon: KeyRound },
   { to: '/admin/changelog', label: 'Changelog', icon: ScrollText },
 ];
 
