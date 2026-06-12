@@ -24,6 +24,7 @@ from cloud.db.tenant_provisioner import (
     provision_tenant_database,
 )
 from cloud.gateway.provision_env import build_gateway_env
+from cloud.relay.secrets import derive_relay_secret
 from cloud.runtime.base import AgentSpec
 from cloud.runtime.docker_local import DockerLocalRuntime
 from cloud.runtime.fly_machines import FlyMachinesRuntime
@@ -121,6 +122,12 @@ async def _provision_core(
     async with get_db_session() as db:
         llm_keys = await build_gateway_env(db, agent_id)
         await db.commit()
+
+    # Plan 015: per-agent Composio relay secret — the trigger relay signs
+    # forwarded webhook events with this; Luna verifies once 007.003 ships.
+    llm_keys["LUNA_COMPOSIO_WEBHOOK_SECRET"] = derive_relay_secret(
+        root_proxy_secret, str(agent_id)
+    )
 
     try:
         runtime = _get_runtime()
