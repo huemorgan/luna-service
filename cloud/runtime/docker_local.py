@@ -50,7 +50,6 @@ class DockerLocalRuntime:
             "LUNA_AUTH_MODE": "trusted_proxy",
             "LUNA_TRUSTED_PROXY_SECRET": spec.trusted_proxy_secret,
             "LUNA_DATABASE_URL": spec.db_url,
-            "LUNA_DB_SCHEMA": spec.db_schema,
             "LUNA_VAULT_MASTER_KEY": spec.vault_key,
             "LUNA_REDIS_URL": "redis://luna-service-redis:6379/0",
             "LUNA_CORS_ORIGINS": "*",

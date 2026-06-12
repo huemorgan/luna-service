@@ -300,6 +300,15 @@ function AgentCard({
                 </span>
               )}
             </div>
+            {(agent.status === 'error' || stuckProvisioning) && agent.error_message && (
+              <div
+                className="flex items-start gap-2 mt-2 rounded-lg px-3 py-2 text-xs"
+                style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)' }}
+              >
+                <AlertTriangle size={12} className="flex-shrink-0 mt-0.5" style={{ color: '#ef4444' }} />
+                <span style={{ color: '#fca5a5' }}>{agent.error_message}</span>
+              </div>
+            )}
           </div>
         </div>
 

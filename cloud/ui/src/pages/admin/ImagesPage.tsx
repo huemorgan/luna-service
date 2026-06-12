@@ -51,8 +51,6 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure
   warmingCache: string | null;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const hasDetails = img.build_error || img.git_sha || img.registry_tag || img.build_run_id;
-
   return (
     <div
       className="rounded-xl border overflow-hidden"
@@ -64,7 +62,7 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure
     >
       <div
         className="flex items-center justify-between px-5 py-4 cursor-pointer select-none"
-        onClick={() => hasDetails && setExpanded(!expanded)}
+        onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-4">
           <div
@@ -77,6 +75,14 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure
               <span className="text-xs capitalize px-2 py-0.5 rounded-full" style={{ background: 'var(--ink-light)', color: STATUS_COLORS[img.build_status] }}>
                 {img.build_status}
               </span>
+              {img.build_status === 'built' && img.is_main && (
+                <span
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
+                  style={{ border: '1px solid rgba(201,184,255,0.3)', color: 'var(--moon)' }}
+                >
+                  <Star size={10} /> Main
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-3 mt-1">
               <span className="text-xs" style={{ color: 'var(--text-dim)' }}>{formatDate(img.built_at || img.created_at)}</span>
@@ -102,70 +108,10 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure
         </div>
 
         <div className="flex items-center gap-2">
-          {img.build_status === 'built' && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onConfigure(img.id); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80"
-              style={{ border: '1px solid var(--ink-lighter)', color: 'var(--moon)' }}
-            >
-              <Settings size={12} /> Configure
-            </button>
-          )}
-          {img.build_status === 'built' && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onTestAgent(img.id); }}
-              disabled={testingAgent === img.id}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80 disabled:opacity-50"
-              style={{ border: '1px solid var(--ink-lighter)', color: 'var(--moon)' }}
-            >
-              {testingAgent === img.id ? <Loader2 className="animate-spin" size={12} /> : <Play size={12} />}
-              Test Agent
-            </button>
-          )}
-          {img.build_status === 'built' && !img.cache_warmed_at && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onWarmCache(img.id); }}
-              disabled={warmingCache === img.id}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80 disabled:opacity-50"
-              style={{ border: '1px solid var(--ink-lighter)', color: 'var(--moon)' }}
-            >
-              {warmingCache === img.id ? <Loader2 className="animate-spin" size={12} /> : <RefreshCw size={12} />}
-              Warm Cache
-            </button>
-          )}
-          {img.build_status === 'failed' && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onRetry(); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80"
-              style={{ border: '1px solid var(--ink-lighter)', color: 'var(--moon)' }}
-            >
-              <RotateCcw size={12} /> Retry
-            </button>
-          )}
-          {img.build_status === 'built' && img.is_main && (
-            <span
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
-              style={{ border: '1px solid rgba(201,184,255,0.3)', color: 'var(--moon)' }}
-            >
-              <Star size={12} /> Main
-            </span>
-          )}
-          {img.build_status === 'built' && !img.is_main && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onSetMain(img.id); }}
-              disabled={settingMain === img.id}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80 disabled:opacity-50"
-              style={{ border: '1px solid var(--ink-lighter)', color: 'var(--moon)' }}
-            >
-              {settingMain === img.id ? <Loader2 className="animate-spin" size={12} /> : <Star size={12} />}
-              Set as Main
-            </button>
-          )}
-          {hasDetails && (
-            expanded
-              ? <ChevronDown size={16} style={{ color: 'var(--text-dim)' }} />
-              : <ChevronRight size={16} style={{ color: 'var(--text-dim)' }} />
-          )}
+          {expanded
+            ? <ChevronDown size={16} style={{ color: 'var(--text-dim)' }} />
+            : <ChevronRight size={16} style={{ color: 'var(--text-dim)' }} />
+          }
         </div>
       </div>
 
@@ -214,10 +160,52 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure
           )}
 
           <div className="flex items-center gap-2 pt-1">
+            {img.build_status === 'built' && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onConfigure(img.id); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--ink-light)]"
+                style={{ border: '1px solid var(--ink-lighter)', color: 'var(--moon)' }}
+              >
+                <Settings size={12} /> Configure
+              </button>
+            )}
+            {img.build_status === 'built' && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onTestAgent(img.id); }}
+                disabled={testingAgent === img.id}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--ink-light)] disabled:opacity-50"
+                style={{ border: '1px solid var(--ink-lighter)', color: 'var(--moon)' }}
+              >
+                {testingAgent === img.id ? <Loader2 className="animate-spin" size={12} /> : <Play size={12} />}
+                Test Agent
+              </button>
+            )}
+            {img.build_status === 'built' && !img.cache_warmed_at && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onWarmCache(img.id); }}
+                disabled={warmingCache === img.id}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--ink-light)] disabled:opacity-50"
+                style={{ border: '1px solid var(--ink-lighter)', color: 'var(--moon)' }}
+              >
+                {warmingCache === img.id ? <Loader2 className="animate-spin" size={12} /> : <RefreshCw size={12} />}
+                Warm Cache
+              </button>
+            )}
+            {img.build_status === 'built' && !img.is_main && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onSetMain(img.id); }}
+                disabled={settingMain === img.id}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--ink-light)] disabled:opacity-50"
+                style={{ border: '1px solid var(--ink-lighter)', color: 'var(--moon)' }}
+              >
+                {settingMain === img.id ? <Loader2 className="animate-spin" size={12} /> : <Star size={12} />}
+                Set as Main
+              </button>
+            )}
             {img.build_status === 'failed' && (
               <button
                 onClick={(e) => { e.stopPropagation(); onRetry(); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--ink-light)]"
                 style={{ border: '1px solid var(--ink-lighter)', color: 'var(--moon)' }}
               >
                 <RotateCcw size={12} /> Retry Build
@@ -226,7 +214,7 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure
             {!img.is_main && img.build_status !== 'building' && (
               <button
                 onClick={(e) => { e.stopPropagation(); onDelete(img.id); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-[rgba(239,68,68,0.08)]"
                 style={{ border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444' }}
               >
                 <Trash2 size={12} /> Delete
@@ -378,7 +366,7 @@ export default function ImagesPage() {
   }
 
   return (
-    <div className="max-w-3xl">
+    <div className="w-full">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold flex items-center gap-2" style={{ color: 'var(--text)' }}>
           <Package size={20} style={{ color: 'var(--moon)' }} />
