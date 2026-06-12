@@ -368,6 +368,11 @@ async def test_build_gateway_env(db_session, sample_agent, monkeypatch):
     assert env["LUNA_ANTHROPIC_API_KEY"].startswith("lsv1-")
     assert env["LUNA_OPENAI_API_KEY"] == env["LUNA_ANTHROPIC_API_KEY"]
     assert env["LUNA_HOST_NAME"]
+    # SDK-standard mirrors for the pydantic-ai chat path (014)
+    assert env["ANTHROPIC_BASE_URL"] == env["LUNA_ANTHROPIC_BASE_URL"]
+    assert env["ANTHROPIC_API_KEY"] == env["LUNA_ANTHROPIC_API_KEY"]
+    assert env["OPENAI_BASE_URL"] == env["LUNA_OPENAI_BASE_URL"]
+    assert env["OPENAI_API_KEY"] == env["LUNA_OPENAI_API_KEY"]
     # Legacy exception until Luna 007.001
     assert env["LUNA_TAVILY_API_KEY"] == "tvly-real-key"
     # The real Anthropic key must not appear anywhere

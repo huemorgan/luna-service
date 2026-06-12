@@ -44,6 +44,13 @@ async def build_gateway_env(db: AsyncSession, agent_id: uuid.UUID) -> dict[str, 
     for svc in services:
         env[svc.luna_env_base_url_var] = f"{base}/proxy/{svc.slug}"
         env[svc.luna_env_key_var] = token
+        # Also emit the SDK-standard vars (ANTHROPIC_BASE_URL, OPENAI_API_KEY,
+        # …). Luna's pydantic-ai chat path builds default SDK clients, which
+        # read these directly — without them chat bypasses the gateway and
+        # sends the lsv1 token straight to the provider (401).
+        for luna_var in (svc.luna_env_base_url_var, svc.luna_env_key_var):
+            if luna_var.startswith("LUNA_"):
+                env[luna_var.removeprefix("LUNA_")] = env[luna_var]
 
     # Legacy exception — documented in plan 013 / tests 07.
     for var in LEGACY_REAL_KEY_VARS:
