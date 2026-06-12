@@ -153,7 +153,13 @@ async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
 
     # ── BYOK passthrough ─────────────────────────────────────────────────
     if candidates is None:
-        resp = await _send_upstream(request, service, path, auth, credential, body)
+        try:
+            resp = await _send_upstream(request, service, path, auth, credential, body)
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                f"Upstream '{service_slug}' unreachable: {type(exc).__name__}",
+            )
         return _stream_response(
             resp,
             service_slug=service_slug,
@@ -163,9 +169,14 @@ async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
         )
 
     # ── Managed flow with one fallback retry ─────────────────────────────
-    last_resp: httpx.Response | None = None
     for attempt, (key_id, real_key) in enumerate(candidates):
-        resp = await _send_upstream(request, service, path, auth, real_key, body)
+        try:
+            resp = await _send_upstream(request, service, path, auth, real_key, body)
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                f"Upstream '{service_slug}' unreachable: {type(exc).__name__}",
+            )
         if resp.status_code in _FALLBACK_STATUSES and attempt + 1 < len(candidates):
             await resp.aread()
             await resp.aclose()
@@ -176,7 +187,6 @@ async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
                 "gateway key fallback: service=%s key=%s status=%s",
                 service_slug, key_id, resp.status_code,
             )
-            last_resp = None
             continue
         if resp.status_code in _FALLBACK_STATUSES:
             # Last candidate also failed — cooldown it and return the error.
