@@ -110,6 +110,86 @@ class LunaImage(Base):
     cache_warmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class GatewayService(Base):
+    """Registry of external keyed services the credential gateway can proxy.
+
+    Adding a service is a data operation — the proxy route, key pool, and
+    provisioning all key off these rows.
+    """
+
+    __tablename__ = "gateway_services"
+
+    slug: Mapped[str] = mapped_column(Text, primary_key=True)
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    upstream_url: Mapped[str] = mapped_column(Text, nullable=False)
+    # "header:x-api-key" or "header:Authorization:Bearer"
+    auth_style: Mapped[str] = mapped_column(Text, nullable=False)
+    luna_credential_name: Mapped[str] = mapped_column(Text, nullable=False)
+    luna_env_key_var: Mapped[str] = mapped_column(Text, nullable=False)
+    luna_env_base_url_var: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    provision_by_default: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+
+class GatewayKey(Base):
+    """Pool of real provider keys. Two scopes: 'global' or 'agent:<agent_id>'.
+
+    Resolution: agent-scoped first, then global, priority ascending within
+    each scope. Keys on cooldown are skipped.
+    """
+
+    __tablename__ = "gateway_keys"
+    __table_args__ = (
+        UniqueConstraint("service_slug", "scope", "priority"),
+        Index("ix_gateway_keys_service_scope", "service_slug", "scope"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    service_slug: Mapped[str] = mapped_column(Text, ForeignKey("gateway_services.slug", ondelete="CASCADE"))
+    scope: Mapped[str] = mapped_column(Text, nullable=False, default="global")
+    priority: Mapped[int] = mapped_column(nullable=False, default=1)
+    api_key_enc: Mapped[str] = mapped_column(Text, nullable=False)  # AES-GCM, base64
+    label: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    cooldown_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class GatewayTenantToken(Base):
+    """Tenant tokens (lsv1-…) injected into machines. Hash at rest only."""
+
+    __tablename__ = "gateway_tenant_tokens"
+
+    token_hash: Mapped[str] = mapped_column(Text, primary_key=True)  # sha256 hex
+    agent_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class UsageEvent(Base):
+    """One row per proxied request. billable=False for BYOK passthrough."""
+
+    __tablename__ = "usage_events"
+    __table_args__ = (
+        Index("ix_usage_events_agent_created", "agent_id", "created_at"),
+        Index("ix_usage_events_service_created", "service_slug", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL"))
+    service_slug: Mapped[str] = mapped_column(Text, nullable=False)
+    billable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    key_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    status_code: Mapped[int | None] = mapped_column()
+    request_count: Mapped[int] = mapped_column(nullable=False, default=1)
+    input_tokens: Mapped[int | None] = mapped_column()
+    output_tokens: Mapped[int | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_log"
     __table_args__ = (
