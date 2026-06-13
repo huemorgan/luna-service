@@ -146,18 +146,19 @@ function ConnectorsPluginSection({
           The plugin renders one tab per allowed account source in the agent's
           Settings → Connectors page.
         </p>
-        <div className="space-y-2">
-          {options.map(opt => {
+        <div
+          className="rounded-lg overflow-hidden"
+          style={{ border: '1px solid var(--ink-lighter)', opacity: busy ? 0.6 : 1 }}
+        >
+          {options.map((opt, i) => {
             const selected = current === opt.value;
             return (
               <label
                 key={opt.value}
-                className="flex items-start gap-3 rounded-lg px-3 py-2.5 cursor-pointer transition-colors"
+                className="flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-colors"
                 style={{
                   background: selected ? 'rgba(201,184,255,0.08)' : 'transparent',
-                  border: '1px solid',
-                  borderColor: selected ? 'var(--moon)' : 'var(--ink-lighter)',
-                  opacity: busy ? 0.6 : 1,
+                  borderTop: i === 0 ? 'none' : '1px solid var(--ink-lighter)',
                 }}
               >
                 <input
