@@ -22,6 +22,7 @@ from cloud.gateway import tokens as token_svc
 from cloud.gateway.crypto import decrypt_key
 from cloud.gateway.metering import UsageScanner, record_usage
 from cloud.gateway.registry import AuthStyle, get_service, parse_auth_style
+from cloud.relay import capture as composio_capture
 
 log = logging.getLogger(__name__)
 
@@ -89,10 +90,19 @@ def _stream_response(
         response_headers["cache-control"] = "no-cache"
         response_headers["x-accel-buffering"] = "no"
 
+    # Plan 015: harvest connected-account ids from Composio responses so the
+    # trigger relay can route webhook events to this agent.
+    capture_composio = (
+        service_slug == "composio" and agent_id is not None and resp.status_code < 400
+    )
+    capture_buf = bytearray()
+
     async def stream():
         try:
             async for chunk in resp.aiter_bytes():
                 scanner.feed(chunk)
+                if capture_composio and len(capture_buf) <= composio_capture.MAX_CAPTURE_BYTES:
+                    capture_buf.extend(chunk)
                 yield chunk
         finally:
             await resp.aclose()
@@ -108,6 +118,11 @@ def _stream_response(
                 )
             except Exception:  # noqa: BLE001 — metering must never break the response
                 log.exception("usage_event write failed for %s", service_slug)
+            if capture_composio:
+                # Best-effort; never breaks the response (same rule as metering).
+                await composio_capture.capture_from_gateway_response(
+                    agent_id, content_type, bytes(capture_buf),
+                )
 
     return StreamingResponse(
         stream(),

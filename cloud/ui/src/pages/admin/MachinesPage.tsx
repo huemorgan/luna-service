@@ -13,6 +13,8 @@ interface Machine {
   fly_region: string | null;
   fly_image: string | null;
   fly_created_at: string | null;
+  composio_accounts_mode: 'hosted' | 'user' | 'both';
+  composio_accounts_mode_override: 'hosted' | 'user' | 'both' | null;
 }
 
 const STATE_COLORS: Record<string, string> = {
@@ -44,6 +46,20 @@ export default function MachinesPage() {
     setUpdating(machineId);
     const res = await fetch(`/api/admin/machines/${machineId}/update-image`, { method: 'POST' });
     if (res.ok) await fetchMachines();
+    setUpdating(null);
+  };
+
+  // Plan 016: per-machine Composio accounts-mode override.
+  // value === "" means "Use image default" (clear the override).
+  const handleSetComposioMode = async (machineId: string, value: string) => {
+    setUpdating(machineId);
+    const accounts_mode = value === '' ? null : value;
+    await fetch(`/api/admin/machines/${machineId}/services/composio`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accounts_mode }),
+    });
+    await fetchMachines();
     setUpdating(null);
   };
 
@@ -134,6 +150,7 @@ export default function MachinesPage() {
                 <th className="text-left text-xs font-medium px-4 py-3" style={{ color: 'var(--text-dim)' }}>Region</th>
                 <th className="text-left text-xs font-medium px-4 py-3" style={{ color: 'var(--text-dim)' }}>Version</th>
                 <th className="text-left text-xs font-medium px-4 py-3" style={{ color: 'var(--text-dim)' }}>Machine ID</th>
+                <th className="text-left text-xs font-medium px-4 py-3" style={{ color: 'var(--text-dim)' }}>Connectors mode</th>
                 <th className="text-right text-xs font-medium px-4 py-3" style={{ color: 'var(--text-dim)' }}></th>
               </tr>
             </thead>
@@ -166,6 +183,33 @@ export default function MachinesPage() {
                     <span className="text-xs font-mono" style={{ color: 'var(--text-dim)' }}>
                       {m.machine_id ? m.machine_id.slice(0, 12) : '—'}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {m.machine_id && (
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={m.composio_accounts_mode_override ?? ''}
+                          onChange={e => handleSetComposioMode(m.machine_id!, e.target.value)}
+                          disabled={updating === m.machine_id}
+                          className="rounded-lg px-2 py-1 text-xs outline-none disabled:opacity-50"
+                          style={{
+                            background: 'var(--ink-light)',
+                            color: 'var(--text)',
+                            border: '1px solid var(--ink-lighter)',
+                          }}
+                        >
+                          <option value="">Use image default ({m.composio_accounts_mode})</option>
+                          <option value="hosted">hosted</option>
+                          <option value="user">user</option>
+                          <option value="both">both</option>
+                        </select>
+                        {m.composio_accounts_mode_override && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
+                            background: 'rgba(201,184,255,0.15)', color: 'var(--moon)',
+                          }}>override</span>
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
                     {m.machine_id && (

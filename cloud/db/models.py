@@ -88,6 +88,10 @@ class Agent(Base):
     image_version: Mapped[str | None] = mapped_column(Text)
     cached_metrics: Mapped[dict | None] = mapped_column(JSONB)
     cached_metrics_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Plan 016: per-agent overrides on top of LunaImage.image_config. Same
+    # nested shape as image_config (e.g. {"services": {"composio": {...}}}).
+    # NULL means "inherit everything from the image".
+    config_overrides: Mapped[dict | None] = mapped_column(JSONB)
 
     account: Mapped[Account] = relationship(back_populates="agents")
 
@@ -188,6 +192,52 @@ class UsageEvent(Base):
     input_tokens: Mapped[int | None] = mapped_column()
     output_tokens: Mapped[int | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ComposioAccountLink(Base):
+    """connected_account_id → agent routing for the trigger relay (plan 015).
+
+    Rows are captured from gateway responses (source='gateway') or entered
+    by an admin (source='admin'). The relay routes ONLY from this table —
+    never from labels inside a webhook payload.
+    """
+
+    __tablename__ = "composio_account_links"
+
+    connected_account_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    app_name: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(Text, nullable=False, default="gateway")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RelayDelivery(Base):
+    """Outbox row per accepted Composio webhook delivery (plan 015)."""
+
+    __tablename__ = "relay_deliveries"
+    __table_args__ = (
+        Index("ix_relay_deliveries_status_next", "status", "next_attempt_at"),
+        Index("ix_relay_deliveries_created", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    webhook_id: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    connected_account_id: Mapped[str | None] = mapped_column(Text)
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL")
+    )
+    # pending | delivered | dead | unroutable
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(nullable=False, default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_status_code: Mapped[int | None] = mapped_column()
+    last_error: Mapped[str | None] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(Text, nullable=False)  # raw JSON payload (≤200 KB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class AuditLog(Base):

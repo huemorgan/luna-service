@@ -16,6 +16,7 @@ from cloud.api.auth_routes import router as auth_router
 from cloud.api.gateway_admin_routes import router as gateway_admin_router
 from cloud.api.gateway_proxy import router as gateway_proxy_router
 from cloud.api.proxy import router as proxy_router
+from cloud.api.relay_routes import router as relay_router
 from cloud.config import get_settings
 from cloud.db.models import Base
 from cloud.db.session import dispose_engine
@@ -70,6 +71,7 @@ async def lifespan(app: FastAPI):
             ("cached_metrics", "JSONB"),
             ("cached_metrics_at", "TIMESTAMPTZ"),
             ("image_version", "TEXT"),
+            ("config_overrides", "JSONB"),
         ]:
             await conn.execute(text(
                 f"ALTER TABLE agents ADD COLUMN IF NOT EXISTS {col} {coltype}"
@@ -117,7 +119,23 @@ async def lifespan(app: FastAPI):
     async with _get_db() as db:
         await seed_services(db)
         await db.commit()
+
+    # Composio trigger-relay forwarder (plan 015)
+    import asyncio
+    import os
+    forwarder_task = None
+    if os.environ.get("CLOUD_RELAY_FORWARDER", "1") == "1":
+        from cloud.relay.forwarder import forwarder_loop
+        forwarder_task = asyncio.create_task(forwarder_loop())
+
     yield
+
+    if forwarder_task:
+        forwarder_task.cancel()
+        try:
+            await forwarder_task
+        except (asyncio.CancelledError, Exception):
+            pass
     await dispose_engine()
 
 
@@ -154,6 +172,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_router)
     app.include_router(gateway_admin_router)
     app.include_router(agent_router)
+    app.include_router(relay_router)
     app.include_router(gateway_proxy_router)
     app.include_router(proxy_router)
 

@@ -16,6 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cloud.config import get_settings
 from cloud.db.models import GatewayService
 from cloud.gateway.tokens import issue_token
+from cloud.provisioning.services_config import (
+    hosted_composio_key_provisioned,
+    resolve_composio_accounts_mode,
+)
 
 log = logging.getLogger(__name__)
 
@@ -26,8 +30,18 @@ HOST_NAME = "Luna Cloud"
 LEGACY_REAL_KEY_VARS = ("LUNA_TAVILY_API_KEY",)
 
 
-async def build_gateway_env(db: AsyncSession, agent_id: uuid.UUID) -> dict[str, str]:
-    """Env vars for a tenant machine: proxy URLs + tenant token + branding."""
+async def build_gateway_env(
+    db: AsyncSession,
+    agent_id: uuid.UUID,
+    *,
+    image_config: dict | None = None,
+    agent_overrides: dict | None = None,
+) -> dict[str, str]:
+    """Env vars for a tenant machine: proxy URLs + tenant token + branding.
+
+    Plan 016: also emits per-service config (e.g. LUNA_CONNECTORS_ACCOUNTS_MODE),
+    resolved from image default + per-agent override.
+    """
     settings = get_settings()
     base = settings.base_url.rstrip("/")
 
@@ -58,10 +72,18 @@ async def build_gateway_env(db: AsyncSession, agent_id: uuid.UUID) -> dict[str, 
         if val:
             env[var] = val
 
+    # Plan 016 — Composio two-accounts mode env var.
+    hosted_provisioned = await hosted_composio_key_provisioned(db)
+    accounts_mode = resolve_composio_accounts_mode(
+        image_config, agent_overrides, hosted_key_provisioned=hosted_provisioned,
+    )
+    env["LUNA_CONNECTORS_ACCOUNTS_MODE"] = accounts_mode
+
     log.info(
-        "gateway env for agent %s: %s (+ %d legacy vars)",
+        "gateway env for agent %s: %s (+ %d legacy vars, connectors=%s)",
         agent_id,
         [s.slug for s in services],
         sum(1 for v in LEGACY_REAL_KEY_VARS if os.environ.get(v)),
+        accounts_mode,
     )
     return env
