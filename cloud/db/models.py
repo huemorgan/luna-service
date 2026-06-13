@@ -88,6 +88,10 @@ class Agent(Base):
     image_version: Mapped[str | None] = mapped_column(Text)
     cached_metrics: Mapped[dict | None] = mapped_column(JSONB)
     cached_metrics_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Plan 016: per-agent overrides on top of LunaImage.image_config. Same
+    # nested shape as image_config (e.g. {"services": {"composio": {...}}}).
+    # NULL means "inherit everything from the image".
+    config_overrides: Mapped[dict | None] = mapped_column(JSONB)
 
     account: Mapped[Account] = relationship(back_populates="agents")
 

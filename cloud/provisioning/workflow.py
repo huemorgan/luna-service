@@ -124,8 +124,13 @@ async def _provision_core(
     proxy_secret = derive_proxy_secret(root_proxy_secret, str(agent_id))
 
     # 3. Gateway env: proxy base URLs + tenant token — no real provider keys.
+    #    Plan 016: pass image_config + agent overrides for per-service env vars.
     async with get_db_session() as db:
-        llm_keys = await build_gateway_env(db, agent_id)
+        llm_keys = await build_gateway_env(
+            db, agent_id,
+            image_config=image_config,
+            agent_overrides=agent.config_overrides,
+        )
         await db.commit()
 
     # Plan 015: per-agent Composio relay secret — the trigger relay signs
