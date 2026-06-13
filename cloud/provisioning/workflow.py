@@ -24,6 +24,7 @@ from cloud.db.tenant_provisioner import (
     provision_tenant_database,
 )
 from cloud.gateway.provision_env import build_gateway_env
+from cloud.provisioning.services_config import resolve_models
 from cloud.relay.secrets import derive_relay_secret
 from cloud.runtime.base import AgentSpec
 from cloud.runtime.docker_local import DockerLocalRuntime
@@ -146,6 +147,11 @@ async def _provision_core(
         await _set_agent_error(agent_id, f"Runtime configuration error: {e}")
         raise
 
+    # Plan 017.1: merge per-agent model overrides on top of image config so
+    # the runtime sees a single effective config.
+    effective_image_config = {**image_config}
+    effective_image_config["models"] = resolve_models(image_config, agent.config_overrides)
+
     spec = AgentSpec(
         account_slug=account.slug,
         agent_slug=agent_slug,
@@ -155,7 +161,7 @@ async def _provision_core(
         trusted_proxy_secret=proxy_secret,
         llm_keys=llm_keys,
         image_tag=image_tag,
-        image_config=image_config,
+        image_config=effective_image_config,
     )
 
     try:

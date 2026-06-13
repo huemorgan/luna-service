@@ -1,12 +1,17 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Server, Loader2, RefreshCw, ArrowUpCircle, ChevronDown, ChevronRight,
-  Settings, Webhook, Layers, Plus, Trash2, Check, Cable,
+  Settings, Webhook, Layers, Plus, Trash2, Check, Cable, Brain,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
+
+interface ModelEntry {
+  provider: string;
+  model: string;
+}
 
 interface Machine {
   agent_id: string;
@@ -22,7 +27,26 @@ interface Machine {
   fly_created_at: string | null;
   composio_accounts_mode: 'hosted' | 'user' | 'both';
   composio_accounts_mode_override: 'hosted' | 'user' | 'both' | null;
+  // Plan 017.1 — per-machine model override
+  primary_model: ModelEntry;
+  fast_model: ModelEntry;
+  primary_model_override: ModelEntry | null;
+  fast_model_override: ModelEntry | null;
 }
+
+// Keep in sync with ImageConfigPage.ALL_MODELS
+const ALL_MODELS: { provider: string; model: string; label: string }[] = [
+  { provider: 'anthropic', model: 'claude-sonnet-4-20250514', label: 'Anthropic — Claude Sonnet 4' },
+  { provider: 'anthropic', model: 'claude-opus-4-20250514', label: 'Anthropic — Claude Opus 4' },
+  { provider: 'anthropic', model: 'claude-opus-4-20250514-high', label: 'Anthropic — Claude Opus 4 High' },
+  { provider: 'anthropic', model: 'claude-haiku-3-5-20241022', label: 'Anthropic — Claude Haiku 3.5' },
+  { provider: 'openai', model: 'gpt-4o', label: 'OpenAI — GPT-4o' },
+  { provider: 'openai', model: 'gpt-4o-mini', label: 'OpenAI — GPT-4o Mini' },
+  { provider: 'openai', model: 'gpt-4-turbo', label: 'OpenAI — GPT-4 Turbo' },
+  { provider: 'openai', model: 'o3', label: 'OpenAI — o3' },
+  { provider: 'openai', model: 'o4-mini', label: 'OpenAI — o4-mini' },
+];
+
 
 interface Delivery {
   id: string;
@@ -183,6 +207,109 @@ function ConnectorsPluginSection({
             );
           })}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Models section (Settings tab)                                      */
+/* ------------------------------------------------------------------ */
+
+function ModelsSection({
+  machine, busy, onChange,
+}: {
+  machine: Machine;
+  busy: boolean;
+  onChange: (role: 'primary' | 'fast', value: string) => void;
+}) {
+  // The API returns the override AS the resolved value (override wins), so we
+  // can't show the image default separately without another fetch. Keep the UI
+  // honest: dropdown reflects what's effective, "override" hint shows when
+  // it's a per-machine choice vs. the image default.
+  const renderRow = (
+    role: 'primary' | 'fast',
+    title: string,
+    description: string,
+    resolved: ModelEntry,
+    override: ModelEntry | null,
+  ) => {
+    const selectValue = override ? `${override.provider}:${override.model}` : 'inherit';
+    return (
+      <div className="py-3" style={{ borderTop: '1px solid var(--ink-lighter)' }}>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{title}</span>
+              {override && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
+                  background: 'rgba(201,184,255,0.15)', color: 'var(--moon)',
+                }}>override</span>
+              )}
+            </div>
+            <div className="text-xs mt-0.5" style={{ color: 'var(--text-dim)' }}>{description}</div>
+            <div className="text-[11px] mt-1 font-mono" style={{ color: 'var(--text-dim)' }}>
+              currently: {resolved.provider}:{resolved.model}
+            </div>
+          </div>
+          <select
+            value={selectValue}
+            disabled={busy}
+            onChange={e => onChange(role, e.target.value)}
+            className="rounded-lg px-2.5 py-1.5 text-xs outline-none disabled:opacity-50"
+            style={{
+              background: 'var(--ink-light)',
+              color: 'var(--text)',
+              border: '1px solid var(--ink-lighter)',
+              minWidth: 220,
+            }}
+          >
+            <option value="inherit">Inherit image default</option>
+            {ALL_MODELS.map(m => (
+              <option key={`${m.provider}:${m.model}`} value={`${m.provider}:${m.model}`}>{m.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div
+      className="rounded-xl border overflow-hidden"
+      style={{ background: 'var(--ink)', borderColor: 'var(--ink-lighter)' }}
+    >
+      <div
+        className="flex items-center gap-2 px-4 py-3 border-b"
+        style={{ borderColor: 'var(--ink-lighter)' }}
+      >
+        <Brain size={14} style={{ color: 'var(--moon)' }} />
+        <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
+          Models
+        </span>
+      </div>
+      <div className="px-4 pb-3">
+        <p className="text-xs mt-3" style={{ color: 'var(--text-dim)' }}>
+          Override the model selection just for this machine. Sets
+          <span className="font-mono"> LUNA_PRIMARY_MODEL </span>
+          and
+          <span className="font-mono"> LUNA_FAST_MODEL </span>
+          on the running Fly machine.
+        </p>
+        {renderRow(
+          'primary',
+          'Top model',
+          'Heavy reasoning, tool use, primary chat. Higher cost.',
+          machine.primary_model,
+          machine.primary_model_override,
+        )}
+        {renderRow(
+          'fast',
+          'Fast model',
+          'Cheap, low-latency. Used for summaries, classifications, lightweight calls.',
+          machine.fast_model,
+          machine.fast_model_override,
+        )}
       </div>
     </div>
   );
@@ -398,7 +525,7 @@ function WebhooksTab({
 /* ------------------------------------------------------------------ */
 
 function MachineCard({
-  machine, links, deliveries, busy, onUpdateImage, onSetMode, onWebhooksChange,
+  machine, links, deliveries, busy, onUpdateImage, onSetMode, onSetModel, onWebhooksChange,
 }: {
   machine: Machine;
   links: AccountLink[];
@@ -406,11 +533,15 @@ function MachineCard({
   busy: boolean;
   onUpdateImage: () => void;
   onSetMode: (value: 'inherit' | 'hosted' | 'user' | 'both') => void;
+  onSetModel: (role: 'primary' | 'fast', value: string) => void;
   onWebhooksChange: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
-  const hasOverride = !!machine.composio_accounts_mode_override;
+  const hasOverride =
+    !!machine.composio_accounts_mode_override
+    || !!machine.primary_model_override
+    || !!machine.fast_model_override;
 
   return (
     <div
@@ -504,7 +635,10 @@ function MachineCard({
               <OverviewTab machine={machine} busy={busy} onUpdateImage={onUpdateImage} />
             )}
             {activeTab === 'settings' && (
-              <ConnectorsPluginSection machine={machine} busy={busy} onChange={onSetMode} />
+              <div className="space-y-4">
+                <ModelsSection machine={machine} busy={busy} onChange={onSetModel} />
+                <ConnectorsPluginSection machine={machine} busy={busy} onChange={onSetMode} />
+              </div>
             )}
             {activeTab === 'webhooks' && (
               <WebhooksTab
@@ -643,6 +777,24 @@ export default function MachinesPage() {
     setBusy(null);
   };
 
+  const handleSetModel = async (machineId: string, role: 'primary' | 'fast', value: string) => {
+    setBusy(machineId);
+    const body: Record<string, unknown> = {};
+    if (value === 'inherit') {
+      body[role === 'primary' ? 'clear_primary' : 'clear_fast'] = true;
+    } else {
+      const [provider, ...rest] = value.split(':');
+      body[role] = { provider, model: rest.join(':') };
+    }
+    await fetch(`/api/admin/machines/${machineId}/models`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    await fetchAll();
+    setBusy(null);
+  };
+
   const handleMigrateAll = async () => {
     setMigratingAll(true);
     setMigrateResult(null);
@@ -732,6 +884,7 @@ export default function MachinesPage() {
               busy={busy === m.machine_id}
               onUpdateImage={() => m.machine_id && handleUpdateImage(m.machine_id)}
               onSetMode={(v) => m.machine_id && handleSetMode(m.machine_id, v)}
+              onSetModel={(r, v) => m.machine_id && handleSetModel(m.machine_id, r, v)}
               onWebhooksChange={fetchAll}
             />
           ))}
