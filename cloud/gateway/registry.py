@@ -41,10 +41,12 @@ SEED_SERVICES: list[dict] = [
         "provision_by_default": False,
     },
     {
-        # Disabled until Luna 007.001 wires env-driven gateway mode.
+        # Composio's REST API lives under /api/v3 — when Luna calls
+        # LUNA_COMPOSIO_BASE_URL/toolkits in proxy mode the gateway has to
+        # supply the /api/v3 prefix itself (same trick as OpenAI's /v1 above).
         "slug": "composio",
         "display_name": "Composio",
-        "upstream_url": "https://backend.composio.dev",
+        "upstream_url": "https://backend.composio.dev/api/v3",
         "auth_style": "header:x-api-key",
         "luna_credential_name": "plugin_connectors.composio.api_key",  # legacy name
         "enabled": False,
