@@ -56,44 +56,6 @@ def resolve_composio_accounts_mode(
     return "both" if hosted_key_provisioned else "user"
 
 
-def _get_role_model(config: dict | None, role: str) -> dict | None:
-    """Pull config["models"][role] safely; None if missing or malformed."""
-    if not isinstance(config, dict):
-        return None
-    models = config.get("models")
-    if not isinstance(models, dict):
-        return None
-    entry = models.get(role)
-    if not isinstance(entry, dict):
-        return None
-    if not entry.get("model"):
-        return None
-    return {
-        "provider": entry.get("provider") or "anthropic",
-        "model": entry["model"],
-    }
-
-
-def resolve_models(
-    image_config: dict | None,
-    agent_overrides: dict | None,
-) -> dict:
-    """Resolve effective {primary, fast} model selection for a machine.
-
-    Per role: agent override → image default → builtin fallback (anthropic
-    sonnet 4 for both, matching DEFAULT_IMAGE_CONFIG).
-    """
-    fallback = {"provider": "anthropic", "model": "claude-sonnet-4-20250514"}
-    out: dict[str, dict] = {}
-    for role in ("primary", "fast"):
-        out[role] = (
-            _get_role_model(agent_overrides, role)
-            or _get_role_model(image_config, role)
-            or fallback
-        )
-    return out
-
-
 async def hosted_composio_key_provisioned(db: AsyncSession) -> bool:
     """True iff the composio service is enabled, provisioned by default,
     AND has at least one active key in its pool."""

@@ -23,15 +23,28 @@ interface ImageInfo {
 
 interface ImageConfig {
   machine: { cpu_kind: string; cpus: number; memory_mb: number; region: string };
+  // Empty {} = inherit the catalog default (the model marked recommended_default
+  // for that kind). A pinned {provider, model} overrides the catalog default for
+  // this image; a machine can still override the image (Plan 018).
   models: {
-    primary: { provider: string; model: string };
-    fast: { provider: string; model: string };
+    primary: { provider?: string; model?: string };
+    fast: { provider?: string; model?: string };
   };
   plugins: Record<string, boolean>;
   env: Record<string, string>;
   services?: {
     composio?: { accounts_mode?: 'hosted' | 'user' | 'both' };
   };
+}
+
+interface CatalogModel {
+  provider: string;
+  model: string;
+  label: string | null;
+  kinds: ('reasoning' | 'summarization' | 'embedding')[];
+  enabled: boolean;
+  recommended_default: boolean;
+  deprecated: boolean;
 }
 
 const COMPOSIO_MODE_OPTIONS = [
@@ -76,18 +89,6 @@ const REGIONS = [
   { value: 'sin', label: 'Singapore (sin)' },
   { value: 'syd', label: 'Sydney (syd)' },
   { value: 'gru', label: 'São Paulo (gru)' },
-];
-
-const ALL_MODELS: { provider: string; model: string; label: string }[] = [
-  { provider: 'anthropic', model: 'claude-sonnet-4-20250514', label: 'Anthropic — Claude Sonnet 4' },
-  { provider: 'anthropic', model: 'claude-opus-4-20250514', label: 'Anthropic — Claude Opus 4' },
-  { provider: 'anthropic', model: 'claude-opus-4-20250514-high', label: 'Anthropic — Claude Opus 4 High' },
-  { provider: 'anthropic', model: 'claude-haiku-3-5-20241022', label: 'Anthropic — Claude Haiku 3.5' },
-  { provider: 'openai', model: 'gpt-4o', label: 'OpenAI — GPT-4o' },
-  { provider: 'openai', model: 'gpt-4o-mini', label: 'OpenAI — GPT-4o Mini' },
-  { provider: 'openai', model: 'gpt-4-turbo', label: 'OpenAI — GPT-4 Turbo' },
-  { provider: 'openai', model: 'o3', label: 'OpenAI — o3' },
-  { provider: 'openai', model: 'o4-mini', label: 'OpenAI — o4-mini' },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -230,6 +231,7 @@ export default function ImageConfigPage() {
   const [image, setImage] = useState<ImageInfo | null>(null);
   const [config, setConfig] = useState<ImageConfig | null>(null);
   const [plugins, setPlugins] = useState<PluginMeta[]>([]);
+  const [catalog, setCatalog] = useState<CatalogModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -239,10 +241,11 @@ export default function ImageConfigPage() {
   const [applyingMachine, setApplyingMachine] = useState(false);
 
   const fetchData = useCallback(async () => {
-    const [imgRes, cfgRes, plugRes] = await Promise.all([
+    const [imgRes, cfgRes, plugRes, modelsRes] = await Promise.all([
       fetch('/api/admin/images'),
       fetch(`/api/admin/images/${imageId}/config`),
       fetch('/api/admin/plugin-meta'),
+      fetch('/api/admin/gateway/models'),
     ]);
     if (imgRes.ok) {
       const imgs: ImageInfo[] = await imgRes.json();
@@ -254,6 +257,7 @@ export default function ImageConfigPage() {
       setMachineDraft(cfg.machine);
     }
     if (plugRes.ok) setPlugins(await plugRes.json());
+    if (modelsRes.ok) setCatalog((await modelsRes.json()).filter((m: CatalogModel) => m.enabled));
     setLoading(false);
   }, [imageId]);
 
@@ -308,11 +312,12 @@ export default function ImageConfigPage() {
 
   const updateModel = (role: 'primary' | 'fast', modelKey: string) => {
     if (!config) return;
-    const entry = ALL_MODELS.find(m => m.model === modelKey);
-    const provider = entry?.provider || config.models[role].provider;
+    // '' = inherit the catalog default → store an empty object.
+    const entry = catalog.find(m => m.model === modelKey);
+    const value = modelKey && entry ? { provider: entry.provider, model: entry.model } : {};
     const next = {
       ...config,
-      models: { ...config.models, [role]: { provider, model: modelKey } },
+      models: { ...config.models, [role]: value },
     };
     setConfig(next);
     save({ models: next.models });
@@ -473,14 +478,22 @@ export default function ImageConfigPage() {
         <SectionCard icon={Brain} title="Models">
           <div>
             {(['primary', 'fast'] as const).map((role, i) => {
-              const currentModel = config.models[role].model;
-              const inList = ALL_MODELS.some(m => m.model === currentModel);
-              const options = inList
-                ? ALL_MODELS.map(m => ({ value: m.model, label: m.label }))
-                : [{ value: currentModel, label: currentModel }, ...ALL_MODELS.map(m => ({ value: m.model, label: m.label }))];
+              const kind = role === 'primary' ? 'reasoning' : 'summarization';
+              const currentModel = config.models[role]?.model || '';
+              const kindModels = catalog.filter(m => m.kinds.includes(kind));
+              const inList = kindModels.some(m => m.model === currentModel);
+              const catalogOpts = kindModels.map(m => ({
+                value: m.model,
+                label: `${m.provider} — ${m.label || m.model}${m.recommended_default ? ' (default)' : ''}`,
+              }));
+              const options = [
+                { value: '', label: 'Inherit catalog default' },
+                ...catalogOpts,
+                ...(currentModel && !inList ? [{ value: currentModel, label: `${currentModel} (off-catalog)` }] : []),
+              ];
 
               return (
-                <FieldRow key={role} label={role === 'primary' ? 'Primary Model' : 'Fast Model'} noBorder={i === 1}>
+                <FieldRow key={role} label={role === 'primary' ? 'Primary (reasoning)' : 'Fast (summarization)'} noBorder={i === 1}>
                   <Select value={currentModel} options={options} onChange={v => updateModel(role, v)} />
                 </FieldRow>
               );

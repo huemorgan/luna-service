@@ -352,6 +352,130 @@ async def test_proxy_bearer_auth_style(anon_client, db_session, sample_agent, up
     assert upstream[0]["auth"]["authorization"] == "Bearer REAL-B1"
 
 
+# ── Catalog enforcement on the proxy (Plan 018) ──────────────────────────────
+
+async def _add_model(db, provider, model, *, kinds=("reasoning",), aliases=(), enabled=True):
+    from cloud.db.models import GatewayModel
+    m = GatewayModel(
+        provider=provider, model=model, kinds=list(kinds), aliases=list(aliases),
+        enabled=enabled,
+    )
+    db.add(m)
+    await db.flush()
+    return m
+
+
+async def test_proxy_in_catalog_model_passes(anon_client, db_session, sample_agent, upstream):
+    await _add_service(db_session, slug="anthropic")
+    await _add_key(db_session, "anthropic", value="REAL-A1")
+    await _add_model(db_session, "anthropic", "claude-opus-4-6")
+    token = await issue_token(db_session, sample_agent.id)
+    await db_session.commit()
+
+    r = await anon_client.post(
+        "/proxy/anthropic/v1/messages",
+        headers={"x-api-key": token}, json={"model": "claude-opus-4-6"},
+    )
+    assert r.status_code == 200
+    assert upstream[0]["bare"] == "REAL-A1"
+
+
+async def test_proxy_offcatalog_model_404_before_upstream(anon_client, db_session, sample_agent, upstream):
+    await _add_service(db_session, slug="anthropic")
+    await _add_key(db_session, "anthropic", value="REAL-A1")
+    await _add_model(db_session, "anthropic", "claude-opus-4-6")
+    token = await issue_token(db_session, sample_agent.id)
+    await db_session.commit()
+
+    r = await anon_client.post(
+        "/proxy/anthropic/v1/messages",
+        headers={"x-api-key": token}, json={"model": "claude-3-opus-20240229"},
+    )
+    assert r.status_code == 404
+    assert r.json()["error"]["type"] == "not_found"
+    assert upstream == []  # no key spent
+
+    # Recorded for visibility but NOT billable.
+    events = (await db_session.execute(select(UsageEvent))).scalars().all()
+    assert len(events) == 1
+    assert events[0].billable is False
+    assert events[0].status_code == 404
+
+
+async def test_proxy_alias_passes(anon_client, db_session, sample_agent, upstream):
+    await _add_service(db_session, slug="anthropic")
+    await _add_key(db_session, "anthropic", value="REAL-A1")
+    await _add_model(db_session, "anthropic", "claude-opus-4-6", aliases=["opus"])
+    token = await issue_token(db_session, sample_agent.id)
+    await db_session.commit()
+
+    r = await anon_client.post(
+        "/proxy/anthropic/v1/messages",
+        headers={"x-api-key": token}, json={"model": "opus"},
+    )
+    assert r.status_code == 200
+
+
+async def test_proxy_byok_not_gated_by_catalog(anon_client, db_session, sample_agent, upstream):
+    await _add_service(db_session, slug="anthropic")
+    await _add_key(db_session, "anthropic", value="REAL-A1")
+    await _add_model(db_session, "anthropic", "claude-opus-4-6")
+    await db_session.commit()
+
+    # Off-catalog model but BYOK (real key, not lsv1-) → forwarded unchanged.
+    r = await anon_client.post(
+        "/proxy/anthropic/v1/messages",
+        headers={"x-api-key": "sk-ant-own"}, json={"model": "claude-3-opus-20240229"},
+    )
+    assert r.status_code == 200
+    assert upstream[0]["bare"] == "sk-ant-own"
+
+
+async def test_proxy_non_gated_service_skips_catalog(anon_client, db_session, sample_agent, upstream):
+    # composio etc. are not LLM providers — model field (if any) is ignored.
+    await _add_service(db_session, slug="echo-test")
+    await _add_key(db_session, "echo-test", value="REAL-E1")
+    token = await issue_token(db_session, sample_agent.id)
+    await db_session.commit()
+
+    r = await anon_client.post(
+        "/proxy/echo-test/v1/run",
+        headers={"x-api-key": token}, json={"model": "whatever-nonsense"},
+    )
+    assert r.status_code == 200
+
+
+async def test_proxy_bodyless_managed_call_not_gated(anon_client, db_session, sample_agent, upstream):
+    # GET /v1/models style calls have no model field → must not be blocked.
+    await _add_service(db_session, slug="anthropic")
+    await _add_key(db_session, "anthropic", value="REAL-A1")
+    await _add_model(db_session, "anthropic", "claude-opus-4-6")
+    token = await issue_token(db_session, sample_agent.id)
+    await db_session.commit()
+
+    r = await anon_client.get("/proxy/anthropic/v1/models", headers={"x-api-key": token})
+    assert r.status_code == 200
+
+
+async def test_proxy_4xx_not_billable(anon_client, db_session, sample_agent, upstream_rejecting):
+    """An upstream 4xx on the managed path is recorded but never billable."""
+    await _add_service(db_session, slug="anthropic")
+    await _add_key(db_session, "anthropic", value="REAL-G1")  # rejected by mock → 401
+    await _add_model(db_session, "anthropic", "claude-opus-4-6")
+    token = await issue_token(db_session, sample_agent.id)
+    await db_session.commit()
+
+    r = await anon_client.post(
+        "/proxy/anthropic/v1/messages",
+        headers={"x-api-key": token}, json={"model": "claude-opus-4-6"},
+    )
+    assert r.status_code == 401
+    events = (await db_session.execute(select(UsageEvent))).scalars().all()
+    assert len(events) == 1
+    assert events[0].billable is False
+    assert events[0].status_code == 401
+
+
 # ── Provisioning env ─────────────────────────────────────────────────────────
 
 async def test_build_gateway_env(db_session, sample_agent, monkeypatch):

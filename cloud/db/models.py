@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -135,6 +135,34 @@ class GatewayService(Base):
     provision_by_default: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+
+class GatewayModel(Base):
+    """Plan 018 — the system model catalog injected into tenants as
+    LUNA_MODEL_CATALOG. One row per supported model. `enabled` = in/out of the
+    catalog (selectable). Shape mirrors Luna's ModelCatalogEntry.
+    """
+
+    __tablename__ = "gateway_models"
+    __table_args__ = (UniqueConstraint("provider", "model"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    label: Mapped[str | None] = mapped_column(Text)
+    context_window: Mapped[int | None] = mapped_column(Integer)
+    # purposes this model may serve: reasoning | summarization | embedding.
+    # JSONB list (not pg ARRAY) so the same model works on the SQLite test engine;
+    # membership checks happen in Python, never in SQL.
+    kinds: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    aliases: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    tier: Mapped[str | None] = mapped_column(Text)
+    input_cost: Mapped[float | None] = mapped_column(Float)
+    output_cost: Mapped[float | None] = mapped_column(Float)
+    recommended_default: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    deprecated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class GatewayKey(Base):
