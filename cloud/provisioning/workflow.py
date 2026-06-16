@@ -24,7 +24,7 @@ from cloud.db.tenant_provisioner import (
     provision_tenant_database,
 )
 from cloud.gateway.provision_env import build_gateway_env
-from cloud.provisioning.services_config import resolve_models
+from cloud.provisioning.model_catalog import resolve_default_heads, system_catalog
 from cloud.relay.secrets import derive_relay_secret
 from cloud.runtime.base import AgentSpec
 from cloud.runtime.docker_local import DockerLocalRuntime
@@ -126,13 +126,16 @@ async def _provision_core(
 
     # 3. Gateway env: proxy base URLs + tenant token — no real provider keys.
     #    Plan 016: pass image_config + agent overrides for per-service env vars.
+    #    Plan 018: also resolve the system model catalog + default heads here.
     async with get_db_session() as db:
         llm_keys = await build_gateway_env(
             db, agent_id,
             image_config=image_config,
             agent_overrides=agent.config_overrides,
         )
+        catalog = await system_catalog(db)
         await db.commit()
+    heads = resolve_default_heads(catalog, image_config, agent.config_overrides)
 
     # Plan 015: per-agent Composio relay secret — the trigger relay signs
     # forwarded webhook events with this; Luna verifies once 007.003 ships.
@@ -147,10 +150,14 @@ async def _provision_core(
         await _set_agent_error(agent_id, f"Runtime configuration error: {e}")
         raise
 
-    # Plan 017.1: merge per-agent model overrides on top of image config so
-    # the runtime sees a single effective config.
+    # Plan 018: merge resolved heads + system catalog into the effective config
+    # the runtime injects (LUNA_PRIMARY_MODEL / LUNA_FAST_MODEL / LUNA_MODEL_CATALOG).
     effective_image_config = {**image_config}
-    effective_image_config["models"] = resolve_models(image_config, agent.config_overrides)
+    effective_image_config["models"] = {
+        "primary": heads["primary"],
+        "fast": heads["fast"],
+        "catalog": catalog,
+    }
 
     spec = AgentSpec(
         account_slug=account.slug,

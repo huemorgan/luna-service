@@ -241,8 +241,11 @@ DEFAULT_IMAGE_CONFIG = {
         "region": "sjc",
     },
     "models": {
-        "primary": {"provider": "anthropic", "model": "claude-sonnet-4-20250514"},
-        "fast": {"provider": "anthropic", "model": "claude-sonnet-4-20250514"},
+        # Plan 018: empty = inherit the catalog default (the model marked
+        # recommended_default for its kind). An image may pin primary/fast to
+        # override the catalog default; a machine may override the image.
+        "primary": {},
+        "fast": {},
     },
     "plugins": {
         "plugin_vault": True,
@@ -629,8 +632,8 @@ async def list_machines(admin: User = Depends(require_admin)):
     from cloud.provisioning.services_config import (
         hosted_composio_key_provisioned,
         resolve_composio_accounts_mode,
-        resolve_models,
     )
+    from cloud.provisioning.model_catalog import resolve_default_heads, system_catalog
 
     async with get_db_session() as db:
         agents = (await db.execute(
@@ -647,6 +650,7 @@ async def list_machines(admin: User = Depends(require_admin)):
             for img in images
         }
         hosted_provisioned = await hosted_composio_key_provisioned(db)
+        catalog = await system_catalog(db)
 
     fly_machines: list[dict] = []
     if os.environ.get("FLY_API_TOKEN"):
@@ -669,8 +673,8 @@ async def list_machines(admin: User = Depends(require_admin)):
             image_cfg, agent.config_overrides, hosted_key_provisioned=hosted_provisioned,
         )
 
-        # Plan 017.1: resolved + per-role model override.
-        models_resolved = resolve_models(image_cfg, agent.config_overrides)
+        # Plan 018: catalog-validated default heads + per-role override.
+        models_resolved = resolve_default_heads(catalog, image_cfg, agent.config_overrides)
         models_override_raw = (agent.config_overrides or {}).get("models") or {}
         primary_override = models_override_raw.get("primary") if isinstance(models_override_raw.get("primary"), dict) else None
         fast_override = models_override_raw.get("fast") if isinstance(models_override_raw.get("fast"), dict) else None
@@ -808,8 +812,9 @@ async def patch_machine_models(
     admin: User = Depends(require_admin),
 ):
     """Set / clear per-agent primary or fast model override and push the
-    LUNA_PRIMARY_MODEL / LUNA_FAST_MODEL env vars to the live machine."""
-    from cloud.provisioning.services_config import resolve_models
+    LUNA_PRIMARY_MODEL / LUNA_FAST_MODEL + LUNA_MODEL_CATALOG env vars to the
+    live machine."""
+    from cloud.provisioning.model_catalog import resolve_default_heads, system_catalog
 
     ip = _client_ip(request)
     async with get_db_session() as db:
@@ -844,7 +849,8 @@ async def patch_machine_models(
             select(LunaImage).where(LunaImage.version == (agent.image_version or ""))
         )).scalar_one_or_none()
         image_cfg = {**DEFAULT_IMAGE_CONFIG, **(img.image_config or {} if img else {})}
-        resolved = resolve_models(image_cfg, agent.config_overrides)
+        catalog = await system_catalog(db)
+        resolved = resolve_default_heads(catalog, image_cfg, agent.config_overrides)
 
         await _audit(db, action="machine.models_updated", actor=admin, actor_ip=ip,
                      target=machine_id,
@@ -854,11 +860,13 @@ async def patch_machine_models(
         await db.commit()
 
     if os.environ.get("FLY_API_TOKEN") and agent.runtime_kind in ("fly", "fly-machines"):
+        import json as _json
         from cloud.runtime.fly_machines import FlyMachinesRuntime
         fly = FlyMachinesRuntime()
         env_updates = {
             "LUNA_PRIMARY_MODEL": f"{resolved['primary']['provider']}:{resolved['primary']['model']}",
             "LUNA_FAST_MODEL": f"{resolved['fast']['provider']}:{resolved['fast']['model']}",
+            "LUNA_MODEL_CATALOG": _json.dumps(catalog),
         }
         try:
             await fly.update_machine_env(machine_id, env_updates)

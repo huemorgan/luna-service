@@ -51,6 +51,16 @@ def _patch_settings():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _reset_catalog_cache():
+    """Plan 018: the model catalog has a process-local TTL cache; reset it around
+    every test so a seeded catalog from one test never leaks into another."""
+    from cloud.provisioning.model_catalog import invalidate_catalog_cache
+    invalidate_catalog_cache()
+    yield
+    invalidate_catalog_cache()
+
+
 # ── Database ─────────────────────────────────────────────────────────────────
 
 @pytest_asyncio.fixture

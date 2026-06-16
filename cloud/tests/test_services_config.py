@@ -12,7 +12,6 @@ from cloud.gateway.registry import seed_services
 from cloud.provisioning.services_config import (
     hosted_composio_key_provisioned,
     resolve_composio_accounts_mode,
-    resolve_models,
 )
 
 
@@ -74,42 +73,6 @@ def test_resolver_agent_invalid_falls_through_to_image():
     image_cfg = {"services": {"composio": {"accounts_mode": "hosted"}}}
     agent_ov = {"services": {"composio": {"accounts_mode": "nonsense"}}}
     assert resolve_composio_accounts_mode(image_cfg, agent_ov, hosted_key_provisioned=True) == "hosted"
-
-
-# ── resolve_models (Plan 017.1) ───────────────────────────────────────────────
-
-
-def test_resolve_models_builtin_fallback():
-    out = resolve_models(None, None)
-    assert out["primary"] == {"provider": "anthropic", "model": "claude-sonnet-4-20250514"}
-    assert out["fast"] == {"provider": "anthropic", "model": "claude-sonnet-4-20250514"}
-
-
-def test_resolve_models_image_default():
-    img = {"models": {"primary": {"provider": "openai", "model": "gpt-4o"},
-                      "fast": {"provider": "anthropic", "model": "claude-haiku-3-5-20241022"}}}
-    out = resolve_models(img, None)
-    assert out["primary"]["model"] == "gpt-4o"
-    assert out["fast"]["model"] == "claude-haiku-3-5-20241022"
-
-
-def test_resolve_models_agent_override_wins_per_role():
-    img = {"models": {"primary": {"provider": "openai", "model": "gpt-4o"},
-                      "fast": {"provider": "openai", "model": "gpt-4o-mini"}}}
-    # Override primary only — fast should still come from the image.
-    ov = {"models": {"primary": {"provider": "anthropic", "model": "claude-opus-4-20250514"}}}
-    out = resolve_models(img, ov)
-    assert out["primary"]["model"] == "claude-opus-4-20250514"
-    assert out["fast"]["model"] == "gpt-4o-mini"
-
-
-def test_resolve_models_malformed_shapes_safe():
-    for bad in [{"models": None}, {"models": "string"}, {"models": {"primary": "not-dict"}},
-                {"models": {"primary": {"provider": "x"}}}]:
-        out = resolve_models(bad, None)
-        # Falls back without crashing
-        assert out["primary"]["model"]
-        assert out["fast"]["model"]
 
 
 # ── hosted_composio_key_provisioned (async, hits DB) ─────────────────────────

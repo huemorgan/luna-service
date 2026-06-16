@@ -116,8 +116,10 @@ async def lifespan(app: FastAPI):
     # Seed the credential-gateway service registry (insert-if-missing only)
     from cloud.db.session import get_session as _get_db
     from cloud.gateway.registry import seed_services
+    from cloud.gateway.model_registry import seed_models
     async with _get_db() as db:
         await seed_services(db)
+        await seed_models(db)  # Plan 018: system model catalog
         await db.commit()
 
     # Composio trigger-relay forwarder (plan 015)

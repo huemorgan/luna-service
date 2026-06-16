@@ -8,12 +8,13 @@ billed, never logged.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, status
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from cloud.db import session as db_session
 from cloud.db.models import GatewayKey, GatewayService
@@ -22,6 +23,7 @@ from cloud.gateway import tokens as token_svc
 from cloud.gateway.crypto import decrypt_key
 from cloud.gateway.metering import UsageScanner, record_usage
 from cloud.gateway.registry import AuthStyle, get_service, parse_auth_style
+from cloud.provisioning.model_catalog import cached_system_catalog, catalog_has
 from cloud.relay import capture as composio_capture
 
 log = logging.getLogger(__name__)
@@ -29,6 +31,10 @@ log = logging.getLogger(__name__)
 router = APIRouter(tags=["gateway"])
 
 _client: httpx.AsyncClient | None = None
+
+# Plan 018: managed requests to these services are gated on the model catalog.
+# service_slug == provider for both. Other services (e.g. composio) are not gated.
+_MODEL_GATED_PROVIDERS = {"anthropic", "openai"}
 
 # Status codes that trigger a fallback to the next pool key (managed flow only).
 _FALLBACK_STATUSES = (401, 403, 429)
@@ -42,6 +48,22 @@ def _get_client() -> httpx.AsyncClient:
     if _client is None:
         _client = httpx.AsyncClient(timeout=httpx.Timeout(300, connect=15))
     return _client
+
+
+def _requested_model(body: bytes) -> str | None:
+    """Pull the `model` field from a JSON request body. None if not present /
+    not JSON — non-LLM paths (e.g. /v1/models GET) are not gated."""
+    if not body:
+        return None
+    try:
+        data = json.loads(body)
+    except (ValueError, TypeError):
+        return None
+    if isinstance(data, dict):
+        model = data.get("model")
+        if isinstance(model, str) and model:
+            return model
+    return None
 
 
 def _upstream_headers(request: Request, auth: AuthStyle, credential: str) -> dict[str, str]:
@@ -83,6 +105,9 @@ def _stream_response(
 ) -> StreamingResponse:
     content_type = resp.headers.get("content-type", "")
     scanner = UsageScanner(content_type)
+    # Plan 018: a failed upstream call (4xx/5xx) is recorded for visibility but is
+    # never billable — kills the phantom input-only rows.
+    billable = billable and resp.status_code < 400
     response_headers = {
         k: v for k, v in resp.headers.items() if k.lower() not in _DROP_RESPONSE_HEADERS
     }
@@ -182,6 +207,39 @@ async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
             billable=False,
             key_id=None,
         )
+
+    # ── Catalog enforcement (managed flow only, Plan 018) ────────────────
+    # Off-catalog model → 404 BEFORE spending a pool key. Aliases resolve.
+    # Only LLM providers are gated; non-LLM services and bodyless/GET paths skip.
+    if service_slug in _MODEL_GATED_PROVIDERS:
+        model = _requested_model(body)
+        if model is not None:
+            async with db_session.get_session() as db:
+                catalog = await cached_system_catalog(db)
+            if not catalog_has(catalog, service_slug, model):
+                log.warning(
+                    "gateway off-catalog model rejected: service=%s model=%s agent=%s",
+                    service_slug, model, agent_id,
+                )
+                await record_usage(
+                    agent_id=agent_id,
+                    service_slug=service_slug,
+                    billable=False,
+                    key_id=None,
+                    status_code=404,
+                    input_tokens=0,
+                    output_tokens=0,
+                )
+                return JSONResponse(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    content={"error": {
+                        "type": "not_found",
+                        "message": (
+                            f"Model '{model}' is not in this workspace's catalog. "
+                            "Ask your admin to enable it."
+                        ),
+                    }},
+                )
 
     # ── Managed flow with one fallback retry ─────────────────────────────
     for attempt, (key_id, real_key) in enumerate(candidates):

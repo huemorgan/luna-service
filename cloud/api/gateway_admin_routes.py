@@ -16,10 +16,11 @@ from sqlalchemy import func, select
 
 from cloud.auth.deps import require_admin
 from cloud.db import session as db_session
-from cloud.db.models import Agent, AuditLog, GatewayKey, GatewayService, UsageEvent, User
+from cloud.db.models import Agent, AuditLog, GatewayKey, GatewayModel, GatewayService, UsageEvent, User
 from cloud.gateway.crypto import encrypt_key
 from cloud.gateway.registry import default_names, parse_auth_style
 from cloud.gateway.tokens import issue_token
+from cloud.provisioning.model_catalog import invalidate_catalog_cache
 
 log = logging.getLogger(__name__)
 
@@ -345,3 +346,159 @@ async def list_agents_light(admin: User = Depends(require_admin)):
             select(Agent.id, Agent.slug, Agent.name).order_by(Agent.created_at.desc())
         )).all()
     return [{"id": str(a.id), "slug": a.slug, "name": a.name} for a in agents]
+
+
+# ── Models catalog (Plan 018) ──────────────────────────────────────────────────
+
+_VALID_KINDS = {"reasoning", "summarization", "embedding"}
+
+
+class ModelCreate(BaseModel):
+    provider: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+    label: str | None = None
+    context_window: int | None = None
+    kinds: list[str] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
+    tier: str | None = None
+    input_cost: float | None = None
+    output_cost: float | None = None
+    recommended_default: bool = False
+    deprecated: bool = False
+    enabled: bool = True
+
+
+class ModelUpdate(BaseModel):
+    label: str | None = None
+    context_window: int | None = None
+    kinds: list[str] | None = None
+    aliases: list[str] | None = None
+    tier: str | None = None
+    input_cost: float | None = None
+    output_cost: float | None = None
+    recommended_default: bool | None = None
+    deprecated: bool | None = None
+    enabled: bool | None = None
+
+
+def _model_dict(m: GatewayModel, key_count: int = 0) -> dict:
+    return {
+        "id": str(m.id),
+        "provider": m.provider,
+        "model": m.model,
+        "label": m.label,
+        "context_window": m.context_window,
+        "kinds": list(m.kinds or []),
+        "aliases": list(m.aliases or []),
+        "tier": m.tier,
+        "input_cost": m.input_cost,
+        "output_cost": m.output_cost,
+        "recommended_default": m.recommended_default,
+        "deprecated": m.deprecated,
+        "enabled": m.enabled,
+        "key_count": key_count,
+    }
+
+
+def _validate_kinds(kinds: list[str]) -> None:
+    bad = [k for k in kinds if k not in _VALID_KINDS]
+    if bad:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Invalid kind(s): {bad}. Allowed: {sorted(_VALID_KINDS)}",
+        )
+
+
+async def _clear_recommended_for_kinds(db, kinds: list[str], *, except_id: uuid.UUID) -> None:
+    """Keep at most one recommended_default per kind family: when a model is made
+    the default, drop the flag from every other model sharing any of its kinds."""
+    others = (await db.execute(
+        select(GatewayModel).where(
+            GatewayModel.recommended_default.is_(True),
+            GatewayModel.id != except_id,
+        )
+    )).scalars().all()
+    for other in others:
+        if set(other.kinds or []) & set(kinds):
+            other.recommended_default = False
+
+
+@router.get("/models")
+async def list_models(admin: User = Depends(require_admin)):
+    """All catalog models (in + out) with the provider's key count attached."""
+    async with db_session.get_session() as db:
+        models = (await db.execute(
+            select(GatewayModel).order_by(GatewayModel.provider, GatewayModel.model)
+        )).scalars().all()
+        counts = dict((await db.execute(
+            select(GatewayKey.service_slug, func.count()).group_by(GatewayKey.service_slug)
+        )).all())
+    return [_model_dict(m, counts.get(m.provider, 0)) for m in models]
+
+
+@router.post("/models", status_code=status.HTTP_201_CREATED)
+async def create_model(body: ModelCreate, admin: User = Depends(require_admin)):
+    _validate_kinds(body.kinds)
+    async with db_session.get_session() as db:
+        existing = (await db.execute(
+            select(GatewayModel).where(
+                GatewayModel.provider == body.provider, GatewayModel.model == body.model,
+            )
+        )).scalar_one_or_none()
+        if existing:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"Model '{body.provider}:{body.model}' already exists",
+            )
+        m = GatewayModel(**body.model_dump())
+        db.add(m)
+        await db.flush()
+        if body.recommended_default and body.kinds:
+            await _clear_recommended_for_kinds(db, body.kinds, except_id=m.id)
+        _audit(db, actor=admin, action="gateway.model.created", target=f"{body.provider}:{body.model}",
+               metadata={"kinds": body.kinds, "enabled": body.enabled})
+        await db.commit()
+        result = _model_dict(m)
+    invalidate_catalog_cache()
+    return result
+
+
+@router.patch("/models/{model_id}")
+async def update_model(model_id: str, body: ModelUpdate, admin: User = Depends(require_admin)):
+    if body.kinds is not None:
+        _validate_kinds(body.kinds)
+    async with db_session.get_session() as db:
+        m = (await db.execute(
+            select(GatewayModel).where(GatewayModel.id == uuid.UUID(model_id))
+        )).scalar_one_or_none()
+        if not m:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Model not found")
+
+        changes = body.model_dump(exclude_none=True)
+        for field_name, value in changes.items():
+            setattr(m, field_name, value)
+        # If this model just became the default, clear the flag from peers of the
+        # same kind so there's exactly one default per purpose.
+        if body.recommended_default:
+            await _clear_recommended_for_kinds(db, list(m.kinds or []), except_id=m.id)
+        _audit(db, actor=admin, action="gateway.model.updated",
+               target=f"{m.provider}:{m.model}", metadata=changes)
+        await db.commit()
+        result = _model_dict(m)
+    invalidate_catalog_cache()
+    return result
+
+
+@router.delete("/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_model(model_id: str, admin: User = Depends(require_admin)):
+    async with db_session.get_session() as db:
+        m = (await db.execute(
+            select(GatewayModel).where(GatewayModel.id == uuid.UUID(model_id))
+        )).scalar_one_or_none()
+        if not m:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Model not found")
+        _audit(db, actor=admin, action="gateway.model.deleted", target=f"{m.provider}:{m.model}",
+               metadata={"kinds": list(m.kinds or [])})
+        await db.delete(m)
+        await db.commit()
+    invalidate_catalog_cache()

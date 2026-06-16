@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 
@@ -93,6 +94,11 @@ class FlyMachinesRuntime:
             env_vars["LUNA_PRIMARY_MODEL"] = f"{primary.get('provider', 'anthropic')}:{primary['model']}"
         if fast.get("model"):
             env_vars["LUNA_FAST_MODEL"] = f"{fast.get('provider', 'anthropic')}:{fast['model']}"
+
+        # Plan 018: inject the system model catalog (Luna 007.016 LUNA_MODEL_CATALOG).
+        catalog = models_cfg.get("catalog")
+        if catalog:
+            env_vars["LUNA_MODEL_CATALOG"] = json.dumps(catalog)
 
         env_vars.update(env_overrides)
 
