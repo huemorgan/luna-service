@@ -34,18 +34,17 @@ interface Machine {
   fast_model_override: ModelEntry | null;
 }
 
-// Keep in sync with ImageConfigPage.ALL_MODELS
-const ALL_MODELS: { provider: string; model: string; label: string }[] = [
-  { provider: 'anthropic', model: 'claude-sonnet-4-20250514', label: 'Anthropic — Claude Sonnet 4' },
-  { provider: 'anthropic', model: 'claude-opus-4-20250514', label: 'Anthropic — Claude Opus 4' },
-  { provider: 'anthropic', model: 'claude-opus-4-20250514-high', label: 'Anthropic — Claude Opus 4 High' },
-  { provider: 'anthropic', model: 'claude-haiku-3-5-20241022', label: 'Anthropic — Claude Haiku 3.5' },
-  { provider: 'openai', model: 'gpt-4o', label: 'OpenAI — GPT-4o' },
-  { provider: 'openai', model: 'gpt-4o-mini', label: 'OpenAI — GPT-4o Mini' },
-  { provider: 'openai', model: 'gpt-4-turbo', label: 'OpenAI — GPT-4 Turbo' },
-  { provider: 'openai', model: 'o3', label: 'OpenAI — o3' },
-  { provider: 'openai', model: 'o4-mini', label: 'OpenAI — o4-mini' },
-];
+// Plan 018: model options come from the system catalog (/api/admin/gateway/models),
+// not a hardcoded list, so they can never drift from what the proxy actually serves.
+interface CatalogModel {
+  provider: string;
+  model: string;
+  label: string | null;
+  kinds: ('reasoning' | 'summarization' | 'embedding')[];
+  enabled: boolean;
+  recommended_default: boolean;
+  deprecated: boolean;
+}
 
 
 interface Delivery {
@@ -217,10 +216,11 @@ function ConnectorsPluginSection({
 /* ------------------------------------------------------------------ */
 
 function ModelsSection({
-  machine, busy, onChange,
+  machine, busy, catalog, onChange,
 }: {
   machine: Machine;
   busy: boolean;
+  catalog: CatalogModel[];
   onChange: (role: 'primary' | 'fast', value: string) => void;
 }) {
   // The API returns the override AS the resolved value (override wins), so we
@@ -234,6 +234,8 @@ function ModelsSection({
     resolved: ModelEntry,
     override: ModelEntry | null,
   ) => {
+    const kind = role === 'primary' ? 'reasoning' : 'summarization';
+    const kindModels = catalog.filter(m => m.enabled && m.kinds.includes(kind));
     const selectValue = override ? `${override.provider}:${override.model}` : 'inherit';
     return (
       <div className="py-3" style={{ borderTop: '1px solid var(--ink-lighter)' }}>
@@ -264,9 +266,11 @@ function ModelsSection({
               minWidth: 220,
             }}
           >
-            <option value="inherit">Inherit image default</option>
-            {ALL_MODELS.map(m => (
-              <option key={`${m.provider}:${m.model}`} value={`${m.provider}:${m.model}`}>{m.label}</option>
+            <option value="inherit">Inherit image / catalog default</option>
+            {kindModels.map(m => (
+              <option key={`${m.provider}:${m.model}`} value={`${m.provider}:${m.model}`}>
+                {m.provider} — {m.label || m.model}{m.recommended_default ? ' (default)' : ''}
+              </option>
             ))}
           </select>
         </div>
@@ -525,12 +529,13 @@ function WebhooksTab({
 /* ------------------------------------------------------------------ */
 
 function MachineCard({
-  machine, links, deliveries, busy, onUpdateImage, onSetMode, onSetModel, onWebhooksChange,
+  machine, links, deliveries, busy, catalog, onUpdateImage, onSetMode, onSetModel, onWebhooksChange,
 }: {
   machine: Machine;
   links: AccountLink[];
   deliveries: Delivery[];
   busy: boolean;
+  catalog: CatalogModel[];
   onUpdateImage: () => void;
   onSetMode: (value: 'inherit' | 'hosted' | 'user' | 'both') => void;
   onSetModel: (role: 'primary' | 'fast', value: string) => void;
@@ -636,7 +641,7 @@ function MachineCard({
             )}
             {activeTab === 'settings' && (
               <div className="space-y-4">
-                <ModelsSection machine={machine} busy={busy} onChange={onSetModel} />
+                <ModelsSection machine={machine} busy={busy} catalog={catalog} onChange={onSetModel} />
                 <ConnectorsPluginSection machine={machine} busy={busy} onChange={onSetMode} />
               </div>
             )}
@@ -719,20 +724,23 @@ export default function MachinesPage() {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [links, setLinks] = useState<AccountLink[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [catalog, setCatalog] = useState<CatalogModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [migratingAll, setMigratingAll] = useState(false);
   const [migrateResult, setMigrateResult] = useState<{ updated: number; errors: { machine_id: string; agent: string; error: string }[] } | null>(null);
 
   const fetchAll = useCallback(async () => {
-    const [mRes, lRes, dRes] = await Promise.all([
+    const [mRes, lRes, dRes, cRes] = await Promise.all([
       fetch('/api/admin/machines'),
       fetch('/api/admin/relay/links'),
       fetch('/api/admin/relay/deliveries?limit=200'),
+      fetch('/api/admin/gateway/models'),
     ]);
     if (mRes.ok) setMachines(await mRes.json());
     if (lRes.ok) setLinks(await lRes.json());
     if (dRes.ok) setDeliveries(await dRes.json());
+    if (cRes.ok) setCatalog(await cRes.json());
     setLoading(false);
   }, []);
 
@@ -882,6 +890,7 @@ export default function MachinesPage() {
               links={linksByAgent[m.agent_slug] || []}
               deliveries={deliveriesByAgent[m.agent_slug] || []}
               busy={busy === m.machine_id}
+              catalog={catalog}
               onUpdateImage={() => m.machine_id && handleUpdateImage(m.machine_id)}
               onSetMode={(v) => m.machine_id && handleSetMode(m.machine_id, v)}
               onSetModel={(r, v) => m.machine_id && handleSetModel(m.machine_id, r, v)}
