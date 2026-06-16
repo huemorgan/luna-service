@@ -36,6 +36,16 @@ SEED_MODELS: list[dict] = [
         "kinds": ["summarization"], "aliases": ["haiku", "claude-haiku"],
         "recommended_default": True, "input_cost": 1.0, "output_cost": 5.0,
     },
+    {
+        # Transition entry: machines provisioned before 018 may still be pinned to
+        # this head until the backfill runs. Kept enabled+deprecated so the proxy
+        # never 404s a live agent mid-rollout; never a default. Safe to remove
+        # from the admin catalog once every machine is migrated.
+        "provider": "anthropic", "model": "claude-sonnet-4-20250514",
+        "label": "Claude Sonnet 4 (legacy)", "context_window": 200000,
+        "kinds": ["reasoning", "summarization"], "aliases": [],
+        "deprecated": True, "input_cost": 3.0, "output_cost": 15.0,
+    },
     # ---- OpenAI ----
     {
         "provider": "openai", "model": "gpt-4o",

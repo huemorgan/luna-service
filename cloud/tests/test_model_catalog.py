@@ -56,16 +56,19 @@ async def test_system_catalog_only_enabled_and_shape(db_session):
     assert "opus" in opus.get("aliases", [])
 
 
-async def test_system_catalog_has_no_stale_or_brick_ids(db_session):
+async def test_system_catalog_has_no_invented_ids(db_session):
     await seed_models(db_session)
     await db_session.commit()
     catalog = await system_catalog(db_session)
     ids = {e["model"] for e in catalog}
-    for stale in (
-        "o3", "o4-mini", "gpt-4-turbo",
-        "claude-sonnet-4-20250514", "claude-opus-4-20250514",
-    ):
+    # Invented / never-served ids must be absent.
+    for stale in ("o3", "o4-mini", "gpt-4-turbo", "claude-opus-4-20250514"):
         assert stale not in ids
+    # The legacy default is present but only as a deprecated, non-default entry,
+    # so pre-018 machines don't 404 mid-rollout.
+    legacy = next(e for e in catalog if e["model"] == "claude-sonnet-4-20250514")
+    assert legacy.get("deprecated") is True
+    assert legacy.get("recommended_default") is not True
 
 
 # ── resolve_default_heads ────────────────────────────────────────────────────
@@ -106,9 +109,9 @@ async def test_offcatalog_head_falls_back_to_catalog_default(db_session):
     await seed_models(db_session)
     await db_session.commit()
     catalog = await system_catalog(db_session)
-    img = {"models": {"primary": {"provider": "anthropic", "model": "claude-sonnet-4-20250514"}}}
+    img = {"models": {"primary": {"provider": "anthropic", "model": "claude-opus-4-20250514"}}}
     heads = resolve_default_heads(catalog, image_config=img, agent_overrides=None)
-    assert heads["primary"]["model"] == "claude-opus-4-6"  # not the brick id
+    assert heads["primary"]["model"] == "claude-opus-4-6"  # not the off-catalog id
 
 
 async def test_head_must_match_kind(db_session):
