@@ -219,19 +219,159 @@ def _read_luna_version_from_disk() -> str | None:
     return m.group(1) if m else None
 
 
+# ── Luna branches (build experimental branches) ───────────────────────────────
+
+_branches_cache: dict[str, tuple[float, list[dict]]] = {}
+_BRANCHES_TTL = 120.0
+_MAX_BRANCH_COMPARES = 40  # bound GitHub calls; extra branches list without ahead/behind
+
+
+def _slugify_branch(name: str) -> str:
+    """Make a branch name safe for a docker tag fragment ([A-Za-z0-9_.-])."""
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", name).strip("-.")
+    return slug[:80] or "branch"
+
+
+def _gh_headers() -> dict[str, str]:
+    headers = {"Accept": "application/vnd.github.v3+json"}
+    token = os.environ.get("CLOUD_GITHUB_PAT") or os.environ.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+async def _fetch_luna_ref_info(ref: str) -> tuple[str | None, str | None]:
+    """Return (luna __version__, head commit sha) for a branch/ref via GitHub."""
+    version: str | None = None
+    sha: str | None = None
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            cresp = await client.get(
+                f"https://api.github.com/repos/{LUNA_GITHUB_REPO}/contents/{LUNA_VERSION_PATH}",
+                params={"ref": ref}, headers=_gh_headers(),
+            )
+            if cresp.status_code == 200:
+                content = base64.b64decode(cresp.json().get("content", "")).decode("utf-8")
+                m = re.search(r'__version__\s*=\s*"(.+?)"', content)
+                version = m.group(1) if m else None
+            bresp = await client.get(
+                f"https://api.github.com/repos/{LUNA_GITHUB_REPO}/branches/{ref}",
+                headers=_gh_headers(),
+            )
+            if bresp.status_code == 200:
+                sha = bresp.json().get("commit", {}).get("sha")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("GitHub ref-info fetch failed for %s: %s", ref, exc)
+    return version, sha
+
+
+async def _list_luna_branches() -> list[dict]:
+    """List luna repo branches with merge status vs main. Short-TTL cached.
+
+    Each entry: {name, commit_sha, merged, ahead_by, behind_by}. `merged` means
+    the branch has no commits beyond main (ahead_by == 0). Never raises.
+    """
+    now = time.time()
+    cached = _branches_cache.get("luna")
+    if cached and now - cached[0] < _BRANCHES_TTL:
+        return cached[1]
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                f"https://api.github.com/repos/{LUNA_GITHUB_REPO}/branches",
+                params={"per_page": 100}, headers=_gh_headers(),
+            )
+            resp.raise_for_status()
+            raw = resp.json()
+            out: list[dict] = []
+            compares = 0
+            for b in raw:
+                name = b.get("name")
+                if not name:
+                    continue
+                entry = {
+                    "name": name,
+                    "commit_sha": b.get("commit", {}).get("sha"),
+                    "merged": name == "main",
+                    "ahead_by": 0,
+                    "behind_by": 0,
+                }
+                if name != "main" and compares < _MAX_BRANCH_COMPARES:
+                    compares += 1
+                    try:
+                        cmp = await client.get(
+                            f"https://api.github.com/repos/{LUNA_GITHUB_REPO}/compare/main...{name}",
+                            headers=_gh_headers(),
+                        )
+                        if cmp.status_code == 200:
+                            cj = cmp.json()
+                            entry["ahead_by"] = cj.get("ahead_by", 0)
+                            entry["behind_by"] = cj.get("behind_by", 0)
+                            entry["merged"] = cj.get("ahead_by", 0) == 0
+                    except Exception:  # noqa: BLE001
+                        pass
+            # Order: unmerged (experimental) first, main pinned at top, then name.
+                out.append(entry)
+        out.sort(key=lambda e: (e["name"] != "main", e["merged"], e["name"]))
+        _branches_cache["luna"] = (now, out)
+        return out
+    except Exception as exc:  # noqa: BLE001
+        log.warning("GitHub branches fetch failed: %s", exc)
+        return cached[1] if cached else [{"name": "main", "commit_sha": None, "merged": True, "ahead_by": 0, "behind_by": 0}]
+
+
+# Plan 019: `source` says where a plugin comes from in the hosted image —
+#   "in-tree"   : shipped in luna core
+#   "image-set" : baked from the marketplace at build (see plugin-set / Plan 019).
+# image-set plugins still get an enable/disable toggle (a PluginRow is created
+# once Luna's phase08 loader picks them up), but the admin UI must be honest that
+# they originate from the baked set, not core.
 PLUGIN_META = [
-    {"key": "plugin_vault", "name": "Vault", "description": "Encrypted credential storage", "required": True},
-    {"key": "plugin_memory", "name": "Memory", "description": "Long-term semantic recall", "required": True},
-    {"key": "plugin_identity", "name": "Identity", "description": "Agent name, persona, settings", "required": True},
-    {"key": "plugin_mcp", "name": "MCP", "description": "External tool connections", "required": False},
-    {"key": "plugin_web_access", "name": "Web Access", "description": "Web search, fetch, HTTP", "required": False},
-    {"key": "plugin_funnelfighters", "name": "FunnelFighters", "description": "Marketing intelligence", "required": False},
-    {"key": "plugin_brain", "name": "Brain", "description": "Live neural activity visualization", "required": False},
-    {"key": "plugin_files", "name": "Files", "description": "File storage and browser", "required": False},
-    {"key": "plugin_meta", "name": "Meta", "description": "Toggle other plugins at runtime", "required": True},
-    {"key": "plugin_approvals", "name": "Approvals", "description": "Gates risky actions for owner consent", "required": True},
-    {"key": "plugin_web", "name": "Web Server", "description": "Core HTTP server and auth", "required": True},
+    {"key": "plugin_vault", "name": "Vault", "description": "Encrypted credential storage", "required": True, "source": "in-tree"},
+    {"key": "plugin_memory", "name": "Memory", "description": "Long-term semantic recall", "required": True, "source": "in-tree"},
+    {"key": "plugin_identity", "name": "Identity", "description": "Agent name, persona, settings", "required": True, "source": "in-tree"},
+    {"key": "plugin_mcp", "name": "MCP", "description": "External tool connections", "required": False, "source": "in-tree"},
+    {"key": "plugin_web_access", "name": "Web Access", "description": "Web search, fetch, HTTP", "required": False, "source": "image-set"},
+    {"key": "plugin_funnelfighters", "name": "FunnelFighters", "description": "Marketing intelligence", "required": False, "source": "in-tree"},
+    {"key": "plugin_brain", "name": "Brain", "description": "Live neural activity visualization", "required": False, "source": "in-tree"},
+    {"key": "plugin_files", "name": "Files", "description": "File storage and browser", "required": False, "source": "image-set"},
+    {"key": "plugin_charts", "name": "Charts", "description": "Interactive Chart.js charts inline in chat", "required": False, "source": "image-set"},
+    {"key": "plugin_meta", "name": "Meta", "description": "Toggle other plugins at runtime", "required": True, "source": "in-tree"},
+    {"key": "plugin_approvals", "name": "Approvals", "description": "Gates risky actions for owner consent", "required": True, "source": "in-tree"},
+    {"key": "plugin_web", "name": "Web Server", "description": "Core HTTP server and auth", "required": True, "source": "in-tree"},
 ]
+
+# ── Plugin set (Plan 019) ─────────────────────────────────────────────────────
+# The official marketplace is the only catalog we read. The admin picks a subset
+# of leaf plugins to bake into the image (image_config.plugin_set); the build
+# fetches + sha256-verifies them. Connectors carry PyPI deps and hit the
+# unresolved dependency-isolation problem (Luna 008.5 §5), so they are not
+# bakeable yet and are rejected on save.
+OFFICIAL_MARKETPLACE_URL = os.environ.get(
+    "CLOUD_MARKETPLACE_URL", "https://luna-marketplaces.onrender.com/mp/official/"
+)
+
+# Marketplace plugin names (hyphenated) that are NOT bakeable this round.
+NON_BAKEABLE_PLUGINS = {
+    "plugin-monday", "plugin-render", "plugin-cloudflare",
+}
+
+
+def _is_bakeable(name: str) -> bool:
+    """A marketplace plugin is bakeable unless it's a known connector (deps)."""
+    return _norm_plugin_name(name) not in {
+        _norm_plugin_name(n) for n in NON_BAKEABLE_PLUGINS
+    }
+
+
+def _norm_plugin_name(name: str) -> str:
+    """Normalise a plugin name for comparison (hyphen/underscore agnostic)."""
+    return (name or "").strip().lower().replace("_", "-")
+
+
+# Short-TTL cache for the marketplace catalog (Render Starter has cold starts).
+_catalog_cache: dict[str, tuple[float, list[dict]]] = {}
+_CATALOG_TTL = 120.0
 
 DEFAULT_IMAGE_CONFIG = {
     "machine": {
@@ -256,10 +396,15 @@ DEFAULT_IMAGE_CONFIG = {
         "plugin_funnelfighters": True,
         "plugin_brain": True,
         "plugin_files": True,
+        "plugin_charts": True,
         "plugin_meta": True,
         "plugin_approvals": True,
         "plugin_web": True,
     },
+    # Plan 019: marketplace plugins baked into this image. Empty = the UI will
+    # pre-select the curated leaf set on first open; the build falls back to
+    # plugin-set.toml until an explicit selection is saved.
+    "plugin_set": [],
     "env": {},
     # Plan 016: per-service defaults (resolver in cloud/provisioning/services_config.py).
     "services": {
@@ -278,6 +423,7 @@ def _image_dict(img: LunaImage, agent_count: int = 0) -> dict:
         "build_run_id": img.build_run_id,
         "build_error": img.build_error,
         "git_sha": img.git_sha,
+        "git_branch": img.git_branch or "main",
         "created_at": img.created_at.isoformat() if img.created_at else None,
         "built_at": img.built_at.isoformat() if img.built_at else None,
         "agent_count": agent_count,
@@ -355,6 +501,43 @@ class ImageConfigUpdate(BaseModel):
     plugins: dict | None = None
     env: dict | None = None
     services: dict | None = None
+    plugin_set: list[dict] | None = None
+
+
+def _validate_plugin_set(entries: list[dict]) -> list[dict]:
+    """Validate a plugin_set selection from the admin UI.
+
+    Each entry must carry name/version/sha256 (sha captured from index.json at
+    selection time, so the build is pinned + reproducible) and name a bakeable
+    leaf plugin. Returns the normalised list; raises 400 on any bad entry.
+    """
+    seen: set[str] = set()
+    out: list[dict] = []
+    for raw in entries:
+        if not isinstance(raw, dict):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "plugin_set entries must be objects")
+        name = str(raw.get("name") or "").strip()
+        version = str(raw.get("version") or "").strip()
+        sha256 = str(raw.get("sha256") or "").strip().lower()
+        if not name or not version or not sha256:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"plugin_set entry needs name/version/sha256: {raw!r}",
+            )
+        if not re.fullmatch(r"[0-9a-f]{64}", sha256):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"invalid sha256 for {name}")
+        if not _is_bakeable(name):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"plugin '{name}' is not bakeable yet (connectors carry deps; "
+                "see Luna 008.5 dependency-isolation)",
+            )
+        key = _norm_plugin_name(name)
+        if key in seen:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"duplicate plugin '{name}' in set")
+        seen.add(key)
+        out.append({"name": name, "version": version, "sha256": sha256})
+    return out
 
 
 @router.put("/images/{image_id}/config")
@@ -371,6 +554,8 @@ async def update_image_config(
 
         before = {**DEFAULT_IMAGE_CONFIG, **(img.image_config or {})}
         patch = body.model_dump(exclude_none=True)
+        if "plugin_set" in patch:
+            patch["plugin_set"] = _validate_plugin_set(patch["plugin_set"])
         current = {**before}
         for key, val in patch.items():
             if isinstance(val, dict) and isinstance(current.get(key), dict):
@@ -389,6 +574,100 @@ async def update_image_config(
 @router.get("/plugin-meta")
 async def get_plugin_meta(admin: User = Depends(require_admin)):
     return PLUGIN_META
+
+
+# ── Plugin-set catalog (Plan 019) ─────────────────────────────────────────────
+
+async def _fetch_marketplace_catalog() -> list[dict]:
+    """Fetch + normalise the official marketplace index. Short-TTL cached.
+
+    Returns [{name, version, description, sha256, bakeable}]. Never raises to the
+    caller — on a marketplace failure it serves the last cached value (or []),
+    so the admin page degrades instead of 500-ing.
+    """
+    now = time.time()
+    cached = _catalog_cache.get("official")
+    if cached and now - cached[0] < _CATALOG_TTL:
+        return cached[1]
+
+    url = OFFICIAL_MARKETPLACE_URL.rstrip("/") + "/index.json"
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+        entries = []
+        for p in data.get("plugins", []):
+            name = p.get("name")
+            if not name:
+                continue
+            entries.append({
+                "name": name,
+                "version": p.get("version", ""),
+                "description": p.get("description", ""),
+                "sha256": p.get("sha256", ""),
+                "bakeable": _is_bakeable(name),
+            })
+        entries.sort(key=lambda e: e["name"])
+        _catalog_cache["official"] = (now, entries)
+        return entries
+    except Exception as exc:  # noqa: BLE001 — page must not break on marketplace down
+        log.warning("marketplace catalog fetch failed (%s): %s", url, exc)
+        return cached[1] if cached else []
+
+
+@router.get("/marketplace/catalog")
+async def marketplace_catalog(admin: User = Depends(require_admin)):
+    return {
+        "marketplace": OFFICIAL_MARKETPLACE_URL,
+        "plugins": await _fetch_marketplace_catalog(),
+    }
+
+
+def _read_plugin_set_seed() -> list[dict]:
+    """Read plugin-set.toml at repo root → [{name, version, sha256}] (or [])."""
+    import tomllib
+    seed_path = Path(__file__).resolve().parents[2] / "plugin-set.toml"
+    if not seed_path.exists():
+        return []
+    try:
+        data = tomllib.loads(seed_path.read_text())
+    except Exception as exc:  # noqa: BLE001
+        log.warning("plugin-set.toml parse failed: %s", exc)
+        return []
+    out = []
+    for p in data.get("plugins", []):
+        if p.get("name") and p.get("version") and p.get("sha256"):
+            out.append({"name": p["name"], "version": p["version"], "sha256": p["sha256"]})
+    return out
+
+
+@router.get("/images/{image_id}/plugin-set")
+async def get_image_plugin_set(
+    image_id: str,
+    authorization: str = Header(None),
+):
+    """Resolve the baked plugin set for an image — consumed by the build workflow.
+
+    Auth: the admin webhook secret (same as build-complete), because GitHub
+    Actions calls this with no user session. Returns the saved selection, or the
+    plugin-set.toml seed when the image has none yet.
+    """
+    settings = get_settings()
+    if authorization != f"Bearer {settings.admin_webhook_secret}":
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid webhook secret")
+
+    async with get_db_session() as db:
+        img = (await db.execute(
+            select(LunaImage).where(LunaImage.id == uuid.UUID(image_id))
+        )).scalar_one_or_none()
+        if not img:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
+
+    selection = (img.image_config or {}).get("plugin_set") or []
+    if not selection:
+        selection = _read_plugin_set_seed()
+    return {"marketplace": OFFICIAL_MARKETPLACE_URL, "plugins": selection}
 
 
 @router.delete("/images/{image_id}")
@@ -507,15 +786,43 @@ async def warm_image_cache(image_id: str, request: Request, admin: User = Depend
     return {"ok": True, "region": region, "cache_warmed_at": img.cache_warmed_at.isoformat()}
 
 
+@router.get("/luna/branches")
+async def list_luna_branches(admin: User = Depends(require_admin)):
+    """List luna repo branches so the admin can build an experimental branch."""
+    return {"repo": LUNA_GITHUB_REPO, "branches": await _list_luna_branches()}
+
+
 @router.post("/images/build")
-async def build_image(request: Request, admin: User = Depends(require_admin), version: str | None = None):
+async def build_image(
+    request: Request,
+    admin: User = Depends(require_admin),
+    version: str | None = None,
+    branch: str = "main",
+):
     ip = _client_ip(request)
     settings = get_settings()
-    if not version:
-        version_result = await _fetch_luna_version_from_github()
-        version = version_result[0]
-    if not version:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot determine Luna version")
+    branch = (branch or "main").strip()
+
+    git_sha: str | None = None
+    if branch == "main":
+        # Release build: version = luna main's __version__.
+        if not version:
+            version = (await _fetch_luna_version_from_github())[0]
+        if not version:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot determine Luna version")
+        base_version = version
+    else:
+        # Experimental branch build: qualify the tag with branch + short sha so it
+        # never collides with main or other branches, and each commit is distinct.
+        base_version, git_sha = await _fetch_luna_ref_info(branch)
+        if not git_sha:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Luna branch '{branch}' not found")
+        if not base_version:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Cannot read Luna version from branch '{branch}'",
+            )
+        version = f"{base_version}-{_slugify_branch(branch)}-{git_sha[:7]}"
 
     fly_app = os.environ.get("FLY_APP", "luna-agents")
     registry_tag = f"registry.fly.io/{fly_app}:{version}"
@@ -535,6 +842,8 @@ async def build_image(request: Request, admin: User = Depends(require_admin), ve
             registry_tag=registry_tag,
             build_status="building",
             created_by=admin.id,
+            git_branch=branch,
+            git_sha=git_sha,
         )
         if existing:
             await db.delete(existing)
@@ -545,8 +854,9 @@ async def build_image(request: Request, admin: User = Depends(require_admin), ve
         image_id = str(img.id)
 
         await _audit(db, action="image.build_triggered", actor=admin, actor_ip=ip,
-                     target=image_id, metadata={"version": version, "registry_tag": registry_tag},
-                     after_state={"version": version, "build_status": "building"})
+                     target=image_id, metadata={"version": version, "registry_tag": registry_tag,
+                                                 "branch": branch, "base_version": base_version},
+                     after_state={"version": version, "build_status": "building", "branch": branch})
         await db.commit()
 
     if settings.github_pat:
@@ -560,7 +870,12 @@ async def build_image(request: Request, admin: User = Depends(require_admin), ve
                     },
                     json={
                         "ref": "main",
-                        "inputs": {"version": version, "image_id": image_id},
+                        "inputs": {
+                            "version": version,
+                            "image_id": image_id,
+                            "branch": branch,
+                            "base_version": base_version,
+                        },
                     },
                     timeout=15,
                 )

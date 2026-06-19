@@ -1,25 +1,40 @@
-# Hosted-mode build of the Luna image. Build context is the luna/ submodule:
+# Hosted-mode build of the Luna image. Build context is the REPO ROOT:
 #
-#   docker build -f docker/luna-hosted.Dockerfile luna/
+#   docker build -f docker/luna-hosted.Dockerfile .
 #
-# Mirrors luna/Dockerfile with one fix: the UI build stage reproduces the
-# repo layout (ui/ and plugins/ as siblings) so that
-#   - ui/src/lib/pluginRegistry.ts's import.meta.glob('../../../plugins/*/
-#     interface/webui/SettingsTab.tsx') finds the plugin settings tabs, and
-#   - those tabs' imports back into '../../../../ui/src/lib/...' resolve.
-# The stock Dockerfile builds the UI without plugins/ present, so every
-# plugin settings tab is missing from the built UI ("No UI shipped for ...").
+# (Plan 019 moved the context from luna/ to the repo root so the build can see
+# plugin-set.toml + scripts/bake_plugin_set.py. All luna COPYs are now luna/…)
+#
+# Two extras over luna/Dockerfile:
+#   1. The UI build stage reproduces the repo layout (ui/ and plugins/ as
+#      siblings) so ui/src/lib/pluginRegistry.ts's import.meta.glob finds the
+#      plugin settings tabs (else "No UI shipped for …").
+#   2. A plugin-set stage bakes a curated set of marketplace plugins into
+#      /opt/luna/plugin-set (verified by sha256) and the runtime sets
+#      LUNA_PLUGIN_SET_DIR so Luna's phase08 loader picks them up at boot — no
+#      marketplace network call at tenant runtime.
 
 # ─── Stage 1: Build the UI ───────────────────────────────────────────
 FROM node:22-slim AS ui-build
 WORKDIR /build/ui
-COPY ui/package.json ui/pnpm-lock.yaml ui/pnpm-workspace.yaml ./
+COPY luna/ui/package.json luna/ui/pnpm-lock.yaml luna/ui/pnpm-workspace.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild esbuild
-COPY ui/ ./
-COPY plugins/ /build/plugins/
+COPY luna/ui/ ./
+COPY luna/plugins/ /build/plugins/
 RUN pnpm build
 
-# ─── Stage 2: Python runtime ────────────────────────────────────────
+# ─── Stage 2: Bake the marketplace plugin set (Plan 019) ─────────────
+# Fetches the pinned artifacts, verifies sha256 (fail-closed), unpacks into
+# /opt/luna/plugin-set/<pkg>/ + writes plugin-set.lock.json. The set is the UI
+# selection (plugin-set.json, written by the build workflow) or the
+# plugin-set.toml seed. Needs network during build only.
+FROM python:3.12-slim AS plugin-set
+WORKDIR /bake
+COPY scripts/bake_plugin_set.py ./bake_plugin_set.py
+COPY plugin-set.* ./
+RUN python bake_plugin_set.py --out /opt/luna/plugin-set --context /bake
+
+# ─── Stage 3: Python runtime ─────────────────────────────────────────
 FROM python:3.12-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -30,19 +45,24 @@ RUN pip install --no-cache-dir uv
 
 WORKDIR /app
 
-COPY pyproject.toml README.md ./
-COPY luna/ ./luna/
-COPY plugins/ ./plugins/
-COPY alembic/ ./alembic/
-COPY alembic.ini ./
-COPY scripts/ ./scripts/
-COPY luna_serve.py ./
+COPY luna/pyproject.toml luna/README.md ./
+COPY luna/luna/ ./luna/
+COPY luna/plugins/ ./plugins/
+COPY luna/alembic/ ./alembic/
+COPY luna/alembic.ini ./
+COPY luna/scripts/ ./scripts/
+COPY luna/luna_serve.py ./
 
 # Install Python deps
 RUN uv pip install --system --no-cache .
 
 # Copy built UI
 COPY --from=ui-build /build/ui/dist ./ui/dist
+
+# Image-baked plugin set — read-only, outside any per-tenant writable mount so a
+# volume over ~/.luna or /app can't shadow it.
+COPY --from=plugin-set /opt/luna/plugin-set /opt/luna/plugin-set
+ENV LUNA_PLUGIN_SET_DIR=/opt/luna/plugin-set
 
 EXPOSE 8000
 

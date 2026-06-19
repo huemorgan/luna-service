@@ -1,3 +1,7 @@
 [submodule "luna"]
 	path = luna
 	url = https://github.com/huemorgan/luna.git
+	branch = main
+[submodule "luna-marketplaces"]
+	path = luna-marketplaces
+	url = https://github.com/huemorgan2/luna-marketplaces.git

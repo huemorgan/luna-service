@@ -1,0 +1,32 @@
+# plugin-set.toml — default/seed for the image-baked plugin set (Plan 019).
+#
+# This is ONLY the fallback used when an image has no UI selection
+# (image_config.plugin_set is empty). The real source of truth is the admin
+# "Plugin Set" picker, which writes per-image selections captured live from the
+# marketplace index.json. The build (scripts/bake_plugin_set.py) prefers the UI
+# selection (plugin-set.json) and falls back to this file.
+#
+# Curated leaf set: charts + web-access + files. Connectors (monday/render/
+# cloudflare) are NOT bakeable yet — they carry PyPI deps that hit the
+# dependency-isolation problem (Luna 008.5 §5).
+#
+# `sha256` pins the exact artifact; the build fails closed on any mismatch.
+# Refresh these from the official index when the marketplace publishes new
+# versions:
+#   curl -s https://luna-marketplaces.onrender.com/mp/official/index.json
+marketplace = "https://luna-marketplaces.onrender.com/mp/official/"
+
+[[plugins]]
+name = "plugin-charts"
+version = "0.1.0"
+sha256 = "52e063f327a2f1ed505b239344eca9aadb0806fe1921e3f6b58f0f0ba0a9f1b9"
+
+[[plugins]]
+name = "plugin-web-access"
+version = "0.2.0"
+sha256 = "a4e546e159432a60fc754e0feb5645e23d274c4812760906b6270a106624c0dc"
+
+[[plugins]]
+name = "plugin-files"
+version = "0.2.0"
+sha256 = "1f38cd1771375b8b9cdde605934b0d8be0ae6c777d3b24db967d2a51412ea293"

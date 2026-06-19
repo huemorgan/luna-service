@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, Loader2, Star, Hammer, RefreshCw, ExternalLink, ChevronDown, ChevronRight, AlertCircle, Trash2, RotateCcw, ArrowUpCircle, Settings, Play } from 'lucide-react';
+import { Package, Loader2, Star, Hammer, RefreshCw, ExternalLink, ChevronDown, ChevronRight, AlertCircle, Trash2, RotateCcw, ArrowUpCircle, Settings, Play, GitBranch } from 'lucide-react';
 
 interface LunaImage {
   id: string;
@@ -11,10 +11,19 @@ interface LunaImage {
   build_run_id: string | null;
   build_error: string | null;
   git_sha: string | null;
+  git_branch: string | null;
   created_at: string | null;
   built_at: string | null;
   agent_count: number;
   cache_warmed_at: string | null;
+}
+
+interface LunaBranch {
+  name: string;
+  commit_sha: string | null;
+  merged: boolean;
+  ahead_by: number;
+  behind_by: number;
 }
 
 interface UpdateCheck {
@@ -81,6 +90,15 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure
                   style={{ border: '1px solid rgba(201,184,255,0.3)', color: 'var(--moon)' }}
                 >
                   <Star size={10} /> Main
+                </span>
+              )}
+              {img.git_branch && img.git_branch !== 'main' && (
+                <span
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium font-mono"
+                  style={{ border: '1px solid rgba(250,204,21,0.3)', color: '#facc15', background: 'rgba(250,204,21,0.06)' }}
+                  title="Experimental build from a non-main Luna branch"
+                >
+                  <GitBranch size={10} /> {img.git_branch}
                 </span>
               )}
             </div>
@@ -239,6 +257,9 @@ export default function ImagesPage() {
   const [migrateResult, setMigrateResult] = useState<{ updated: number; errors: { agent: string; error: string }[] } | null>(null);
   const [testingAgent, setTestingAgent] = useState<string | null>(null);
   const [warmingCache, setWarmingCache] = useState<string | null>(null);
+  const [branches, setBranches] = useState<LunaBranch[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState('main');
+  const [branchesLoading, setBranchesLoading] = useState(false);
 
   const fetchImages = useCallback(async () => {
     const res = await fetch('/api/admin/images');
@@ -246,7 +267,14 @@ export default function ImagesPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchImages(); }, [fetchImages]);
+  const fetchBranches = useCallback(async () => {
+    setBranchesLoading(true);
+    const res = await fetch('/api/admin/luna/branches');
+    if (res.ok) setBranches((await res.json()).branches || []);
+    setBranchesLoading(false);
+  }, []);
+
+  useEffect(() => { fetchImages(); fetchBranches(); }, [fetchImages, fetchBranches]);
 
   // Poll while any image is building
   useEffect(() => {
@@ -274,6 +302,25 @@ export default function ImagesPage() {
       if (res.ok) {
         await fetchImages();
         setUpdateCheck(null);
+      } else {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        alert(`Build failed: ${err.detail || JSON.stringify(err)}`);
+      }
+    } catch (e: unknown) {
+      alert(`Build error: ${e instanceof Error ? e.message : e}`);
+    }
+    setBuilding(false);
+  };
+
+  const handleBuildBranch = async () => {
+    setBuilding(true);
+    try {
+      const res = await fetch(
+        `/api/admin/images/build?branch=${encodeURIComponent(selectedBranch)}`,
+        { method: 'POST' },
+      );
+      if (res.ok) {
+        await fetchImages();
       } else {
         const err = await res.json().catch(() => ({ detail: res.statusText }));
         alert(`Build failed: ${err.detail || JSON.stringify(err)}`);
@@ -382,6 +429,60 @@ export default function ImagesPage() {
             {checking ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
             Check for Updates
           </button>
+        </div>
+      </div>
+
+      {/* Build from a Luna branch (experimental builds on production) */}
+      <div
+        className="rounded-2xl p-4 border mb-6"
+        style={{ background: 'var(--surface)', borderColor: 'var(--ink-lighter)' }}
+      >
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-2 min-w-0">
+            <GitBranch size={16} style={{ color: 'var(--moon)' }} />
+            <div>
+              <div className="text-sm font-medium" style={{ color: 'var(--text)' }}>Build from branch</div>
+              <div className="text-xs" style={{ color: 'var(--text-dim)' }}>
+                Test an experimental Luna branch. Non-main builds are tagged
+                <span className="font-mono"> version-branch-sha</span> and never become Main automatically.
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedBranch}
+              onChange={e => setSelectedBranch(e.target.value)}
+              disabled={branchesLoading}
+              className="rounded-lg px-3 py-2 text-sm font-medium outline-none cursor-pointer"
+              style={{ background: 'var(--ink-light)', color: 'var(--text)', border: '1px solid var(--ink-lighter)', minWidth: 220 }}
+            >
+              {branches.length === 0 && <option value="main">main</option>}
+              {branches.map(b => (
+                <option key={b.name} value={b.name}>
+                  {b.name}
+                  {b.name === 'main' ? ' (release)' : b.merged ? ' (merged)' : ` (+${b.ahead_by} unmerged)`}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => { fetchBranches(); }}
+              disabled={branchesLoading}
+              title="Refresh branch list"
+              className="flex items-center justify-center w-9 h-9 rounded-lg transition-colors hover:bg-[var(--ink-light)] disabled:opacity-50"
+              style={{ border: '1px solid var(--ink-lighter)', color: 'var(--text-dim)' }}
+            >
+              {branchesLoading ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
+            </button>
+            <button
+              onClick={handleBuildBranch}
+              disabled={building}
+              className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold transition-all hover:scale-105 disabled:opacity-50"
+              style={{ background: 'var(--moon)', color: 'var(--ink)' }}
+            >
+              {building ? <Loader2 className="animate-spin" size={14} /> : <Hammer size={14} />}
+              Build {selectedBranch === 'main' ? 'main' : 'branch'}
+            </button>
+          </div>
         </div>
       </div>
 

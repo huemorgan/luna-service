@@ -107,6 +107,9 @@ class LunaImage(Base):
     build_run_id: Mapped[str | None] = mapped_column(Text)
     build_error: Mapped[str | None] = mapped_column(Text)
     git_sha: Mapped[str | None] = mapped_column(Text)
+    # Luna git branch this image was built from ("main" for releases; a feature
+    # branch for experimental builds). NULL = legacy/main.
+    git_branch: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     built_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))

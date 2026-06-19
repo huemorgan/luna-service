@@ -1,0 +1,150 @@
+Project LUNA
+The II generation of self reflective self improving agent architecture
+
+
+CONTENT
+1. What is LUNA agent
+2. First Generation Agent Architecture
+3. Second generation Architecture
+4. The luna project
+5. Add section title
+6. Add section title
+
+
+OUR MISSION
+
+LUNA is a RELIABLE & TRUSTED self reflective and self improving agent - fit to take ownership over business critical tasks.
+
+
+LUNA THE AGENT
+
+Luna is an open source project, that aims to solve the fundamental inherent problems the first generation self-reflective self-improving agents like open claw, hermes, nano claw has had.
+
+At the core of it's new architecture lays two fundamental important aspects RELIABILITY and TRUST, both things is inherently impossible with the current "Claw" style architecture.
+
+
+LUNA THE AGENT
+
+RELIABILITY:
+- Ability to execute tasks repeatedly without fail
+- Ability to keep the Self Improving qualities, but without breaking itself.
+- Execution is solid - no LLM volatility.
+
+TRUST:
+- Secure - no malware, safe credentials, can exist on any environment with that environment security requirements. Best in class practices that prevent insecure behaviour such as key passing to the LLM and other inherently flawed user behaviours.
+- Truthful - limit the ability for hallucinations
+- Operational transparency - no black box behaviour on agent execution on the business aspects.
+
+This is while maintaining full - Self Reflective - Self improving aspects
+
+
+COST ARCHITECTURE
+
+[Template placeholder: Demonstrate the benefits of the partnership through charts, graphs, and statistics. Use this space to explain what the data shows and how it impacts both businesses.]
+
+
+SELF REFLECTIVE - SELF IMPROVING
+
+Self reflection: The first generation of claw agents gave the ability for the agent to know what it did.
+"Agent: I answered 300 customer request emails yesterday, 30% of them where unhappy, and 40% didn't understand the UI."
+
+Self improvement - they can change their internal workings to improve.
+"User: after each email I asked you to write a log on the monday-board, you didn't.
+Agent: You're right, I see I got an error as I tried to access the wrong board. I found the right one, changed it - I wrote a log to see it works - link to view."
+
+Or:
+"Agent: I noticed you asked me to log the events on the board, it didn't work and I fixed it by choosing the right board, then went back and updated the log for 300 emails I sent."
+
+
+THE RESULT OF SR-SI
+
+The result of SR-SI is it replaces teams of builders and generate a perfect interface.
+
+
+THIS "INTERFACE" FOR AGENTS IS GOING TO STICK AROUND
+
+Because it's very Human and fits how we work and think - the underlying architecture will change.
+
+When we train new people for a role - we talk to them - they learn, then we let them try and perform their job and correct them - they continue to learn, then they come to us with suggestions of improving their role - they become better.
+
+This is the first generation of open claws - the first human-like interaction that replaced the: build a monitoring system for the agent execution, learn yourself (the team who built it), change the system, see what happened - the improvement loop of the agent execution is now inside the agent.
+
+
+WITH SR-SI THE IMPROVEMENT LOOP OF THE AGENT EXECUTION IS INSIDE THE AGENT
+
+Before SR-SI we had to:
+- Build a monitoring system for the agent execution - to know what it did
+- Learn yourself (the team who built it), change the system, see what happened.
+- And loop on that
+
+The promise of SR-SI:
+- The agent builds its own infra to execute the role
+- The agent sees what it did and analyses the results.
+- The agent (either autonomously, or with the operator) agrees on the change.
+
+
+SR-SI SHOWS PROMISE BUT FAILS TIME AND AGAIN
+
+Open Claw style agents are unreliable:
+- They keep breaking
+- They are inconsistent in execution
+- They are not secure
+
+Making them unreliable.
+
+
+CLAW IS UNRELIABLE AND UNTRUSTED BECAUSE OF THEIR CORE ARCHITECTURE
+
+To achieve SR-SI agents got:
+
+Flaw 1: coding abilities to allow them to improve themselves and do everything and anything. They can access any key, override any constraint, ruin themselves.
+
+Flaw 2: Everything relies on the LLM - it decides everything on execution - no framework to lean on - no order in the chaos - all layers on LLM reasoning.
+
+
+OLD 3D PRINTER ANALOGY
+
+[Template placeholder: Describe your company's products and services. Keep your potential partner in mind. What do you offer that's relevant to their business?]
+
+
+LUNA SOLVES THOSE - SECOND GENERATION SR-SI AGENT
+
+By providing a simple scaffold layer.
+
+Everything is a plugin, so Luna can be expanded to every possible task or given any capability.
+
+Plugins can do everything, but can't access the machine or keys or do things without user approval.
+
+
+THE PLUGIN SYSTEM - CHANGES EVERYTHING
+
+SR - It can develop & change its own plugins - self improve - but it's an operator choice not Luna's.
+
+SI - It is connected to its own execution with any connector to external systems or reflection into who it is - it knows its architecture - it has logs it can analyse itself - and its results.
+
+Trust:
+- Secure - proper vault for keys that lay under the plugin layer - one way, no keys go to the LLM.
+- Unbreakable - Luna can't change its core framework, it works inside the plugins, and inside the plugins Luna ships with a rollback mechanism for every change - so she's alive to see what she changed and can always fix / roll it back.
+- Reliable - ships with a powerful workflow plugin that executes repeatable tasks with precision, it's code execution with the agent involved where it's needed - workflows are not run by the agent. But the agent builds and improves the workflows.
+
+
+THE PLUGIN SYSTEM - CHANGES EVERYTHING (CONT.)
+
+- It is connected to its own execution with any connector to external systems or reflection into who it is - it knows its architecture - it has logs it can analyse itself - and its results.
+- Luna can live on the cloud - no computer is needed.
+- It can run with a DB - more powerful & scalable than a file system.
+- It can be adapted to any environment - runs on a computer or operates robots, because even the interface is a plugin and can be adapted to any system.
+- It allows anyone to expand LUNA to work with legacy systems in any work setup and get exactly what they need and nothing more.
+
+
+[REMAINING SLIDES - UNEDITED TEMPLATE PLACEHOLDERS]
+
+- Our mission (template: bold compelling statement / partnership goal)
+- What we do (template: products and services description)
+- Our accomplishments (template: certifications, awards, market share, industry rank)
+- Our values (template: 3 values/beliefs)
+- Our customers (template: customer segment titles, demographics, needs, pain points, channels)
+- Our successful partnerships (template: partnership 1-4 descriptions, logos)
+- How the partnership will work (template: 5 steps/milestones with dates)
+- Agenda / Timeline (template: 4 quarters of next steps)
+- Thank you / Let's talk (template: contact name, email, phone)

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Loader2, Package, Cpu, Brain, Plug, Variable,
-  Star, Check, Plus, Trash2, Lock, DollarSign, ArrowRight, Cable,
+  Star, Check, Plus, Trash2, Lock, DollarSign, ArrowRight, Cable, Boxes,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -31,11 +31,29 @@ interface ImageConfig {
     fast: { provider?: string; model?: string };
   };
   plugins: Record<string, boolean>;
+  plugin_set?: PluginSetEntry[];
   env: Record<string, string>;
   services?: {
     composio?: { accounts_mode?: 'hosted' | 'user' | 'both' };
   };
 }
+
+interface PluginSetEntry {
+  name: string;
+  version: string;
+  sha256: string;
+}
+
+interface CatalogPlugin {
+  name: string;
+  version: string;
+  description: string;
+  sha256: string;
+  bakeable: boolean;
+}
+
+// Default leaf set the picker pre-selects when an image has no selection yet.
+const DEFAULT_SET_NAMES = ['plugin-charts', 'plugin-web-access', 'plugin-files'];
 
 interface CatalogModel {
   provider: string;
@@ -232,6 +250,7 @@ export default function ImageConfigPage() {
   const [config, setConfig] = useState<ImageConfig | null>(null);
   const [plugins, setPlugins] = useState<PluginMeta[]>([]);
   const [catalog, setCatalog] = useState<CatalogModel[]>([]);
+  const [pluginCatalog, setPluginCatalog] = useState<CatalogPlugin[]>([]);
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -241,11 +260,12 @@ export default function ImageConfigPage() {
   const [applyingMachine, setApplyingMachine] = useState(false);
 
   const fetchData = useCallback(async () => {
-    const [imgRes, cfgRes, plugRes, modelsRes] = await Promise.all([
+    const [imgRes, cfgRes, plugRes, modelsRes, catRes] = await Promise.all([
       fetch('/api/admin/images'),
       fetch(`/api/admin/images/${imageId}/config`),
       fetch('/api/admin/plugin-meta'),
       fetch('/api/admin/gateway/models'),
+      fetch('/api/admin/marketplace/catalog'),
     ]);
     if (imgRes.ok) {
       const imgs: ImageInfo[] = await imgRes.json();
@@ -258,6 +278,7 @@ export default function ImageConfigPage() {
     }
     if (plugRes.ok) setPlugins(await plugRes.json());
     if (modelsRes.ok) setCatalog((await modelsRes.json()).filter((m: CatalogModel) => m.enabled));
+    if (catRes.ok) setPluginCatalog((await catRes.json()).plugins || []);
     setLoading(false);
   }, [imageId]);
 
@@ -328,6 +349,18 @@ export default function ImageConfigPage() {
     const next = { ...config, plugins: { ...config.plugins, [key]: value } };
     setConfig(next);
     save({ plugins: next.plugins });
+  };
+
+  const togglePluginSet = (cat: CatalogPlugin, value: boolean) => {
+    if (!config || !cat.bakeable) return;
+    const cur = config.plugin_set || [];
+    const next = value
+      ? [...cur.filter(e => e.name !== cat.name),
+         { name: cat.name, version: cat.version, sha256: cat.sha256 }]
+      : cur.filter(e => e.name !== cat.name);
+    const nextCfg = { ...config, plugin_set: next };
+    setConfig(nextCfg);
+    save({ plugin_set: next });
   };
 
   const updateEnv = (entries: Record<string, string>) => {
@@ -535,6 +568,67 @@ export default function ImageConfigPage() {
                 </div>
               );
             })}
+          </div>
+        </SectionCard>
+
+        {/* ---- Plugin Set (plan 019) ---- */}
+        <SectionCard icon={Boxes} title="Plugin Set (baked into image)">
+          <div>
+            <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
+              Marketplace plugins pre-installed into this image at build — no
+              marketplace call at tenant runtime. Pick a subset; connectors are
+              not bakeable yet. When nothing is ticked the build falls back to the{' '}
+              <span className="font-mono">plugin-set.toml</span> seed.
+            </p>
+            {(() => {
+              const saved = config.plugin_set || [];
+              const usingDefault = saved.length === 0;
+              const selected = new Set(
+                usingDefault ? DEFAULT_SET_NAMES : saved.map(e => e.name)
+              );
+              if (pluginCatalog.length === 0) {
+                return (
+                  <div className="text-xs py-2" style={{ color: 'var(--text-dim)' }}>
+                    Marketplace catalog unavailable.
+                  </div>
+                );
+              }
+              return pluginCatalog.map((p, i) => {
+                const isLast = i === pluginCatalog.length - 1;
+                const on = selected.has(p.name);
+                return (
+                  <div
+                    key={p.name}
+                    className="flex items-center justify-between py-3"
+                    style={{
+                      opacity: p.bakeable ? 1 : 0.55,
+                      borderBottom: isLast ? undefined : '1px solid var(--ink-lighter)',
+                    }}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{p.name}</span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded" style={{ background: 'var(--ink-light)', color: 'var(--text-dim)' }}>v{p.version}</span>
+                        {usingDefault && on && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(201,184,255,0.1)', color: 'var(--moon-dim)' }}>default</span>
+                        )}
+                        {!p.bakeable && (
+                          <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'rgba(250,204,21,0.1)', color: '#facc15' }}>
+                            <Lock size={8} /> connector — not bakeable
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs" style={{ color: 'var(--text-dim)' }}>{p.description}</span>
+                    </div>
+                    <Toggle
+                      on={on}
+                      disabled={!p.bakeable}
+                      onChange={v => togglePluginSet(p, v)}
+                    />
+                  </div>
+                );
+              });
+            })()}
           </div>
         </SectionCard>
 

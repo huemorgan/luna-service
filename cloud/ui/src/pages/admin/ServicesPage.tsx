@@ -163,18 +163,31 @@ function ServiceRow({ svc, expanded, onToggleExpand, onToggleField, onError, onC
 }) {
   return (
     <div className="rounded-xl border" style={{ background: 'var(--surface)', borderColor: 'var(--ink-lighter)' }}>
-      <button onClick={onToggleExpand} className="w-full flex items-center gap-3 px-5 py-3 text-left">
+      <div
+        onClick={onToggleExpand}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggleExpand(); } }}
+        role="button"
+        tabIndex={0}
+        className="w-full flex items-center gap-3 px-5 py-3 text-left cursor-pointer"
+      >
         {expanded ? <ChevronDown size={16} style={{ color: 'var(--text-dim)' }} /> : <ChevronRight size={16} style={{ color: 'var(--text-dim)' }} />}
         <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{svc.display_name}</span>
-            <code className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--ink)', color: 'var(--text-dim)' }}>{svc.slug}</code>
-          </div>
+          <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{svc.display_name}</span>
           <div className="text-xs mt-0.5" style={{ color: 'var(--text-dim)' }}>
-            {svc.upstream_url} · {svc.auth_style} · {svc.key_count} key{svc.key_count === 1 ? '' : 's'}
+            <a
+              href={svc.upstream_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={e => e.stopPropagation()}
+              className="hover:underline"
+              style={{ color: 'var(--text-dim)' }}
+            >
+              {svc.upstream_url}
+            </a>
+            {' · '}{svc.key_count} key{svc.key_count === 1 ? '' : 's'}
           </div>
         </div>
-      </button>
+      </div>
 
       {expanded && (
         <div className="px-5 pb-4 border-t pt-4" style={{ borderColor: 'var(--ink-lighter)' }}>

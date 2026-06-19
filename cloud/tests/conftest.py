@@ -46,9 +46,23 @@ TEST_SETTINGS = Settings(
 
 
 @pytest.fixture(autouse=True)
-def _patch_settings():
+def _patch_settings(monkeypatch):
+    # Modules that did `from cloud.config import get_settings` bound the original
+    # (lru-cached) function at import, so patching `cloud.config.get_settings`
+    # alone never reaches them (auth/session, admin webhook secret, …). Drive the
+    # real get_settings via env + a cleared cache so every importer agrees on the
+    # test secrets, and keep the attribute patch for any dynamic lookups.
+    from cloud.config import get_settings as _real_get_settings
+    monkeypatch.setenv("CLOUD_ENV", "test")
+    monkeypatch.setenv("CLOUD_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+    monkeypatch.setenv("CLOUD_SESSION_SECRET", "test-secret")
+    monkeypatch.setenv("CLOUD_IDENTITY_PROVIDER", "stub")
+    monkeypatch.setenv("CLOUD_ADMIN_WEBHOOK_SECRET", "test-webhook-secret")
+    monkeypatch.setenv("CLOUD_GITHUB_PAT", "")
+    _real_get_settings.cache_clear()
     with patch("cloud.config.get_settings", return_value=TEST_SETTINGS):
         yield
+    _real_get_settings.cache_clear()
 
 
 @pytest.fixture(autouse=True)

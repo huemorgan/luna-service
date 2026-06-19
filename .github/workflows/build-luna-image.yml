@@ -4,11 +4,19 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Luna version to build (e.g. 0.01.002)'
+        description: 'Image tag to push (e.g. 0.01.002, or 0.01.002-mybranch-abc1234)'
         required: true
       image_id:
         description: 'LunaImage record ID for status callback'
         required: true
+      branch:
+        description: 'Luna git branch to build (default: main)'
+        required: false
+        default: 'main'
+      base_version:
+        description: "The branch's luna __version__ (verify step); defaults to version"
+        required: false
+        default: ''
 
 jobs:
   build-and-push:
@@ -21,38 +29,67 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.REPO_PAT }}
 
-      - name: Update luna submodule to latest
+      - name: Check out luna branch to build
+        env:
+          BRANCH: ${{ github.event.inputs.branch }}
         run: |
+          BRANCH="${BRANCH:-main}"
           cd luna
-          git checkout main
-          git pull origin main
+          git fetch origin "$BRANCH"
+          git checkout "$BRANCH"
+          git pull origin "$BRANCH"
+          echo "Building luna branch: $BRANCH @ $(git rev-parse HEAD)"
 
       - name: Verify version matches
+        env:
+          BASE_VERSION: ${{ github.event.inputs.base_version }}
         run: |
+          # For a branch build the image tag is qualified (version-branch-sha), so
+          # verify the on-disk __version__ against base_version (the branch's raw
+          # __version__). Fall back to `version` for legacy main dispatches.
+          EXPECTED="${BASE_VERSION:-${{ github.event.inputs.version }}}"
           ACTUAL=$(python3 -c "import re; m=re.search(r'__version__\s*=\s*\"(.+?)\"', open('luna/luna/__init__.py').read()); print(m.group(1))")
-          echo "Luna version on disk: $ACTUAL"
-          echo "Expected: ${{ github.event.inputs.version }}"
-          if [ "$ACTUAL" != "${{ github.event.inputs.version }}" ]; then
-            echo "::error::Version mismatch! Expected ${{ github.event.inputs.version }} but found $ACTUAL"
+          echo "Luna __version__ on disk: $ACTUAL  (expected: $EXPECTED)"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::Version mismatch! Expected $EXPECTED but found $ACTUAL"
             exit 1
           fi
 
       - name: Install flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
 
+      # Plan 019: resolve this image's baked plugin set (the admin UI selection,
+      # or the plugin-set.toml seed) and write it to the build context so the
+      # bake stage consumes it. Best-effort: if the control plane is unreachable
+      # the build falls back to the committed plugin-set.toml seed.
+      - name: Fetch plugin-set selection
+        run: |
+          curl -sf \
+            -H "Authorization: Bearer ${{ secrets.ADMIN_WEBHOOK_SECRET }}" \
+            "${{ secrets.CONTROL_PLANE_URL }}/api/admin/images/${{ github.event.inputs.image_id }}/plugin-set" \
+            -o plugin-set.json \
+            && echo "plugin-set.json written:" && cat plugin-set.json \
+            || (echo "selection fetch failed — using plugin-set.toml seed"; rm -f plugin-set.json)
+
       - name: Build and push Docker image
-        working-directory: luna
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          BRANCH: ${{ github.event.inputs.branch }}
+          VERSION: ${{ github.event.inputs.version }}
         run: |
+          BRANCH="${BRANCH:-main}"
           flyctl auth docker
           docker build \
-            -f ../docker/luna-hosted.Dockerfile \
-            -t registry.fly.io/luna-agents:${{ github.event.inputs.version }} \
-            -t registry.fly.io/luna-agents:latest \
+            -f docker/luna-hosted.Dockerfile \
+            -t "registry.fly.io/luna-agents:${VERSION}" \
             .
-          docker push registry.fly.io/luna-agents:${{ github.event.inputs.version }}
-          docker push registry.fly.io/luna-agents:latest
+          docker push "registry.fly.io/luna-agents:${VERSION}"
+          # Only release builds (main) move the `latest` tag — experimental branch
+          # images must never become the implicit default.
+          if [ "$BRANCH" = "main" ]; then
+            docker tag "registry.fly.io/luna-agents:${VERSION}" registry.fly.io/luna-agents:latest
+            docker push registry.fly.io/luna-agents:latest
+          fi
 
       - name: Notify control plane (success)
         if: success()

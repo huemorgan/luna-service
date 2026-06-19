@@ -1,0 +1,20 @@
+# Per-Dockerfile ignore for the hosted Luna image (BuildKit picks
+# `<dockerfile>.dockerignore` over the repo-root .dockerignore).
+#
+# The repo-root .dockerignore excludes luna/ and scripts/ (it's tuned for the
+# control-plane build). This build's context is the repo root and it NEEDS those,
+# so we start from "ignore everything" and re-include only what the bake +
+# runtime stages copy, then prune heavy caches inside luna/.
+**
+
+!luna/**
+!scripts/bake_plugin_set.py
+!plugin-set.toml
+!plugin-set.json
+
+# Prune caches / build output that would bloat the context or leak host state.
+luna/ui/node_modules/**
+luna/ui/dist/**
+luna/.git
+**/__pycache__/**
+**/*.pyc
