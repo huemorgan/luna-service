@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Loader2, Brain, Boxes, Check } from 'lucide-react';
-import ImagesTabs from './ImagesTabs';
+import DefaultsTabs from './DefaultsTabs';
 import PluginSetEditor from '../../components/PluginSetEditor';
 import type { PluginSetEntry } from '../../components/PluginSetEditor';
 
@@ -73,7 +73,7 @@ export default function DefaultsPage() {
   if (loading || !defaults) {
     return (
       <div>
-        <ImagesTabs />
+        <DefaultsTabs />
         <div className="flex items-center justify-center py-20">
           <Loader2 className="animate-spin" size={28} style={{ color: 'var(--moon)' }} />
         </div>
@@ -83,7 +83,7 @@ export default function DefaultsPage() {
 
   return (
     <div>
-      <ImagesTabs />
+      <DefaultsTabs />
 
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -107,7 +107,7 @@ export default function DefaultsPage() {
           <div>
             <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
               The head new images run unless an image or machine overrides it.
-              Empty inherits the model-catalog default (Key Registry).
+              Empty inherits the catalog default (Defaults → Models).
             </p>
             {(['primary', 'fast'] as const).map((role, i) => {
               const kind = role === 'primary' ? 'reasoning' : 'summarization';

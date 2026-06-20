@@ -1,13 +1,14 @@
 import { NavLink } from 'react-router-dom';
-import { Package, SlidersHorizontal } from 'lucide-react';
+import { Boxes, Cpu } from 'lucide-react';
 
 const TABS = [
-  { to: '/admin/images', label: 'Images', icon: Package, end: true },
-  { to: '/admin/images/defaults', label: 'Defaults', icon: SlidersHorizontal, end: false },
+  { to: '/admin/defaults', label: 'Images', icon: Boxes, end: true },
+  { to: '/admin/defaults/models', label: 'Models', icon: Cpu, end: false },
 ];
 
-/** Tab bar for the Luna Images area (Plan 020): Images list vs image Defaults. */
-export default function ImagesTabs() {
+/** Tab bar for the top-level Defaults area (Plan 020): image defaults + the
+ *  global model catalog every Luna instance picks from. */
+export default function DefaultsTabs() {
   return (
     <div
       className="flex items-center gap-1 mb-6 border-b"

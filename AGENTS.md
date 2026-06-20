@@ -4,6 +4,8 @@ Project rules for the LLM working on luna-service. Read once per session.
 
 ## Communication
 
+**🚫 NEVER use the `AskQuestion` tool / multiple-choice popups. EVER.** No exceptions. Ask any follow-up as plain prose in the chat. The user has asked for this many times — a popup is a hard failure.
+
 **Be concise.** Match answer length to question depth. The user reads everything.
 
 **Answer first, details second.** Lead with the bottom line — the number, the yes/no, the recommendation. Supporting detail comes after, and only if it adds value. If the user asks "how long?" the first line must be the time, not a table of steps.
@@ -29,8 +31,6 @@ Keep:
 - A single follow-up question when blocked. Don't list options if the answer is obvious.
 
 When asked a question: **answer it.** Don't write code unless asked to build/fix/change.
-
-**Never use multiple-choice popups (`AskQuestion` tool). Ever.** Ask follow-up questions inline in the chat as plain prose. The user finds popups annoying.
 
 When making a decision the user might want to revisit: state the choice + one line on why, not a comparison matrix.
 
