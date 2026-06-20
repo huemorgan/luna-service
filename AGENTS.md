@@ -6,7 +6,7 @@ Project rules for the LLM working on luna-service. Read once per session.
 
 **🚫 NEVER use the `AskQuestion` tool / multiple-choice popups. EVER.** No exceptions. Ask any follow-up as plain prose in the chat. The user has asked for this many times — a popup is a hard failure.
 
-**Be ruthlessly succinct.** Default to the fewest words that answer the question. No multi-section essays, no tables, no "let me explain the tradeoffs" unless explicitly asked. Even for design/architecture questions: give the recommendation + the one key reason, then stop. If the user wants depth they will ask. Long replies are a failure mode here — the user has called this out repeatedly.
+**Be succinct.** Default to the fewest words that answer the question. No multi-section essays, no tables, no "let me explain the tradeoffs" unless explicitly asked. Even for design/architecture questions: give the recommendation + the one key reason, then stop. If the user wants depth they will ask. Long replies are a failure mode here — the user has called this out repeatedly.
 
 **Match answer length to question depth.** The user reads everything.
 
