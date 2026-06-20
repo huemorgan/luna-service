@@ -47,6 +47,10 @@ WORKDIR /app
 
 COPY luna/pyproject.toml luna/README.md ./
 COPY luna/luna/ ./luna/
+# luna_sdk is the plugin contract package (re-exports luna.*). The luna wheel
+# only packages "luna", so without this copy `import luna_sdk` fails and any
+# SDK-based marketplace plugin (e.g. plugin-interview) 500s on install/load.
+COPY luna/luna_sdk/ ./luna_sdk/
 COPY luna/plugins/ ./plugins/
 COPY luna/alembic/ ./alembic/
 COPY luna/alembic.ini ./
