@@ -500,13 +500,6 @@ function ModelsSection({ onError }: { onError: (m: string | null) => void }) {
     if (res.ok) refresh();
   };
 
-  // The default per purpose = the enabled model of that kind with recommended_default.
-  const defaultFor = (kind: ModelKind) =>
-    models.find(m => m.enabled && m.kinds.includes(kind) && m.recommended_default)?.id || '';
-  const optionsFor = (kind: ModelKind) => models.filter(m => m.enabled && m.kinds.includes(kind));
-
-  const setDefault = (id: string) => { if (id) patch(id, { recommended_default: true }); };
-
   const byProvider = models.reduce<Record<string, CatalogModel[]>>((acc, m) => {
     (acc[m.provider] ||= []).push(m);
     return acc;
@@ -529,34 +522,14 @@ function ModelsSection({ onError }: { onError: (m: string | null) => void }) {
       </div>
       <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
         The models tenants may use (injected as <code>LUNA_MODEL_CATALOG</code>). <b>In</b> = selectable;
-        out = hidden. The <b>default</b> per purpose is the head every agent runs unless an image or
-        machine overrides it. Off-catalog calls are rejected at the proxy.
+        out = hidden. Off-catalog calls are rejected at the proxy. The <b>default</b> head new images
+        run is set under <b>Luna Images → Defaults</b> (it falls back to the catalog default below).
       </p>
 
       {loading ? (
         <Loader2 className="animate-spin" size={16} style={{ color: 'var(--moon)' }} />
       ) : (
         <>
-          {/* Defaults */}
-          <div className="flex flex-wrap items-center gap-4 mb-4 px-3 py-2.5 rounded-xl border" style={{ borderColor: 'var(--ink-lighter)', background: 'var(--surface)' }}>
-            {(['reasoning', 'summarization'] as ModelKind[]).map(kind => (
-              <label key={kind} className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-dim)' }}>
-                <span className="font-semibold capitalize" style={{ color: 'var(--text)' }}>{kind} default</span>
-                <select
-                  value={defaultFor(kind)}
-                  onChange={e => setDefault(e.target.value)}
-                  className="px-2 py-1 rounded-lg text-xs outline-none"
-                  style={{ background: 'var(--ink)', color: 'var(--text)', border: '1px solid var(--ink-lighter)' }}
-                >
-                  <option value="">— none —</option>
-                  {optionsFor(kind).map(m => (
-                    <option key={m.id} value={m.id}>{m.provider}:{m.model}</option>
-                  ))}
-                </select>
-              </label>
-            ))}
-          </div>
-
           {showAdd && (
             <ModelForm onDone={() => { setShowAdd(false); refresh(); }} onError={onError} />
           )}

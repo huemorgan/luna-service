@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Package, Loader2, Star, Hammer, RefreshCw, ExternalLink, ChevronDown, ChevronRight, AlertCircle, Trash2, RotateCcw, ArrowUpCircle, Settings, Play, GitBranch } from 'lucide-react';
+import ImagesTabs from './ImagesTabs';
 
 interface LunaImage {
   id: string;
@@ -406,14 +407,18 @@ export default function ImagesPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="animate-spin" size={24} style={{ color: 'var(--moon)' }} />
+      <div className="w-full">
+        <ImagesTabs />
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="animate-spin" size={24} style={{ color: 'var(--moon)' }} />
+        </div>
       </div>
     );
   }
 
   return (
     <div className="w-full">
+      <ImagesTabs />
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold flex items-center gap-2" style={{ color: 'var(--text)' }}>
           <Package size={20} style={{ color: 'var(--moon)' }} />

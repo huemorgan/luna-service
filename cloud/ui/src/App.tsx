@@ -9,6 +9,7 @@ import ImagesPage from './pages/admin/ImagesPage';
 import MachinesPage from './pages/admin/MachinesPage';
 import ChangelogPage from './pages/admin/ChangelogPage';
 import ImageConfigPage from './pages/admin/ImageConfigPage';
+import DefaultsPage from './pages/admin/DefaultsPage';
 import ServicesPage from './pages/admin/ServicesPage';
 import RelayPage from './pages/admin/RelayPage';
 
@@ -23,6 +24,7 @@ export default function App() {
           <Route index element={<Navigate to="/admin/admins" />} />
           <Route path="admins" element={<AdminsPage />} />
           <Route path="images" element={<ImagesPage />} />
+          <Route path="images/defaults" element={<DefaultsPage />} />
           <Route path="images/:imageId" element={<ImageConfigPage />} />
           <Route path="machines" element={<MachinesPage />} />
           <Route path="services" element={<ServicesPage />} />
