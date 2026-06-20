@@ -1314,14 +1314,36 @@ async def patch_machine_models(
 
 @router.post("/machines/{machine_id}/update-image")
 async def update_machine_image(machine_id: str, request: Request, admin: User = Depends(require_admin)):
-    """Update a single machine to the current main image."""
+    """Update a single machine to a chosen built image.
+
+    Accepts an optional ``{"image_id": ...}`` body to target any built image;
+    when omitted, falls back to the current main image (legacy behavior).
+    """
     ip = _client_ip(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    target_image_id = (body or {}).get("image_id")
+
     async with get_db_session() as db:
-        main_image = (await db.execute(
-            select(LunaImage).where(LunaImage.is_main == True, LunaImage.build_status == "built")  # noqa: E712
-        )).scalar_one_or_none()
-        if not main_image:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "No main image set")
+        if target_image_id:
+            target_image = (await db.execute(
+                select(LunaImage).where(
+                    LunaImage.id == target_image_id,
+                    LunaImage.build_status == "built",
+                )
+            )).scalar_one_or_none()
+            if not target_image:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Target image not found or not built")
+        else:
+            target_image = (await db.execute(
+                select(LunaImage).where(LunaImage.is_main == True, LunaImage.build_status == "built")  # noqa: E712
+            )).scalar_one_or_none()
+            if not target_image:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "No main image set")
+        target_tag = target_image.registry_tag
+        target_version = target_image.version
 
         agent = (await db.execute(
             select(Agent).where(Agent.runtime_ref == machine_id)
@@ -1336,7 +1358,7 @@ async def update_machine_image(machine_id: str, request: Request, admin: User = 
     from cloud.runtime.fly_machines import FlyMachinesRuntime
     fly = FlyMachinesRuntime()
     try:
-        await fly.update_machine_image(machine_id, main_image.registry_tag)
+        await fly.update_machine_image(machine_id, target_tag)
     except Exception as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Failed to update machine: {e}")
 
@@ -1344,14 +1366,14 @@ async def update_machine_image(machine_id: str, request: Request, admin: User = 
         agent = (await db.execute(
             select(Agent).where(Agent.runtime_ref == machine_id)
         )).scalar_one()
-        agent.image_version = main_image.version
+        agent.image_version = target_version
         await _audit(db, action="machine.image_updated", actor=admin, actor_ip=ip,
-                     target=machine_id, metadata={"version": main_image.version, "agent": agent.slug},
+                     target=machine_id, metadata={"version": target_version, "agent": agent.slug},
                      before_state={"version": old_version},
-                     after_state={"version": main_image.version})
+                     after_state={"version": target_version})
         await db.commit()
 
-    return {"ok": True, "version": main_image.version}
+    return {"ok": True, "version": target_version}
 
 
 @router.post("/machines/migrate-all")

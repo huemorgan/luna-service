@@ -34,6 +34,14 @@ interface Machine {
   fast_model_override: ModelEntry | null;
 }
 
+interface ImageOption {
+  id: string;
+  version: string;
+  is_main: boolean;
+  build_status: string;
+  git_branch: string | null;
+}
+
 // Plan 018: model options come from the system catalog (/api/admin/gateway/models),
 // not a hardcoded list, so they can never drift from what the proxy actually serves.
 interface CatalogModel {
@@ -529,14 +537,15 @@ function WebhooksTab({
 /* ------------------------------------------------------------------ */
 
 function MachineCard({
-  machine, links, deliveries, busy, catalog, onUpdateImage, onSetMode, onSetModel, onWebhooksChange,
+  machine, links, deliveries, busy, catalog, images, onUpdateImage, onSetMode, onSetModel, onWebhooksChange,
 }: {
   machine: Machine;
   links: AccountLink[];
   deliveries: Delivery[];
   busy: boolean;
   catalog: CatalogModel[];
-  onUpdateImage: () => void;
+  images: ImageOption[];
+  onUpdateImage: (imageId: string) => void;
   onSetMode: (value: 'inherit' | 'hosted' | 'user' | 'both') => void;
   onSetModel: (role: 'primary' | 'fast', value: string) => void;
   onWebhooksChange: () => void;
@@ -637,7 +646,7 @@ function MachineCard({
 
           <div className="px-5 py-4">
             {activeTab === 'overview' && (
-              <OverviewTab machine={machine} busy={busy} onUpdateImage={onUpdateImage} />
+              <OverviewTab machine={machine} busy={busy} images={images} onUpdateImage={onUpdateImage} />
             )}
             {activeTab === 'settings' && (
               <div className="space-y-4">
@@ -661,12 +670,24 @@ function MachineCard({
 }
 
 function OverviewTab({
-  machine, busy, onUpdateImage,
+  machine, busy, images, onUpdateImage,
 }: {
   machine: Machine;
   busy: boolean;
-  onUpdateImage: () => void;
+  images: ImageOption[];
+  onUpdateImage: (imageId: string) => void;
 }) {
+  const builtImages = images.filter(i => i.build_status === 'built');
+  const mainImage = builtImages.find(i => i.is_main);
+  const [target, setTarget] = useState<string>('');
+  // Default the picker to the main image (or first built) once images load.
+  useEffect(() => {
+    if (!target && builtImages.length) {
+      setTarget((mainImage || builtImages[0]).id);
+    }
+  }, [builtImages, mainImage, target]);
+  const selected = builtImages.find(i => i.id === target);
+  const sameVersion = selected?.version === machine.image_version;
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs">
@@ -700,15 +721,32 @@ function OverviewTab({
         )}
       </div>
       {machine.machine_id && (
-        <div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <select
+            value={target}
+            onChange={e => setTarget(e.target.value)}
+            disabled={busy || builtImages.length === 0}
+            className="rounded-lg px-3 py-1.5 text-xs font-medium outline-none cursor-pointer"
+            style={{ background: 'var(--ink-light)', color: 'var(--text)', border: '1px solid var(--ink-lighter)', minWidth: 200 }}
+          >
+            {builtImages.length === 0 && <option value="">No built images</option>}
+            {builtImages.map(i => (
+              <option key={i.id} value={i.id}>
+                v{i.version}
+                {i.is_main ? ' (main)' : i.git_branch && i.git_branch !== 'main' ? ` (${i.git_branch})` : ''}
+                {i.version === machine.image_version ? ' — current' : ''}
+              </option>
+            ))}
+          </select>
           <button
-            onClick={onUpdateImage}
-            disabled={busy}
+            onClick={() => target && onUpdateImage(target)}
+            disabled={busy || !target || sameVersion}
+            title={sameVersion ? 'Machine already on this image version' : undefined}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--ink-light)] disabled:opacity-50"
             style={{ border: '1px solid var(--ink-lighter)', color: 'var(--moon)' }}
           >
             {busy ? <Loader2 className="animate-spin" size={12} /> : <ArrowUpCircle size={12} />}
-            Update to main image
+            {sameVersion ? 'Up to date' : `Switch to v${selected?.version ?? ''}`}
           </button>
         </div>
       )}
@@ -725,22 +763,25 @@ export default function MachinesPage() {
   const [links, setLinks] = useState<AccountLink[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [catalog, setCatalog] = useState<CatalogModel[]>([]);
+  const [images, setImages] = useState<ImageOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [migratingAll, setMigratingAll] = useState(false);
   const [migrateResult, setMigrateResult] = useState<{ updated: number; errors: { machine_id: string; agent: string; error: string }[] } | null>(null);
 
   const fetchAll = useCallback(async () => {
-    const [mRes, lRes, dRes, cRes] = await Promise.all([
+    const [mRes, lRes, dRes, cRes, iRes] = await Promise.all([
       fetch('/api/admin/machines'),
       fetch('/api/admin/relay/links'),
       fetch('/api/admin/relay/deliveries?limit=200'),
       fetch('/api/admin/gateway/models'),
+      fetch('/api/admin/images'),
     ]);
     if (mRes.ok) setMachines(await mRes.json());
     if (lRes.ok) setLinks(await lRes.json());
     if (dRes.ok) setDeliveries(await dRes.json());
     if (cRes.ok) setCatalog(await cRes.json());
+    if (iRes.ok) setImages(await iRes.json());
     setLoading(false);
   }, []);
 
@@ -766,10 +807,18 @@ export default function MachinesPage() {
     return map;
   }, [deliveries]);
 
-  const handleUpdateImage = async (machineId: string) => {
+  const handleUpdateImage = async (machineId: string, imageId?: string) => {
     setBusy(machineId);
-    const res = await fetch(`/api/admin/machines/${machineId}/update-image`, { method: 'POST' });
+    const res = await fetch(`/api/admin/machines/${machineId}/update-image`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(imageId ? { image_id: imageId } : {}),
+    });
     if (res.ok) await fetchAll();
+    else {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      alert(`Update failed: ${err.detail || JSON.stringify(err)}`);
+    }
     setBusy(null);
   };
 
@@ -891,7 +940,8 @@ export default function MachinesPage() {
               deliveries={deliveriesByAgent[m.agent_slug] || []}
               busy={busy === m.machine_id}
               catalog={catalog}
-              onUpdateImage={() => m.machine_id && handleUpdateImage(m.machine_id)}
+              images={images}
+              onUpdateImage={(imageId) => m.machine_id && handleUpdateImage(m.machine_id, imageId)}
               onSetMode={(v) => m.machine_id && handleSetMode(m.machine_id, v)}
               onSetModel={(r, v) => m.machine_id && handleSetModel(m.machine_id, r, v)}
               onWebhooksChange={fetchAll}
