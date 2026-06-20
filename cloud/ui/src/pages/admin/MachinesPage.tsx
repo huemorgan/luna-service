@@ -40,6 +40,8 @@ interface ImageOption {
   is_main: boolean;
   build_status: string;
   git_branch: string | null;
+  built_at: string | null;
+  created_at: string | null;
 }
 
 // Plan 018: model options come from the system catalog (/api/admin/gateway/models),
@@ -677,7 +679,14 @@ function OverviewTab({
   images: ImageOption[];
   onUpdateImage: (imageId: string) => void;
 }) {
-  const builtImages = images.filter(i => i.build_status === 'built');
+  const builtImages = images
+    .filter(i => i.build_status === 'built')
+    .slice()
+    .sort((a, b) => {
+      const ta = new Date(a.built_at || a.created_at || 0).getTime();
+      const tb = new Date(b.built_at || b.created_at || 0).getTime();
+      return tb - ta;
+    });
   const mainImage = builtImages.find(i => i.is_main);
   const [target, setTarget] = useState<string>('');
   // Default the picker to the main image (or first built) once images load.
@@ -732,7 +741,7 @@ function OverviewTab({
             {builtImages.length === 0 && <option value="">No built images</option>}
             {builtImages.map(i => (
               <option key={i.id} value={i.id}>
-                v{i.version}
+                {fmtTime(i.built_at || i.created_at)} · v{i.version}
                 {i.is_main ? ' (main)' : i.git_branch && i.git_branch !== 'main' ? ` (${i.git_branch})` : ''}
                 {i.version === machine.image_version ? ' — current' : ''}
               </option>
