@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cloud.auth.deps import require_admin
 from cloud.config import get_settings
-from cloud.db.models import Agent, AuditLog, LunaImage, User
+from cloud.db.models import Agent, AppSetting, AuditLog, LunaImage, User
 from cloud.db.session import get_session as get_db_session
 
 log = logging.getLogger(__name__)
@@ -413,7 +413,49 @@ DEFAULT_IMAGE_CONFIG = {
 }
 
 
-def _image_dict(img: LunaImage, agent_count: int = 0) -> dict:
+# ── Image defaults (Plan 020) ─────────────────────────────────────────────────
+# The admin-editable defaults (default model + default plugin set) live in the
+# app_settings singleton under this key. DEFAULT_IMAGE_CONFIG above is the
+# hardcoded base; the stored defaults overlay it. Resolution for an image is:
+#   base  <  stored image_defaults  <  the image's own image_config.
+IMAGE_DEFAULTS_KEY = "image_defaults"
+
+
+async def _get_app_setting(db: AsyncSession, key: str) -> dict:
+    row = (await db.execute(
+        select(AppSetting).where(AppSetting.key == key)
+    )).scalar_one_or_none()
+    return row.value if row and isinstance(row.value, dict) else {}
+
+
+async def _set_app_setting(db: AsyncSession, key: str, value: dict) -> None:
+    row = (await db.execute(
+        select(AppSetting).where(AppSetting.key == key)
+    )).scalar_one_or_none()
+    if row:
+        row.value = value
+    else:
+        db.add(AppSetting(key=key, value=value))
+
+
+def _overlay(base: dict, overlay: dict) -> dict:
+    """Shallow merge with one level of dict-merge (matches image_config shape)."""
+    out = {**base}
+    for k, v in (overlay or {}).items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = {**out[k], **v}
+        else:
+            out[k] = v
+    return out
+
+
+async def _default_image_config(db: AsyncSession) -> dict:
+    """Base config overlaid with the admin-stored image defaults (Plan 020)."""
+    return _overlay(DEFAULT_IMAGE_CONFIG, await _get_app_setting(db, IMAGE_DEFAULTS_KEY))
+
+
+def _image_dict(img: LunaImage, agent_count: int = 0, default_cfg: dict | None = None) -> dict:
+    base = default_cfg if default_cfg is not None else DEFAULT_IMAGE_CONFIG
     return {
         "id": str(img.id),
         "version": img.version,
@@ -427,7 +469,7 @@ def _image_dict(img: LunaImage, agent_count: int = 0) -> dict:
         "created_at": img.created_at.isoformat() if img.created_at else None,
         "built_at": img.built_at.isoformat() if img.built_at else None,
         "agent_count": agent_count,
-        "image_config": {**DEFAULT_IMAGE_CONFIG, **(img.image_config or {})},
+        "image_config": {**base, **(img.image_config or {})},
         "cache_warmed_at": img.cache_warmed_at.isoformat() if img.cache_warmed_at else None,
     }
 
@@ -448,7 +490,9 @@ async def list_images(admin: User = Depends(require_admin)):
             )).all()
             counts = {r[0]: r[1] for r in rows}
 
-    return [_image_dict(img, counts.get(img.version, 0)) for img in images]
+        default_cfg = await _default_image_config(db)
+
+    return [_image_dict(img, counts.get(img.version, 0), default_cfg) for img in images]
 
 
 @router.get("/images/check-update")
@@ -480,8 +524,9 @@ async def get_image(image_id: str, admin: User = Depends(require_admin)):
         agent_count = (await db.execute(
             select(func.count()).select_from(Agent).where(Agent.image_version == img.version)
         )).scalar()
+        default_cfg = await _default_image_config(db)
 
-    return _image_dict(img, agent_count or 0)
+    return _image_dict(img, agent_count or 0, default_cfg)
 
 
 @router.get("/images/{image_id}/config")
@@ -492,7 +537,8 @@ async def get_image_config(image_id: str, admin: User = Depends(require_admin)):
         )).scalar_one_or_none()
         if not img:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
-    return {**DEFAULT_IMAGE_CONFIG, **(img.image_config or {})}
+        default_cfg = await _default_image_config(db)
+    return {**default_cfg, **(img.image_config or {})}
 
 
 class ImageConfigUpdate(BaseModel):
@@ -552,7 +598,7 @@ async def update_image_config(
         if not img:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
 
-        before = {**DEFAULT_IMAGE_CONFIG, **(img.image_config or {})}
+        before = {**(await _default_image_config(db)), **(img.image_config or {})}
         patch = body.model_dump(exclude_none=True)
         if "plugin_set" in patch:
             patch["plugin_set"] = _validate_plugin_set(patch["plugin_set"])
@@ -617,11 +663,79 @@ async def _fetch_marketplace_catalog() -> list[dict]:
 
 
 @router.get("/marketplace/catalog")
-async def marketplace_catalog(admin: User = Depends(require_admin)):
-    return {
-        "marketplace": OFFICIAL_MARKETPLACE_URL,
-        "plugins": await _fetch_marketplace_catalog(),
-    }
+async def marketplace_catalog(
+    q: str | None = Query(default=None),
+    admin: User = Depends(require_admin),
+):
+    plugins = await _fetch_marketplace_catalog()
+    if q:
+        needle = q.strip().lower()
+        plugins = [
+            p for p in plugins
+            if needle in p["name"].lower() or needle in (p.get("description") or "").lower()
+        ]
+    return {"marketplace": OFFICIAL_MARKETPLACE_URL, "plugins": plugins}
+
+
+# ── Image defaults (Plan 020) ─────────────────────────────────────────────────
+
+class ImageDefaultsUpdate(BaseModel):
+    models: dict | None = None
+    plugin_set: list[dict] | None = None
+
+
+def _validate_default_models(models: dict) -> dict:
+    """Normalise the default-model selection. Each head is {} (inherit catalog)
+    or {provider, model}. Anything else is rejected."""
+    out: dict = {}
+    for head in ("primary", "fast"):
+        val = models.get(head)
+        if val in (None, {}):
+            out[head] = {}
+            continue
+        if not isinstance(val, dict):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{head} must be an object")
+        provider = str(val.get("provider") or "").strip()
+        model = str(val.get("model") or "").strip()
+        if not provider or not model:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"{head} needs both provider and model (or be empty to inherit)",
+            )
+        out[head] = {"provider": provider, "model": model}
+    return out
+
+
+@router.get("/defaults")
+async def get_image_defaults(admin: User = Depends(require_admin)):
+    """The admin-editable image defaults (default model + default plugin set),
+    resolved over the hardcoded base so the UI always sees a full shape."""
+    async with get_db_session() as db:
+        cfg = await _default_image_config(db)
+    return {"models": cfg.get("models", {}), "plugin_set": cfg.get("plugin_set", [])}
+
+
+@router.put("/defaults")
+async def update_image_defaults(
+    body: ImageDefaultsUpdate, request: Request, admin: User = Depends(require_admin),
+):
+    ip = _client_ip(request)
+    patch = body.model_dump(exclude_none=True)
+    if "plugin_set" in patch:
+        patch["plugin_set"] = _validate_plugin_set(patch["plugin_set"])
+    if "models" in patch:
+        patch["models"] = _validate_default_models(patch["models"])
+
+    async with get_db_session() as db:
+        before = await _get_app_setting(db, IMAGE_DEFAULTS_KEY)
+        current = {**before, **patch}
+        await _set_app_setting(db, IMAGE_DEFAULTS_KEY, current)
+        await _audit(db, action="image.defaults_updated", actor=admin, actor_ip=ip,
+                     target=IMAGE_DEFAULTS_KEY, metadata={"patch": patch},
+                     before_state=before, after_state=current)
+        await db.commit()
+        cfg = await _default_image_config(db)
+    return {"models": cfg.get("models", {}), "plugin_set": cfg.get("plugin_set", [])}
 
 
 def _read_plugin_set_seed() -> list[dict]:
@@ -717,7 +831,7 @@ async def set_main_image(image_id: str, request: Request, admin: User = Depends(
                      after_state={"new_main": {"version": img.version, "id": str(img.id)}})
         await db.commit()
         registry_tag = img.registry_tag
-        image_config = {**DEFAULT_IMAGE_CONFIG, **(img.image_config or {})}
+        image_config = {**(await _default_image_config(db)), **(img.image_config or {})}
 
     import asyncio
     asyncio.create_task(_warm_image_background(image_id, registry_tag, image_config))
@@ -761,7 +875,7 @@ async def warm_image_cache(image_id: str, request: Request, admin: User = Depend
         if img.build_status != "built":
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only built images can be warmed")
         registry_tag = img.registry_tag
-        image_config = {**DEFAULT_IMAGE_CONFIG, **(img.image_config or {})}
+        image_config = {**(await _default_image_config(db)), **(img.image_config or {})}
 
     if not os.environ.get("FLY_API_TOKEN"):
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Fly API not configured")
@@ -960,8 +1074,9 @@ async def list_machines(admin: User = Depends(require_admin)):
         images = (await db.execute(
             select(LunaImage).where(LunaImage.version.in_(versions))
         )).scalars().all() if versions else []
+        _default_cfg = await _default_image_config(db)
         image_config_by_version = {
-            img.version: {**DEFAULT_IMAGE_CONFIG, **(img.image_config or {})}
+            img.version: {**_default_cfg, **(img.image_config or {})}
             for img in images
         }
         hosted_provisioned = await hosted_composio_key_provisioned(db)
@@ -1073,7 +1188,7 @@ async def patch_machine_composio_config(
         img = (await db.execute(
             select(LunaImage).where(LunaImage.version == (agent.image_version or ""))
         )).scalar_one_or_none()
-        image_cfg = {**DEFAULT_IMAGE_CONFIG, **(img.image_config or {} if img else {})}
+        image_cfg = {**(await _default_image_config(db)), **(img.image_config or {} if img else {})}
         hosted_provisioned = await hosted_composio_key_provisioned(db)
         resolved = resolve_composio_accounts_mode(
             image_cfg, agent.config_overrides, hosted_key_provisioned=hosted_provisioned,
@@ -1163,7 +1278,7 @@ async def patch_machine_models(
         img = (await db.execute(
             select(LunaImage).where(LunaImage.version == (agent.image_version or ""))
         )).scalar_one_or_none()
-        image_cfg = {**DEFAULT_IMAGE_CONFIG, **(img.image_config or {} if img else {})}
+        image_cfg = {**(await _default_image_config(db)), **(img.image_config or {} if img else {})}
         catalog = await system_catalog(db)
         resolved = resolve_default_heads(catalog, image_cfg, agent.config_overrides)
 

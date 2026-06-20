@@ -103,6 +103,11 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE luna_images ADD COLUMN IF NOT EXISTS git_branch TEXT"
         ))
         await conn.execute(text(
+            "CREATE TABLE IF NOT EXISTS app_settings ("
+            "key TEXT PRIMARY KEY, value JSONB NOT NULL DEFAULT '{}'::jsonb, "
+            "updated_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+        ))
+        await conn.execute(text(
             "UPDATE users SET is_admin = true WHERE email = 'vaselin@gmail.com' AND is_admin = false"
         ))
         # Backfill NULL slugs from account slug + agent name

@@ -289,3 +289,20 @@ class AuditLog(Base):
     before_state: Mapped[dict | None] = mapped_column(JSONB)
     after_state: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class AppSetting(Base):
+    """Generic singleton key/value store for control-plane settings (Plan 020).
+
+    Currently holds the admin-editable image defaults under key
+    ``image_defaults`` (default model + default plugin set). Reused for future
+    global singletons rather than one column per setting.
+    """
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
