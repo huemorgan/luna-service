@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   Moon, LogOut, ChevronLeft, Loader2, ExternalLink,
-  Square, Play, RotateCcw, AlertTriangle, RefreshCw,
+  Square, Play, RotateCcw, AlertTriangle, RefreshCw, Pencil, Check, X,
 } from 'lucide-react';
 import { InfoCard } from '../components/InfoCard';
 import type { InfoRow } from '../components/InfoCard';
@@ -93,6 +93,9 @@ export default function AgentDetail() {
   const [refreshing, setRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [savingName, setSavingName] = useState(false);
 
   const fetchDetails = useCallback(async () => {
     if (!id) return;
@@ -157,6 +160,29 @@ export default function AgentDetail() {
 
   const { agent, account, creator, routing, storage, compute, coming_soon, metrics_cached_at } = data;
   const dotColor = STATUS_DOT[agent.status] || '#94a3b8';
+
+  const handleRename = async () => {
+    if (!id) return;
+    const newName = nameDraft.trim();
+    if (!newName || newName === agent.name) { setEditingName(false); return; }
+    setSavingName(true);
+    try {
+      const res = await fetch(`/api/agents/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName }),
+      });
+      if (res.ok) {
+        await fetchDetails();
+        setEditingName(false);
+      } else {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        alert(`Rename failed: ${err.detail || JSON.stringify(err)}`);
+      }
+    } finally {
+      setSavingName(false);
+    }
+  };
 
   const identityRows: InfoRow[] = [
     { label: 'Slug', value: <code className="font-mono">{agent.slug}</code> },
@@ -263,7 +289,41 @@ export default function AgentDetail() {
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-3" style={{ color: 'var(--text)' }}>
               <span className="w-3 h-3 rounded-full inline-block" style={{ background: dotColor }} />
-              {agent.name}
+              {editingName ? (
+                <span className="flex items-center gap-2">
+                  <input
+                    autoFocus
+                    value={nameDraft}
+                    onChange={e => setNameDraft(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleRename();
+                      if (e.key === 'Escape') setEditingName(false);
+                    }}
+                    disabled={savingName}
+                    maxLength={100}
+                    className="px-2 py-1 rounded-lg text-2xl font-bold outline-none disabled:opacity-60"
+                    style={{ background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--moon)' }}
+                  />
+                  <button onClick={handleRename} disabled={savingName} title="Save" className="p-1.5 rounded-lg transition-colors hover:opacity-80 disabled:opacity-50" style={{ color: 'var(--moon)' }}>
+                    {savingName ? <Loader2 className="animate-spin" size={18} /> : <Check size={18} />}
+                  </button>
+                  <button onClick={() => setEditingName(false)} disabled={savingName} title="Cancel" className="p-1.5 rounded-lg transition-colors hover:opacity-80 disabled:opacity-50" style={{ color: 'var(--text-dim)' }}>
+                    <X size={18} />
+                  </button>
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  {agent.name}
+                  <button
+                    onClick={() => { setNameDraft(agent.name); setEditingName(true); }}
+                    title="Rename"
+                    className="p-1 rounded-lg transition-colors hover:bg-[var(--ink-light)]"
+                    style={{ color: 'var(--text-dim)' }}
+                  >
+                    <Pencil size={16} />
+                  </button>
+                </span>
+              )}
             </h1>
             <p className="text-sm mt-1" style={{ color: 'var(--text-dim)' }}>
               <span className="capitalize">{agent.status}</span>

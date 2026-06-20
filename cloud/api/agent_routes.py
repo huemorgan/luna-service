@@ -50,6 +50,10 @@ class CreateAgentRequest(BaseModel):
     name: str = "My Luna"
 
 
+class UpdateAgentRequest(BaseModel):
+    name: str
+
+
 def _agent_dict(a: Agent) -> dict:
     return {
         "id": str(a.id),
@@ -130,6 +134,35 @@ async def get_agent(
     if not agent:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
     return _agent_dict(agent)
+
+
+@router.patch("/{agent_id}")
+async def update_agent(
+    agent_id: str,
+    body: UpdateAgentRequest,
+    auth: tuple[User, Account] = Depends(require_active_account),
+):
+    """Rename an agent (display name only — slug, routing and storage stay stable)."""
+    _, account = auth
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Name cannot be empty")
+    if len(name) > 100:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Name too long (max 100 characters)")
+
+    async with get_db_session() as db:
+        agent = (await db.execute(
+            select(Agent).where(
+                Agent.id == uuid.UUID(agent_id),
+                Agent.account_id == account.id,
+            )
+        )).scalar_one_or_none()
+        if not agent:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
+        agent.name = name
+        await db.commit()
+        await db.refresh(agent)
+        return _agent_dict(agent)
 
 
 @router.post("/{agent_id}/start")
