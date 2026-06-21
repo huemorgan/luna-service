@@ -134,14 +134,20 @@ async def test_catalog_proxy_requires_admin(regular_client):
 # ── plugin-meta honesty ───────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_plugin_meta_marks_image_set(admin_client):
+async def test_plugin_meta_lists_only_in_tree_core(admin_client):
+    """plugin-meta is the hardcoded in-tree core list. Plugins decoupled onto the
+    SDK (charts/web-access/files/mcp/recall/funnelfighters) are NOT here — they're
+    governed by the Plugin Set picker, not this enable/disable list."""
     resp = await admin_client.get("/api/admin/plugin-meta")
     assert resp.status_code == 200
     by_key = {p["key"]: p for p in resp.json()}
-    assert by_key["plugin_web_access"]["source"] == "image-set"
-    assert by_key["plugin_files"]["source"] == "image-set"
-    assert by_key["plugin_charts"]["source"] == "image-set"
     assert by_key["plugin_vault"]["source"] == "in-tree"
+    assert all(p["source"] == "in-tree" for p in resp.json())
+    for decoupled in (
+        "plugin_charts", "plugin_web_access", "plugin_files",
+        "plugin_mcp", "plugin_recall", "plugin_funnelfighters",
+    ):
+        assert decoupled not in by_key
 
 
 # ── selection round-trip ──────────────────────────────────────────────────────

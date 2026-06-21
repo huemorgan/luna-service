@@ -320,22 +320,17 @@ async def _list_luna_branches() -> list[dict]:
         return cached[1] if cached else [{"name": "main", "commit_sha": None, "merged": True, "ahead_by": 0, "behind_by": 0}]
 
 
-# Plan 019: `source` says where a plugin comes from in the hosted image —
-#   "in-tree"   : shipped in luna core
-#   "image-set" : baked from the marketplace at build (see plugin-set / Plan 019).
-# image-set plugins still get an enable/disable toggle (a PluginRow is created
-# once Luna's phase08 loader picks them up), but the admin UI must be honest that
-# they originate from the baked set, not core.
+# This list is ONLY the in-tree plugins that ship inside luna core, i.e. the ones
+# present at every boot regardless of any marketplace selection. Plugins that were
+# decoupled from core onto the SDK (charts, web-access, files, mcp, recall,
+# funnelfighters, …) are NOT in the image unless baked via the "Plugin Set"
+# picker / image Defaults — they are governed there, not by this hardcoded list.
+# `source` is kept for callers that read it; every entry here is "in-tree".
 PLUGIN_META = [
     {"key": "plugin_vault", "name": "Vault", "description": "Encrypted credential storage", "required": True, "source": "in-tree"},
     {"key": "plugin_memory", "name": "Memory", "description": "Long-term semantic recall", "required": True, "source": "in-tree"},
     {"key": "plugin_identity", "name": "Identity", "description": "Agent name, persona, settings", "required": True, "source": "in-tree"},
-    {"key": "plugin_mcp", "name": "MCP", "description": "External tool connections", "required": False, "source": "in-tree"},
-    {"key": "plugin_web_access", "name": "Web Access", "description": "Web search, fetch, HTTP", "required": False, "source": "image-set"},
-    {"key": "plugin_funnelfighters", "name": "FunnelFighters", "description": "Marketing intelligence", "required": False, "source": "in-tree"},
     {"key": "plugin_brain", "name": "Brain", "description": "Live neural activity visualization", "required": False, "source": "in-tree"},
-    {"key": "plugin_files", "name": "Files", "description": "File storage and browser", "required": False, "source": "image-set"},
-    {"key": "plugin_charts", "name": "Charts", "description": "Interactive Chart.js charts inline in chat", "required": False, "source": "image-set"},
     {"key": "plugin_meta", "name": "Meta", "description": "Toggle other plugins at runtime", "required": True, "source": "in-tree"},
     {"key": "plugin_approvals", "name": "Approvals", "description": "Gates risky actions for owner consent", "required": True, "source": "in-tree"},
     {"key": "plugin_web", "name": "Web Server", "description": "Core HTTP server and auth", "required": True, "source": "in-tree"},
@@ -391,12 +386,7 @@ DEFAULT_IMAGE_CONFIG = {
         "plugin_vault": True,
         "plugin_memory": True,
         "plugin_identity": True,
-        "plugin_mcp": True,
-        "plugin_web_access": True,
-        "plugin_funnelfighters": True,
         "plugin_brain": True,
-        "plugin_files": True,
-        "plugin_charts": True,
         "plugin_meta": True,
         "plugin_approvals": True,
         "plugin_web": True,
