@@ -8,7 +8,7 @@ export default function Marketplace() {
   useSeo({
     title: 'Luna Marketplaces — add capability in one click',
     description:
-      'Because everything in Luna is a plugin, marketplaces are how you add capability without forking: connectors, tools, channels, agent templates and vertical packs.',
+      'Because everything in Luna is a plugin, marketplaces are how you add capability without forking: connectors, tools, channels, agent templates and vertical packs. Anyone can open their own marketplace — organizations for their teams, vendors for their customers.',
   });
 
   return (
@@ -85,6 +85,51 @@ export default function Marketplace() {
                 There's a real community of professionals around Luna, and we're working to validate
                 their plugins over time. Until a plugin carries that trust, treat anything from the
                 open community as install-at-your-own-risk — never the default.
+              </p>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      <section className="mkt-section">
+        <div className="wrap">
+          <div className="sg-eyebrow">Open marketplaces</div>
+          <h2 className="sg-h2">Anyone can open a marketplace — and point their Lunas at it</h2>
+          <p className="sg-lead">
+            A marketplace is just a plugin directory you trust. Open your own and connect it to your
+            Lunas, so installs come from a source you control — not the open internet.
+          </p>
+          <div className="grid cols-2" style={{ marginTop: 30 }}>
+            <Reveal>
+              <div className="card hov">
+                <h3>For organizations</h3>
+                <p style={{ marginBottom: 14 }}>Roll your own internal plugin directory and wire it into every employee's Luna.</p>
+                <ul className="checklist">
+                  <li><span>Curate the connectors and packs you sanction.</span></li>
+                  <li><span>Employees get instant, approved access — no ad-hoc installs.</span></li>
+                  <li><span>Your directory, your governance.</span></li>
+                </ul>
+              </div>
+            </Reveal>
+            <Reveal>
+              <div className="card hov">
+                <h3>For vendors</h3>
+                <p style={{ marginBottom: 14 }}>Stand up your own marketplace and give customers unified access to all your plugins.</p>
+                <ul className="checklist">
+                  <li><span>One place for your whole plugin catalog.</span></li>
+                  <li><span>Customers point their Lunas straight at it.</span></li>
+                  <li><span>You own versioning, support and updates.</span></li>
+                </ul>
+              </div>
+            </Reveal>
+          </div>
+          <Reveal>
+            <div className="card" style={{ marginTop: 18 }}>
+              <span className="badge soft">Monetization</span>
+              <p style={{ marginTop: 12 }}>
+                Today, monetization is the vendor's to own — price, license and sell your plugins
+                however you like. A first-party paid-plugin wrapper is something we may add down the
+                line; for now Luna stays out of your commercial model.
               </p>
             </div>
           </Reveal>
