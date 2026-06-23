@@ -146,7 +146,7 @@
 .mkt .menu .vis{flex:none;width:38px;height:38px;border-radius:11px;border:1px solid var(--hairline)}
 .mkt .menu .vis.oss{background:radial-gradient(circle at 30% 30%,#9aa6ff,#1b1f3a)}
 .mkt .menu .vis.host{background:conic-gradient(from 0deg,var(--indigo),var(--cyan),var(--violet),var(--indigo))}
-.mkt .menu .vis.mkt{background:radial-gradient(circle at 70% 30%,var(--pink),#2a1430)}
+.mkt .menu .vis.market{background:radial-gradient(circle at 70% 30%,var(--pink),#2a1430)}
 .mkt .menu b{font-size:14px;font-weight:600;display:block;color:var(--text)}
 .mkt .menu span{font-size:12px;color:var(--text-faint)}
 

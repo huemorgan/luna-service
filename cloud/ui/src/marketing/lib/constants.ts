@@ -9,11 +9,11 @@ export interface ProductLink {
   to: string;
   title: string;
   blurb: string;
-  vis: 'oss' | 'host' | 'mkt';
+  vis: 'oss' | 'host' | 'market';
 }
 
 export const PRODUCTS: ProductLink[] = [
   { to: '/products/open-source', title: 'Luna Open Source', blurb: 'The MIT agent. Self-host anywhere.', vis: 'oss' },
   { to: '/products/hosting', title: 'Luna Hosting Service', blurb: 'Your private Luna in 60 seconds.', vis: 'host' },
-  { to: '/products/marketplace', title: 'Luna Marketplaces', blurb: 'Plugins, templates & packs.', vis: 'mkt' },
+  { to: '/products/marketplace', title: 'Luna Marketplaces', blurb: 'Plugins, templates & packs.', vis: 'market' },
 ];
