@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import Brand from '../components/Brand';
 import { StartFree } from '../components/cta';
 import { useSession } from '../lib/session';
-import { PRODUCTS, LOGIN_URL, DOCS_URL } from '../lib/constants';
+import { PRODUCTS, LOGIN_URL } from '../lib/constants';
 
 export default function Header() {
   const { loggedIn } = useSession();
@@ -65,7 +65,6 @@ export default function Header() {
             </div>
             <Link className="navlink" to="/pricing">Pricing</Link>
             <Link className="navlink" to="/security">Security</Link>
-            <a className="navlink" href={DOCS_URL} target="_blank" rel="noopener noreferrer">Docs ↗</a>
           </nav>
 
           {/* Desktop actions */}
@@ -103,7 +102,6 @@ export default function Header() {
             <Link to="/pricing">Pricing</Link>
             <Link to="/security">Security</Link>
             <Link to="/about">About</Link>
-            <a href={DOCS_URL} target="_blank" rel="noopener noreferrer">Docs ↗</a>
             {!loggedIn && <a href={LOGIN_URL}>Sign in</a>}
             <div className="drawer-cta"><StartFree withGoogle /></div>
           </div>
