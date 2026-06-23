@@ -8,7 +8,7 @@ export default function Hosting() {
   useSeo({
     title: 'Luna Hosting Service — your private Luna in ~60 seconds',
     description:
-      'Sign up with Google and get your own private, isolated, persistent Luna in about a minute. One bill, no BYOK, any model. Physical isolation and a vault we can\'t read.',
+      'Sign up with Google and get your own private, isolated, persistent Luna in about a minute. Unified billing — access to every model and service under one credit system. Physical isolation and a vault we can\'t read.',
   });
 
   return (
@@ -42,7 +42,7 @@ export default function Hosting() {
           <h2 className="sg-h2">Everything handled, nothing leaked</h2>
           <div className="grid cols-3" style={{ marginTop: 30 }}>
             {[
-              ['One bill · no BYOK · any model', 'Never touch an Anthropic or OpenAI key. Switch Opus / Sonnet / Haiku / GPT / Gemini freely. One usage meter.'],
+              ['Unified billing · any model', 'Access every model and service under one credit system — switch Opus / Sonnet / Haiku / GPT / Gemini freely. One usage meter.'],
               ['Physical isolation', 'Your own microVM, database schema, vault key and MCP subprocesses. Not a shared row in someone\'s table.'],
               ['We never see your data', 'Per-tenant keys, no conversation telemetry. Your work stays yours.'],
               ['Always-on & triggers', '"Email me a summary at 9am." Scheduled, autonomous work — even while you sleep. (Paid plans.)'],

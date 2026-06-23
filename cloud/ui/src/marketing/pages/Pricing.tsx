@@ -44,7 +44,7 @@ const TIERS: Tier[] = [
 
 export default function Pricing() {
   useSeo({
-    title: 'Pricing — one bill, any model, no BYOK',
+    title: 'Pricing — unified billing, any model, one credit system',
     description:
       'Free / Pro / Power / Enterprise. One usage meter, no API keys to manage, switch any model freely. Free to start; upgrade for always-on, bigger budgets and frontier models.',
   });
@@ -57,9 +57,10 @@ export default function Pricing() {
             <div className="sg-eyebrow">Pricing</div>
             <h1>One bill. Any model.<br /><em>No keys to manage.</em></h1>
             <p>
-              Switch between Opus, Sonnet, Haiku, GPT and Gemini freely — a single usage meter, no
-              BYOK. Start free; upgrade when you want always-on autonomy, bigger budgets and frontier
-              models. Budgets degrade gracefully instead of failing hard.
+              Switch between Opus, Sonnet, Haiku, GPT and Gemini freely — unified billing puts every
+              model and service on one credit system. Start free; upgrade when you want always-on
+              autonomy, bigger budgets and frontier models. Budgets degrade gracefully instead of
+              failing hard.
             </p>
           </div>
 
@@ -94,7 +95,7 @@ export default function Pricing() {
         <div className="wrap">
           <div className="grid cols-3">
             {[
-              ['No BYOK', 'You never manage an Anthropic or OpenAI key. We meter usage; you get one bill.'],
+              ['Unified billing', 'Access every model and service under one credit system — no keys to manage, one bill.'],
               ['Any model, anytime', 'Pick the right model per task — frontier when it matters, cheap when it doesn\'t.'],
               ['Graceful budgets', 'Hit a limit and Luna degrades gracefully instead of breaking mid-task.'],
             ].map(([title, body]) => (

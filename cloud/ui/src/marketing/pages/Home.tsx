@@ -271,8 +271,9 @@ export default function Home() {
               <div className="sg-eyebrow" style={{ justifyContent: 'center' }}>Pricing</div>
               <h2 className="sg-h2">One bill. No API keys to manage. Use any model.</h2>
               <p className="sg-lead" style={{ margin: '14px auto 0' }}>
-                Switch between Opus, Sonnet, Haiku, GPT and Gemini freely — one usage meter, no BYOK.
-                Free to start; upgrade for always-on, bigger budgets and frontier models.
+                Switch between Opus, Sonnet, Haiku, GPT and Gemini freely — unified billing puts every
+                model and service on one credit system. Free to start; upgrade for always-on, bigger
+                budgets and frontier models.
               </p>
               <div className="btn-row" style={{ justifyContent: 'center', marginTop: 24 }}>
                 <Link className="btn btn-ghost" to="/pricing">See pricing</Link>
