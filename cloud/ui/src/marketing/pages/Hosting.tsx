@@ -71,12 +71,12 @@ export default function Hosting() {
                 <tr><th>What you get</th><th>Hosting Service</th><th>Self-host (OSS)</th></tr>
               </thead>
               <tbody>
-                <tr><th scope="row">Setup time</th><td className="hi">~60 seconds, sign in with Google</td><td>You provision a VPS &amp; deploy</td></tr>
+                <tr><th scope="row">Setup time</th><td className="hi">~60 seconds, sign in with Google</td><td>You provision a server &amp; deploy</td></tr>
                 <tr><th scope="row">Model keys</th><td className="hi">Included — one bill, any model</td><td>Bring your own keys</td></tr>
                 <tr><th scope="row">Isolation</th><td className="hi">Managed microVM + DB + vault per tenant</td><td>Your machine, your rules</td></tr>
                 <tr><th scope="row">Always-on triggers</th><td className="hi">Built in (paid plans)</td><td>You run the scheduler</td></tr>
                 <tr><th scope="row">Updates &amp; backups</th><td className="hi">Handled for you</td><td>You operate it</td></tr>
-                <tr><th scope="row">Cost</th><td className="hi">Free to start, usage-based</td><td>~$5 VPS + model usage</td></tr>
+                <tr><th scope="row">Cost</th><td className="hi">Free to start, usage-based</td><td>Your hosting + model usage</td></tr>
               </tbody>
             </table>
           </Reveal>

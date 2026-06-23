@@ -9,7 +9,7 @@ export default function OpenSource() {
   useSeo({
     title: 'Luna Open Source — the MIT agent you can self-host',
     description:
-      'Luna is open source under MIT — self-host on a $5 VPS, inside your VPC or fully air-gapped to fit any security restriction. A deliberately lean, auditable core you expand with plugins: use any plugins, run across environments, and roll your own.',
+      'Luna is open source under MIT — self-host on your own infrastructure, inside your VPC or fully air-gapped to fit any security restriction. A deliberately lean, auditable core you expand with plugins: use any plugins, run across environments, and roll your own.',
   });
 
   return (
@@ -20,7 +20,7 @@ export default function OpenSource() {
             <div className="sg-eyebrow">Luna Open Source</div>
             <h1>The agent itself —<br /><em>open, all the way down</em></h1>
             <p>
-              Luna is open source under the MIT license. Self-host it on a $5 VPS. The whole platform
+              Luna is open source under the MIT license. Self-host it on your own infrastructure. The whole platform
               that makes Luna trustworthy is open too — so trust isn't a promise, it's something you
               can read.
             </p>
@@ -49,7 +49,7 @@ export default function OpenSource() {
           <div className="grid cols-3" style={{ marginTop: 30 }}>
             {[
               ['MIT licensed', 'Use it commercially, modify it, ship it. No rug-pull license traps.'],
-              ['Self-host anywhere', 'A single Luna runs happily on a $5 VPS. Your machine, your data, your rules.'],
+              ['Self-host anywhere', 'A single Luna runs happily on modest hardware. Your machine, your data, your rules.'],
               ['Readable security', 'The vault, rollback and approval-gate code are open — verify the claims yourself.'],
               ['Plugin architecture', 'Everything is a plugin. Build your own tools, channels and skills with the SDK.'],
               ['Bonded security plugins', 'Sensitive capabilities are isolated and bounded — not free to touch the machine.'],
@@ -82,7 +82,7 @@ export default function OpenSource() {
               ['A lean, auditable core', 'The core stays small and readable on purpose. Less to trust, less to attack, less to hold in your head — you can review the whole base, not a sprawling framework.'],
               ['Expandable everywhere', 'Self-hosting keeps the entire plugin model. Add connectors and tools, mix a different plugin set per environment, and grow Luna without ever touching the core.'],
               ['Roll your own plugins', 'Build private plugins on the open SDK for your internal and legacy systems — no upstream permission, no forking the core.'],
-              ['Same core, many environments', 'One lean footprint runs on a $5 VPS or a hardened internal box — expanded differently wherever it lands.'],
+              ['Same core, many environments', 'One lean footprint runs from a small cloud instance to a hardened internal box — expanded differently wherever it lands.'],
               ['Built to be extended', 'We expect Luna to grow through plugins. The core is the stable, trustworthy base; capability lives at the edges, where you control it.'],
             ].map(([title, body]) => (
               <Reveal key={title}>
@@ -102,7 +102,7 @@ export default function OpenSource() {
             <div className="card" style={{ textAlign: 'center', padding: '44px 28px' }}>
               <h2 className="sg-h2">Want it without the setup?</h2>
               <p className="sg-lead" style={{ margin: '14px auto 0' }}>
-                Skip the VPS, the keys and the ops. Get the same Luna, hosted, isolated and managed —
+                Skip the servers, the keys and the ops. Get the same Luna, hosted, isolated and managed —
                 running in about a minute.
               </p>
               <div className="btn-row" style={{ justifyContent: 'center', marginTop: 24 }}>
