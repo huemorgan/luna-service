@@ -9,7 +9,7 @@ export default function OpenSource() {
   useSeo({
     title: 'Luna Open Source — the MIT agent you can self-host',
     description:
-      'Luna is open source under MIT — self-host on a $5 VPS. The whole platform that makes Luna work is open, so you can read the vault, rollback and approval-gate code yourself.',
+      'Luna is open source under MIT — self-host on a $5 VPS, inside your VPC or fully air-gapped to fit any security restriction. A deliberately lean, auditable core you expand with plugins: use any plugins, run across environments, and roll your own.',
   });
 
   return (
@@ -54,6 +54,36 @@ export default function OpenSource() {
               ['Plugin architecture', 'Everything is a plugin. Build your own tools, channels and skills with the SDK.'],
               ['Bonded security plugins', 'Sensitive capabilities are isolated and bounded — not free to touch the machine.'],
               ['Open-platform promise', 'We never relicense backwards. If we ever break the promise, you keep a working fork.'],
+            ].map(([title, body]) => (
+              <Reveal key={title}>
+                <div className="card hov feature">
+                  <h3>{title}</h3>
+                  <p>{body}</p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="mkt-section">
+        <div className="wrap">
+          <div className="sg-eyebrow">Lean core, expand anywhere</div>
+          <h2 className="sg-h2">A tiny core you can run <em className="stext gtext">anywhere</em> — and grow with plugins</h2>
+          <p className="sg-lead">
+            Luna's core is deliberately lean: a small, auditable engine that does one job — run agents
+            safely. Everything else — tools, channels, skills, connectors — is a plugin you add only
+            when you need it. A small core means a small attack surface, a fast read-through, and a
+            footprint that drops into any environment.
+          </p>
+          <div className="grid cols-3" style={{ marginTop: 30 }}>
+            {[
+              ['Fits any security restriction', 'Self-host inside your own VPC, on-prem, or fully air-gapped. Because it runs in your environment, Luna bends to your compliance and security posture — not the other way around.'],
+              ['A lean, auditable core', 'The core stays small and readable on purpose. Less to trust, less to attack, less to hold in your head — you can review the whole base, not a sprawling framework.'],
+              ['Expandable everywhere', 'Self-hosting keeps the entire plugin model. Add connectors and tools, mix a different plugin set per environment, and grow Luna without ever touching the core.'],
+              ['Roll your own plugins', 'Build private plugins on the open SDK for your internal and legacy systems — no upstream permission, no forking the core.'],
+              ['Same core, many environments', 'One lean footprint runs on a $5 VPS or a hardened internal box — expanded differently wherever it lands.'],
+              ['Built to be extended', 'We expect Luna to grow through plugins. The core is the stable, trustworthy base; capability lives at the edges, where you control it.'],
             ].map(([title, body]) => (
               <Reveal key={title}>
                 <div className="card hov feature">
