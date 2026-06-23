@@ -38,32 +38,56 @@ export default function Marketplace() {
 
       <section className="mkt-section">
         <div className="wrap">
-          <div className="sg-eyebrow">Two layers</div>
-          <h2 className="sg-h2">Community plugins and commercial packs</h2>
-          <div className="grid cols-2" style={{ marginTop: 30 }}>
+          <div className="sg-eyebrow">Trust model</div>
+          <h2 className="sg-h2">Plugins are powerful — so only run ones you trust</h2>
+          <p className="sg-lead">
+            A Luna plugin can act: reach into systems, move data, run real work. That power is the
+            point — and exactly why provenance matters. First-generation marketplaces let anyone
+            publish, and untrusted community plugins became a plague. Luna's rule is simple: install
+            from sources you trust.
+          </p>
+          <div className="grid cols-3" style={{ marginTop: 30 }}>
             <Reveal>
               <div className="card hov">
-                <h3>OSS plugins</h3>
-                <p style={{ marginBottom: 14 }}>Free, community-built, open. The long tail of connectors and tools.</p>
+                <h3>Built by Luna</h3>
+                <p style={{ marginBottom: 14 }}>Official connectors, tools and packs we build and stand behind.</p>
                 <ul className="checklist">
-                  <li><span>Built with the open plugin SDK.</span></li>
-                  <li><span>Installed per-agent and fully isolated.</span></li>
-                  <li><span>Anyone can publish.</span></li>
+                  <li><span>Reviewed and supported by us.</span></li>
+                  <li><span>Maintained with the platform.</span></li>
                 </ul>
               </div>
             </Reveal>
             <Reveal>
               <div className="card hov">
-                <h3>Commercial packs</h3>
-                <p style={{ marginBottom: 14 }}>Vertical, supported, entitlement-checked — the deep domain expertise.</p>
+                <h3>Built by you</h3>
+                <p style={{ marginBottom: 14 }}>Your own plugins on the open SDK — the most trusted source there is.</p>
                 <ul className="checklist">
-                  <li><span>Agent templates: "Marketing Agent," "Ops Agent."</span></li>
-                  <li><span>Knowhow / vertical packs for a specific job.</span></li>
-                  <li><span>Curated and maintained.</span></li>
+                  <li><span>Your code, your rules.</span></li>
+                  <li><span>Installed per-agent and fully isolated.</span></li>
+                </ul>
+              </div>
+            </Reveal>
+            <Reveal>
+              <div className="card hov">
+                <h3>Built by a vendor you trust</h3>
+                <p style={{ marginBottom: 14 }}>Commercial packs with deep domain expertise, from partners you choose.</p>
+                <ul className="checklist">
+                  <li><span>Vertical agent templates &amp; knowhow packs.</span></li>
+                  <li><span>Supported and maintained.</span></li>
                 </ul>
               </div>
             </Reveal>
           </div>
+          <Reveal>
+            <div className="card" style={{ marginTop: 18 }}>
+              <span className="badge soft">Community</span>
+              <p style={{ marginTop: 12 }}>
+                There's a real community of professionals around Luna, and we're working to validate
+                their plugins over time. Until a plugin carries that trust, treat anything from the
+                open community as install-at-your-own-risk — never the default.
+              </p>
+            </div>
+          </Reveal>
         </div>
       </section>
 
