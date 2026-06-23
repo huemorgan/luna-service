@@ -31,7 +31,7 @@ export default function Footer() {
           </div>
         </div>
         <p className="sg-note" style={{ marginTop: 36 }}>
-          © {new Date().getFullYear()} Luna · Powered by Novalystrix · There are no limits to what Luna can be.
+          © {new Date().getFullYear()} Luna · There are no limits to what Luna can be.
         </p>
       </div>
     </footer>
