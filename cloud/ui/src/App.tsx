@@ -1,5 +1,4 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import Landing from './pages/Landing';
 import Dashboard from './pages/Dashboard';
 import AgentDetail from './pages/AgentDetail';
 import UserLuna from './pages/UserLuna';
@@ -14,11 +13,31 @@ import ModelsPage from './pages/admin/ModelsPage';
 import ServicesPage from './pages/admin/ServicesPage';
 import RelayPage from './pages/admin/RelayPage';
 
+// Marketing site (plan 021) — public, unauthenticated routes.
+import MarketingLayout from './marketing/MarketingLayout';
+import Home from './marketing/pages/Home';
+import Hosting from './marketing/pages/Hosting';
+import OpenSource from './marketing/pages/OpenSource';
+import Marketplace from './marketing/pages/Marketplace';
+import Pricing from './marketing/pages/Pricing';
+import Security from './marketing/pages/Security';
+import About from './marketing/pages/About';
+
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Landing />} />
+        {/* Marketing site — static routes declared before the /:slug catch-all */}
+        <Route element={<MarketingLayout />}>
+          <Route path="/" element={<Home />} />
+          <Route path="/products/hosting" element={<Hosting />} />
+          <Route path="/products/open-source" element={<OpenSource />} />
+          <Route path="/products/marketplace" element={<Marketplace />} />
+          <Route path="/pricing" element={<Pricing />} />
+          <Route path="/security" element={<Security />} />
+          <Route path="/about" element={<About />} />
+        </Route>
+
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/dashboard/agents/:id" element={<AgentDetail />} />
         <Route path="/admin" element={<AdminLayout />}>

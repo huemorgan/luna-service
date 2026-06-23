@@ -172,6 +172,36 @@ def create_app() -> FastAPI:
     async def healthz():
         return {"ok": True, "service": "luna-service"}
 
+    # Marketing-site public routes (plan 021). Declared here so they win over
+    # the SPA 404 fallback and emit real text/xml for crawlers.
+    MARKETING_PATHS = (
+        "/", "/products/hosting", "/products/open-source", "/products/marketplace",
+        "/pricing", "/security", "/about",
+    )
+
+    @app.get("/robots.txt")
+    async def robots_txt():
+        body = (
+            "User-agent: *\n"
+            "Allow: /\n"
+            "Disallow: /admin\n"
+            "Disallow: /dashboard\n"
+            "Disallow: /api/\n"
+            f"Sitemap: {settings.base_url.rstrip('/')}/sitemap.xml\n"
+        )
+        return Response(content=body, media_type="text/plain")
+
+    @app.get("/sitemap.xml")
+    async def sitemap_xml():
+        base = settings.base_url.rstrip("/")
+        urls = "".join(f"<url><loc>{base}{p}</loc></url>" for p in MARKETING_PATHS)
+        body = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            f"{urls}</urlset>"
+        )
+        return Response(content=body, media_type="application/xml")
+
     @app.get("/")
     async def root():
         if UI_DIR.is_dir():

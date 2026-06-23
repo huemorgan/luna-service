@@ -39,10 +39,24 @@ def _enforce_email_allowlist(email: str) -> None:
     raise HTTPException(status.HTTP_403_FORBIDDEN, "Sign-ups are currently restricted.")
 
 
+# Account slugs map to `luna.com.ai/<slug>`. These words are owned by the
+# marketing site / app (plan 021) and must never become an account slug, or a
+# user's Luna would be shadowed by a static page.
+RESERVED_SLUGS = frozenset({
+    "", "user", "api", "auth", "admin", "dashboard", "healthz", "proxy", "a",
+    "assets", "favicon", "icons", "static", "robots", "sitemap",
+    "products", "product", "pricing", "security", "about", "oss", "open-source",
+    "hosting", "marketplace", "marketplaces", "login", "signup", "sign-up",
+    "docs", "blog", "legal", "terms", "privacy", "support", "contact", "status",
+})
+
+
 def _make_slug(email: str) -> str:
     local = email.split("@")[0]
     slug = re.sub(r"[^a-z0-9]", "-", local.lower()).strip("-")
-    return slug or "user"
+    if not slug or slug in RESERVED_SLUGS:
+        return f"{slug or 'user'}-1"
+    return slug
 
 
 @router.get("/auth/mode")
