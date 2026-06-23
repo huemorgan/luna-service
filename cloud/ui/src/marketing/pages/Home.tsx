@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import Reveal from '../components/Reveal';
 import { StartFree } from '../components/cta';
 import { useSeo } from '../lib/seo';
-import { GITHUB_URL, PRODUCTS } from '../lib/constants';
+import { PRODUCTS } from '../lib/constants';
 
 import heroImg from '../assets/hero.png';
 import reliabilityImg from '../assets/reliability.png';
@@ -40,9 +40,6 @@ export default function Home() {
             </p>
             <div className="btn-row">
               <StartFree size="btn-lg" withGoogle />
-              <a className="btn btn-ghost btn-lg" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">
-                Explore open source
-              </a>
             </div>
             <p className="eyebrow">For the people who need agents that do real work — FDEs, ops, founders, builders.</p>
           </div>
