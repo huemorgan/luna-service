@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from cloud.api.admin_routes import router as admin_router
@@ -201,6 +201,13 @@ def create_app() -> FastAPI:
             f"{urls}</urlset>"
         )
         return Response(content=body, media_type="application/xml")
+
+    # Branded download for the Cursor plugin-dev kit (plan 022). 302s to the
+    # canonical zip hosted on marketplaces.com.ai, so updating it there updates
+    # our download with no rebuild.
+    @app.get("/downloads/luna-plugin-cursor.zip")
+    async def plugin_cursor_zip():
+        return RedirectResponse(settings.marketplace_plugin_zip_url, status_code=302)
 
     @app.get("/")
     async def root():

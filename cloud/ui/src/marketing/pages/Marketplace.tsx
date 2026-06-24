@@ -1,36 +1,110 @@
 import Reveal from '../components/Reveal';
-import { StartFree } from '../components/cta';
+import { MarketplaceCta } from '../components/cta';
+import MarketplaceCtaBand from '../components/MarketplaceCtaBand';
 import { useSeo } from '../lib/seo';
-import { GITHUB_URL } from '../lib/constants';
+import { PLUGIN_CURSOR_ZIP_URL, MARKETPLACE_BASE_URL } from '../lib/constants';
 import marketImg from '../assets/marketplaces.png';
 
 export default function Marketplace() {
   useSeo({
-    title: 'Luna Marketplaces — add capability in one click',
+    title: 'Luna Marketplaces — your own plugin marketplace',
     description:
-      'Because everything in Luna is a plugin, marketplaces are how you add capability without forking: connectors, tools, channels, agent templates and vertical packs. Anyone can open their own marketplace — organizations for their teams, vendors for their customers.',
+      'Luna Marketplaces is a separate product: open your own plugin marketplace and point your Lunas at a source you trust. Organizations curate internal directories; vendors sell their catalog. Build plugins with the downloadable Cursor environment.',
   });
 
   return (
-    <>
+    <div className="t-market">
       <section className="mkt-section flush">
         <div className="wrap">
           <div className="phero">
-            <div className="sg-eyebrow">Luna Marketplaces</div>
-            <h1>Add capability —<br /><em>one click, no forking</em></h1>
+            <div className="sg-eyebrow">Luna Marketplaces · a separate product</div>
+            <h1>Your own plugin<br /><em>marketplace</em></h1>
             <p>
-              Luna is "everything is a plugin." A marketplace is simply how you extend it: connectors,
-              tools, channels, ready-made agent templates and whole vertical packs — installed per
-              agent, isolated, and easy to remove.
+              Everything in Luna is a plugin — and a marketplace is a plugin directory you trust.
+              Open your own, fill it with the connectors, tools and packs you sanction, and point
+              every Luna you run straight at it.
             </p>
             <div className="btn-row">
-              <StartFree size="btn-lg" withGoogle />
-              <a className="btn btn-ghost btn-lg" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">Build a plugin ↗</a>
+              <MarketplaceCta size="btn-lg" secondary />
             </div>
           </div>
           <Reveal>
             <div className="media" style={{ marginTop: 30 }}>
-              <img src={marketImg} alt="A person browsing a grid of installable app tiles on a monitor" />
+              <img src={marketImg} alt="A person browsing a grid of installable plugin tiles on a monitor" />
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      <section className="mkt-section">
+        <div className="wrap">
+          <div className="sg-eyebrow">What it is</div>
+          <h2 className="sg-h2">A directory of capability — from a source you <em className="stext gtext">control</em></h2>
+          <p className="sg-lead">
+            Instead of installing plugins off the open internet, you run your own marketplace and
+            connect your Lunas to it. Installs come from somewhere you own and govern — not a stranger
+            on the web.
+          </p>
+        </div>
+      </section>
+
+      <section className="mkt-section">
+        <div className="wrap">
+          <div className="sg-eyebrow">What you do here</div>
+          <h2 className="sg-h2">Sign up → create → connect</h2>
+          <div className="steps cols-3 grid" style={{ marginTop: 30 }}>
+            {[
+              ['Sign up', 'Create a Marketplaces account — separate from your hosted Luna, with its own dashboard.'],
+              ['Create a marketplace', 'Spin up your directory and add the connectors, tools, templates and packs you sanction.'],
+              ['Connect your Lunas', 'Point your agents at it. They install only from your source — curated, governed, yours.'],
+            ].map(([title, body]) => (
+              <Reveal key={title}>
+                <div className="card hov feature">
+                  <h3>{title}</h3>
+                  <p>{body}</p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="mkt-section">
+        <div className="wrap">
+          <div className="sg-eyebrow">Who it's for</div>
+          <h2 className="sg-h2">Open a marketplace for your team — or your customers</h2>
+          <div className="grid cols-2" style={{ marginTop: 30 }}>
+            <Reveal>
+              <div className="card hov">
+                <h3>For organizations</h3>
+                <p style={{ marginBottom: 14 }}>Roll your own internal plugin directory and wire it into every employee's Luna.</p>
+                <ul className="checklist">
+                  <li><span>Curate the connectors and packs you sanction.</span></li>
+                  <li><span>Employees get instant, approved access — no ad-hoc installs.</span></li>
+                  <li><span>Your directory, your governance.</span></li>
+                </ul>
+              </div>
+            </Reveal>
+            <Reveal>
+              <div className="card hov">
+                <h3>For vendors</h3>
+                <p style={{ marginBottom: 14 }}>Stand up your own marketplace and give customers unified access to all your plugins.</p>
+                <ul className="checklist">
+                  <li><span>One place for your whole plugin catalog.</span></li>
+                  <li><span>Customers point their Lunas straight at it.</span></li>
+                  <li><span>You own versioning, support and updates.</span></li>
+                </ul>
+              </div>
+            </Reveal>
+          </div>
+          <Reveal>
+            <div className="card" style={{ marginTop: 18 }}>
+              <span className="badge soft">Monetization</span>
+              <p style={{ marginTop: 12 }}>
+                Today, monetization is the vendor's to own — price, license and sell your plugins
+                however you like. A first-party paid-plugin wrapper is something we may add down the
+                line; for now Luna stays out of your commercial model.
+              </p>
             </div>
           </Reveal>
         </div>
@@ -93,79 +167,52 @@ export default function Marketplace() {
 
       <section className="mkt-section">
         <div className="wrap">
-          <div className="sg-eyebrow">Open marketplaces</div>
-          <h2 className="sg-h2">Anyone can open a marketplace — and point their Lunas at it</h2>
-          <p className="sg-lead">
-            A marketplace is just a plugin directory you trust. Open your own and connect it to your
-            Lunas, so installs come from a source you control — not the open internet.
-          </p>
-          <div className="grid cols-2" style={{ marginTop: 30 }}>
-            <Reveal>
-              <div className="card hov">
-                <h3>For organizations</h3>
-                <p style={{ marginBottom: 14 }}>Roll your own internal plugin directory and wire it into every employee's Luna.</p>
-                <ul className="checklist">
-                  <li><span>Curate the connectors and packs you sanction.</span></li>
-                  <li><span>Employees get instant, approved access — no ad-hoc installs.</span></li>
-                  <li><span>Your directory, your governance.</span></li>
-                </ul>
-              </div>
-            </Reveal>
-            <Reveal>
-              <div className="card hov">
-                <h3>For vendors</h3>
-                <p style={{ marginBottom: 14 }}>Stand up your own marketplace and give customers unified access to all your plugins.</p>
-                <ul className="checklist">
-                  <li><span>One place for your whole plugin catalog.</span></li>
-                  <li><span>Customers point their Lunas straight at it.</span></li>
-                  <li><span>You own versioning, support and updates.</span></li>
-                </ul>
-              </div>
-            </Reveal>
-          </div>
+          <div className="sg-eyebrow">Build plugins</div>
+          <h2 className="sg-h2">Luna Plugin Studio <em className="stext gtext">for Cursor</em></h2>
           <Reveal>
-            <div className="card" style={{ marginTop: 18 }}>
-              <span className="badge soft">Monetization</span>
-              <p style={{ marginTop: 12 }}>
-                Today, monetization is the vendor's to own — price, license and sell your plugins
-                however you like. A first-party paid-plugin wrapper is something we may add down the
-                line; for now Luna stays out of your commercial model.
-              </p>
+            <div className="card" style={{ marginTop: 26 }}>
+              <div className="kit">
+                <div>
+                  <p style={{ fontSize: 16 }}>
+                    A ready-to-go Cursor environment for building Luna plugins. Open it, and you have
+                    the SDK, a scaffold and a test harness already wired up — write a plugin, run it
+                    against a local Luna, and publish it to your marketplace.
+                  </p>
+                  <ul className="kit-list">
+                    <li>Plugin SDK + typed manifest, preinstalled.</li>
+                    <li>A starter plugin scaffold you can rename and ship.</li>
+                    <li>Local test harness — run your plugin against a dev Luna.</li>
+                    <li>Cursor rules &amp; tasks tuned for plugin work.</li>
+                  </ul>
+                  <div className="btn-row" style={{ marginTop: 22 }}>
+                    <a className="btn btn-primary" href={PLUGIN_CURSOR_ZIP_URL}>Download for Cursor ↓</a>
+                    <a className="btn btn-ghost" href={MARKETPLACE_BASE_URL} target="_blank" rel="noopener noreferrer">Docs on marketplaces.com.ai ↗</a>
+                  </div>
+                  <p className="sg-note" style={{ marginTop: 14 }}>
+                    Hosted on marketplaces.com.ai and kept current there — you always get the latest kit.
+                  </p>
+                </div>
+                <div className="filebox">
+                  <div className="term-bar">
+                    <span className="dot" /><span className="dot" /><span className="dot" />
+                    <i>luna-plugin-cursor/</i>
+                  </div>
+                  <pre style={{ margin: 0, padding: 18, fontFamily: "'JetBrains Mono',ui-monospace,monospace", fontSize: 12.5, lineHeight: 1.7, color: 'var(--text-dim)', whiteSpace: 'pre' }}>{`luna-plugin-cursor/
+├─ .cursor/        rules + tasks
+├─ src/
+│  └─ plugin.ts    your plugin
+├─ manifest.json   typed manifest
+├─ test/
+│  └─ harness.ts   run vs dev Luna
+└─ README.md`}</pre>
+                </div>
+              </div>
             </div>
           </Reveal>
         </div>
       </section>
 
-      <section className="mkt-section">
-        <div className="wrap">
-          <div className="sg-eyebrow">How it works</div>
-          <h2 className="sg-h2">Browse → add → it's installed</h2>
-          <div className="grid cols-3" style={{ marginTop: 30 }}>
-            {[
-              ['Browse', 'Find connectors, tools, templates and packs for the job you have.'],
-              ['One-click add', 'Hosted users get a curated install. OSS users get the SDK to build & publish.'],
-              ['Isolated per agent', 'Each capability runs scoped to the agent that uses it — add and remove freely.'],
-            ].map(([title, body]) => (
-              <Reveal key={title}>
-                <div className="card hov feature">
-                  <h3>{title}</h3>
-                  <p>{body}</p>
-                </div>
-              </Reveal>
-            ))}
-          </div>
-          <Reveal>
-            <div className="card" style={{ marginTop: 18 }}>
-              <span className="badge">Coming soon</span>
-              <p style={{ marginTop: 12 }}>
-                The marketplace framework is shipping inside Luna now; the browse-and-install storefront
-                is rolling out next. We label genuinely-future items "coming soon" rather than show a
-                catalog that isn't real — trust is the whole point.
-              </p>
-            </div>
-          </Reveal>
-        </div>
-      </section>
-    </>
+      <MarketplaceCtaBand />
+    </div>
   );
 }

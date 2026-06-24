@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     github_repo: str = "huemorgan/luna-service"
     admin_webhook_secret: str = "dev-webhook-secret"
 
+    # Luna Marketplaces (plan 022) — separate product on its own domain. The
+    # Cursor plugin-dev kit lives there; we expose a stable branded path that
+    # redirects to it, so updating the zip there updates our download with no
+    # site rebuild.
+    marketplace_plugin_zip_url: str = (
+        "https://marketplaces.com.ai/downloads/luna-plugin-cursor.zip"
+    )
+
     model_config = {"env_prefix": "CLOUD_"}
 
 

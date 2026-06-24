@@ -5,6 +5,14 @@ export const GITHUB_URL = 'https://github.com/huemorgan/luna';
 export const DOCS_URL = 'https://github.com/huemorgan/luna#readme';
 export const CONTACT_EMAIL = 'mailto:hello@luna.com.ai';
 
+// Luna Marketplaces is a separate product on its own domain (plan 022). Its CTAs
+// leave the marketing site; the plugin-dev kit is hosted there and reached via a
+// stable branded redirect on our side so updating the zip there updates the link.
+export const MARKETPLACE_BASE_URL = 'https://marketplaces.com.ai';
+export const MARKETPLACE_SIGNUP_URL = 'https://marketplaces.com.ai/';
+export const MARKETPLACE_BROWSE_URL = 'https://marketplaces.com.ai/';
+export const PLUGIN_CURSOR_ZIP_URL = '/downloads/luna-plugin-cursor.zip';
+
 export interface ProductLink {
   to: string;
   title: string;

@@ -1,5 +1,10 @@
 import { useSession } from '../lib/session';
-import { LOGIN_URL, DASHBOARD_URL } from '../lib/constants';
+import {
+  LOGIN_URL,
+  DASHBOARD_URL,
+  MARKETPLACE_SIGNUP_URL,
+  MARKETPLACE_BROWSE_URL,
+} from '../lib/constants';
 import { GoogleG } from './icons';
 
 /** The one CTA that matters. Logged out → "Start free" into Google OAuth.
@@ -26,5 +31,38 @@ export function StartFree({
       {withGoogle && <GoogleG />}
       Start free
     </a>
+  );
+}
+
+/** Marketplaces is a separate product (plan 022). Its CTA leaves the marketing
+ *  site for marketplaces.com.ai — distinct from the hosted Google signup. */
+export function MarketplaceCta({
+  size = '',
+  secondary = false,
+}: {
+  size?: '' | 'btn-sm' | 'btn-lg';
+  secondary?: boolean;
+}) {
+  return (
+    <>
+      <a
+        href={MARKETPLACE_SIGNUP_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`btn btn-primary ${size}`.trim()}
+      >
+        Create your marketplace →
+      </a>
+      {secondary && (
+        <a
+          href={MARKETPLACE_BROWSE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`btn btn-ghost ${size}`.trim()}
+        >
+          Browse Marketplaces ↗
+        </a>
+      )}
+    </>
   );
 }

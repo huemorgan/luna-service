@@ -3,7 +3,28 @@ import Reveal from '../components/Reveal';
 import { StartFree } from '../components/cta';
 import { useSeo } from '../lib/seo';
 import { GITHUB_URL, DOCS_URL } from '../lib/constants';
-import ossImg from '../assets/open-source.png';
+
+const ARCH = String.raw`
+            ┌─────────────────────────────┐
+            │          luna core          │
+            │   small · auditable · MIT   │
+            └──────────────┬──────────────┘
+                           │  open SDK
+        ┌──────────┬───────┴───────┬──────────┐
+     ┌──┴───┐  ┌───┴───┐      ┌────┴───┐  ┌───┴────┐
+     │ tools│  │ skills│      │ vault  │  │channels│
+     └──────┘  └───────┘      └────────┘  └────────┘
+        plugins — added only when you need them
+`;
+
+const PROMISE = `# OPEN-PLATFORM-PROMISE.txt
+
+  1. Luna's core is, and stays, MIT.
+  2. We never relicense backwards. Code that is open stays open.
+  3. If we ever break this promise, the last open commit is yours —
+     a working fork you can keep running forever.
+
+  Trust isn't a pledge here. It's the license file.`;
 
 export default function OpenSource() {
   useSeo({
@@ -13,38 +34,46 @@ export default function OpenSource() {
   });
 
   return (
-    <>
+    <div className="t-ascii">
       <section className="mkt-section flush">
         <div className="wrap">
           <div className="phero">
-            <div className="sg-eyebrow">Luna Open Source</div>
-            <h1>The agent itself —<br /><em>open, all the way down</em></h1>
+            <div className="sg-eyebrow">// luna open source · MIT</div>
+            <h1>Open, all the way down.</h1>
             <p>
-              Luna is open source under the MIT license. Self-host it on your own infrastructure. The whole platform
-              that makes Luna trustworthy is open too — so trust isn't a promise, it's something you
-              can read.
+              Luna is open source under the MIT license — self-host it on your own infrastructure.
+              The whole platform that makes Luna trustworthy is open too, so trust isn't a promise.
+              It's something you can read.
             </p>
-            <div className="btn-row">
-              <a className="btn btn-primary btn-lg" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">Star on GitHub ↗</a>
-              <a className="btn btn-ghost btn-lg" href={DOCS_URL} target="_blank" rel="noopener noreferrer">Read the docs ↗</a>
-            </div>
           </div>
           <Reveal>
-            <div className="media" style={{ marginTop: 30 }}>
-              <img src={ossImg} alt="Engineers collaborating around a laptop in a co-working space" />
+            <div className="term">
+              <div className="term-bar">
+                <span className="dot" /><span className="dot" /><span className="dot" />
+                <i>~/luna</i>
+              </div>
+              <div className="term-body">
+                <div><span className="g">$</span> git clone https://github.com/huemorgan/luna</div>
+                <div><span className="g">$</span> cd luna &amp;&amp; luna up</div>
+                <div><span className="c"># your agent. your machine. MIT.</span> <span className="caretblk" /></div>
+              </div>
             </div>
           </Reveal>
+          <div className="btn-row" style={{ marginTop: 22 }}>
+            <a className="btn btn-primary" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">[ Star on GitHub ↗ ]</a>
+            <a className="btn btn-ghost" href={DOCS_URL} target="_blank" rel="noopener noreferrer">[ Read the docs ↗ ]</a>
+          </div>
         </div>
       </section>
 
       <section className="mkt-section">
         <div className="wrap">
-          <div className="sg-eyebrow">Why open</div>
-          <h2 className="sg-h2">Trustworthy <em className="stext gtext">because</em> it's open</h2>
+          <div className="sg-eyebrow">// why open</div>
+          <h2 className="sg-h2">Trustworthy because it's open</h2>
           <p className="sg-lead">
             You can't ask anyone to hand an agent their credentials and their production systems on
-            faith. So the parts that earn that trust are open — the vault, the rollback, the
-            approval gates. Inspect them, run them, fork them.
+            faith. So the parts that earn that trust are open — the vault, the rollback, the approval
+            gates. Inspect them, run them, fork them.
           </p>
           <div className="grid cols-3" style={{ marginTop: 30 }}>
             {[
@@ -68,15 +97,18 @@ export default function OpenSource() {
 
       <section className="mkt-section">
         <div className="wrap">
-          <div className="sg-eyebrow">Lean core, expand anywhere</div>
-          <h2 className="sg-h2">A tiny core you can run <em className="stext gtext">anywhere</em> — and grow with plugins</h2>
+          <div className="sg-eyebrow">// lean core, expand anywhere</div>
+          <h2 className="sg-h2">A tiny core you run anywhere — grown with plugins</h2>
           <p className="sg-lead">
             Luna's core is deliberately lean: a small, auditable engine that does one job — run agents
             safely. Everything else — tools, channels, skills, connectors — is a plugin you add only
             when you need it. A small core means a small attack surface, a fast read-through, and a
             footprint that drops into any environment.
           </p>
-          <div className="grid cols-3" style={{ marginTop: 30 }}>
+          <Reveal>
+            <pre className="ascii" style={{ marginTop: 26 }}>{ARCH}</pre>
+          </Reveal>
+          <div className="grid cols-3" style={{ marginTop: 26 }}>
             {[
               ['Fits any security restriction', 'Self-host inside your own VPC, on-prem, or fully air-gapped. Because it runs in your environment, Luna bends to your compliance and security posture — not the other way around.'],
               ['A lean, auditable core', 'The core stays small and readable on purpose. Less to trust, less to attack, less to hold in your head — you can review the whole base, not a sprawling framework.'],
@@ -98,6 +130,22 @@ export default function OpenSource() {
 
       <section className="mkt-section">
         <div className="wrap">
+          <div className="sg-eyebrow">// the promise</div>
+          <h2 className="sg-h2">Open today, open tomorrow</h2>
+          <Reveal>
+            <div className="filebox" style={{ marginTop: 22 }}>
+              <div className="term-bar">
+                <span className="dot" /><span className="dot" /><span className="dot" />
+                <i>OPEN-PLATFORM-PROMISE.txt</i>
+              </div>
+              <pre>{PROMISE}</pre>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      <section className="mkt-section">
+        <div className="wrap">
           <Reveal>
             <div className="card" style={{ textAlign: 'center', padding: '44px 28px' }}>
               <h2 className="sg-h2">Want it without the setup?</h2>
@@ -107,12 +155,12 @@ export default function OpenSource() {
               </p>
               <div className="btn-row" style={{ justifyContent: 'center', marginTop: 24 }}>
                 <StartFree withGoogle />
-                <Link className="btn btn-ghost" to="/products/hosting">Luna Hosting Service</Link>
+                <Link className="btn btn-ghost" to="/products/hosting">[ Luna Hosting Service ]</Link>
               </div>
             </div>
           </Reveal>
         </div>
       </section>
-    </>
+    </div>
   );
 }
