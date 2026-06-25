@@ -54,7 +54,19 @@ class UpdateAgentRequest(BaseModel):
     name: str
 
 
-def _agent_dict(a: Agent) -> dict:
+async def _main_image_version(db) -> str | None:
+    """Version of the current main (default) built image — what a machine
+    upgrades *to*. ``None`` when no main image is set."""
+    img = (await db.execute(
+        select(LunaImage).where(
+            LunaImage.is_main == True,  # noqa: E712
+            LunaImage.build_status == "built",
+        )
+    )).scalar_one_or_none()
+    return img.version if img else None
+
+
+def _agent_dict(a: Agent, latest_version: str | None = None) -> dict:
     return {
         "id": str(a.id),
         "name": a.name,
@@ -63,6 +75,10 @@ def _agent_dict(a: Agent) -> dict:
         "runtime_kind": a.runtime_kind,
         "internal_url": a.internal_url,
         "image_version": a.image_version,
+        "latest_version": latest_version,
+        "upgrade_available": bool(
+            latest_version and a.runtime_ref and a.image_version != latest_version
+        ),
         "error_message": a.error_message,
         "error_at": a.error_at.isoformat() if a.error_at else None,
         "created_at": a.created_at.isoformat(),
@@ -77,8 +93,9 @@ async def list_agents(auth: tuple[User, Account] = Depends(require_active_accoun
         agents = (await db.execute(
             select(Agent).where(Agent.account_id == account.id).order_by(Agent.created_at)
         )).scalars().all()
+        latest = await _main_image_version(db)
 
-    return [_agent_dict(a) for a in agents]
+    return [_agent_dict(a, latest) for a in agents]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -130,10 +147,11 @@ async def get_agent(
                 Agent.account_id == account.id,
             )
         )).scalar_one_or_none()
+        latest = await _main_image_version(db) if agent else None
 
     if not agent:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
-    return _agent_dict(agent)
+    return _agent_dict(agent, latest)
 
 
 @router.patch("/{agent_id}")
@@ -162,7 +180,7 @@ async def update_agent(
         agent.name = name
         await db.commit()
         await db.refresh(agent)
-        return _agent_dict(agent)
+        return _agent_dict(agent, await _main_image_version(db))
 
 
 @router.post("/{agent_id}/start")
@@ -180,8 +198,9 @@ async def start_agent(
         )).scalar_one_or_none()
         if not agent:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
+        latest = await _main_image_version(db)
         if agent.status == "running":
-            return _agent_dict(agent)
+            return _agent_dict(agent, latest)
         if not agent.runtime_ref:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Agent has no runtime to start")
 
@@ -199,7 +218,7 @@ async def start_agent(
             agent.error_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(agent)
-        return _agent_dict(agent)
+        return _agent_dict(agent, latest)
 
 
 @router.post("/{agent_id}/stop")
@@ -217,8 +236,9 @@ async def stop_agent(
         )).scalar_one_or_none()
         if not agent:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
+        latest = await _main_image_version(db)
         if agent.status == "stopped":
-            return _agent_dict(agent)
+            return _agent_dict(agent, latest)
         if not agent.runtime_ref:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Agent has no runtime to stop")
 
@@ -235,7 +255,7 @@ async def stop_agent(
             agent.error_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(agent)
-        return _agent_dict(agent)
+        return _agent_dict(agent, latest)
 
 
 @router.post("/{agent_id}/retry")
@@ -259,11 +279,68 @@ async def retry_agent(
         agent.error_at = None
         await db.commit()
         await db.refresh(agent)
-        result = _agent_dict(agent)
+        result = _agent_dict(agent, await _main_image_version(db))
 
     from cloud.provisioning.workflow import provision_luna_for_account
     asyncio.create_task(provision_luna_for_account(str(account.id), agent_id=agent_id))
     return result
+
+
+@router.post("/{agent_id}/upgrade")
+async def upgrade_agent(
+    agent_id: str,
+    auth: tuple[User, Account] = Depends(require_active_account),
+):
+    """Upgrade this machine to the current main image (the latest version).
+
+    User-facing counterpart of the admin per-machine image update — always
+    targets the main image, scoped to the caller's account.
+    """
+    _, account = auth
+    async with get_db_session() as db:
+        agent = (await db.execute(
+            select(Agent).where(
+                Agent.id == uuid.UUID(agent_id),
+                Agent.account_id == account.id,
+            )
+        )).scalar_one_or_none()
+        if not agent:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
+        if not agent.runtime_ref:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Agent has no machine to upgrade")
+
+        target = (await db.execute(
+            select(LunaImage).where(
+                LunaImage.is_main == True,  # noqa: E712
+                LunaImage.build_status == "built",
+            )
+        )).scalar_one_or_none()
+        if not target:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "No image available to upgrade to")
+        if agent.image_version == target.version:
+            return _agent_dict(agent, target.version)
+        runtime_ref = agent.runtime_ref
+        target_tag = target.registry_tag
+        target_version = target.version
+
+    if not os.environ.get("FLY_API_TOKEN"):
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Fly API not configured")
+
+    from cloud.runtime.fly_machines import FlyMachinesRuntime
+    fly = FlyMachinesRuntime()
+    try:
+        await fly.update_machine_image(runtime_ref, target_tag)
+    except Exception as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Failed to upgrade machine: {e}")
+
+    async with get_db_session() as db:
+        agent = (await db.execute(
+            select(Agent).where(Agent.id == uuid.UUID(agent_id))
+        )).scalar_one()
+        agent.image_version = target_version
+        await db.commit()
+        await db.refresh(agent)
+        return _agent_dict(agent, target_version)
 
 
 @router.delete("/{agent_id}")

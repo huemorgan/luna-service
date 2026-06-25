@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Moon, LogOut, Bot, Loader2, Plus, ExternalLink,
-  RotateCcw, Square, Play, Trash2, AlertTriangle, Shield, ChevronDown,
+  RotateCcw, Square, Play, AlertTriangle, Shield, ChevronDown,
+  Settings, ArrowUpCircle,
 } from 'lucide-react';
 
 interface UserInfo {
@@ -18,6 +19,8 @@ interface AgentInfo {
   runtime_kind: string | null;
   internal_url: string | null;
   image_version: string | null;
+  latest_version: string | null;
+  upgrade_available: boolean;
   error_message: string | null;
   error_at: string | null;
   created_at: string;
@@ -98,18 +101,16 @@ export default function Dashboard() {
     }
   };
 
-  const handleAction = async (agentId: string, action: 'start' | 'stop' | 'retry' | 'delete') => {
+  const handleAction = async (agentId: string, action: 'start' | 'stop' | 'retry' | 'upgrade') => {
     setActionLoading(agentId);
     try {
-      if (action === 'delete') {
-        const res = await fetch(`/api/agents/${agentId}`, { method: 'DELETE' });
-        if (res.ok) setAgents(prev => prev.filter(a => a.id !== agentId));
-      } else {
-        const res = await fetch(`/api/agents/${agentId}/${action}`, { method: 'POST' });
-        if (res.ok) {
-          const updated = await res.json();
-          setAgents(prev => prev.map(a => a.id === agentId ? updated : a));
-        }
+      const res = await fetch(`/api/agents/${agentId}/${action}`, { method: 'POST' });
+      if (res.ok) {
+        const updated = await res.json();
+        setAgents(prev => prev.map(a => a.id === agentId ? updated : a));
+      } else if (action === 'upgrade') {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        alert(`Upgrade failed: ${err.detail || res.statusText}`);
       }
     } finally {
       setActionLoading(null);
@@ -249,9 +250,8 @@ function AgentCard({
 }: {
   agent: AgentInfo;
   isLoading: boolean;
-  onAction: (id: string, action: 'start' | 'stop' | 'retry' | 'delete') => void;
+  onAction: (id: string, action: 'start' | 'stop' | 'retry' | 'upgrade') => void;
 }) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const dotColor = STATUS_DOT[agent.status] || '#94a3b8';
   const stuckProvisioning = agent.status === 'provisioning' && agent.created_at
     && (Date.now() - new Date(agent.created_at).getTime()) > 5 * 60 * 1000;
@@ -267,11 +267,12 @@ function AgentCard({
           <div>
             <Link
               to={`/dashboard/agents/${agent.id}`}
-              className="font-semibold hover:underline"
-              style={{ color: 'var(--text)' }}
-              title="View agent details"
+              className="group inline-flex items-center gap-1.5 font-semibold underline decoration-dotted underline-offset-4 hover:decoration-solid transition-colors"
+              style={{ color: 'var(--moon)' }}
+              title="Open settings & config"
             >
               {agent.name}
+              <Settings size={13} className="opacity-60 transition-opacity group-hover:opacity-100" />
             </Link>
             <div className="flex items-center gap-3 mt-1">
               <span className="text-xs capitalize" style={{ color: stuckProvisioning ? '#facc15' : 'var(--text-dim)' }}>
@@ -299,6 +300,16 @@ function AgentCard({
                   v{agent.image_version}
                 </span>
               )}
+              {agent.upgrade_available && (
+                <span
+                  className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full"
+                  style={{ background: 'rgba(201,184,255,0.15)', color: 'var(--moon)' }}
+                  title={agent.latest_version ? `New version v${agent.latest_version} available` : 'Update available'}
+                >
+                  <ArrowUpCircle size={10} />
+                  update available
+                </span>
+              )}
             </div>
             {(agent.status === 'error' || stuckProvisioning) && agent.error_message && (
               <div
@@ -314,6 +325,19 @@ function AgentCard({
 
         <div className="flex items-center gap-2">
           {isLoading && <Loader2 className="animate-spin" size={16} style={{ color: 'var(--moon)' }} />}
+
+          {agent.upgrade_available && (
+            <button
+              onClick={() => onAction(agent.id, 'upgrade')}
+              disabled={isLoading}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all hover:scale-105 disabled:opacity-50"
+              style={{ background: 'rgba(201,184,255,0.15)', color: 'var(--moon)', border: '1px solid rgba(201,184,255,0.4)' }}
+              title={agent.latest_version ? `Upgrade to v${agent.latest_version}` : 'Upgrade to latest'}
+            >
+              <ArrowUpCircle size={14} />
+              Upgrade
+            </button>
+          )}
 
           {agent.status === 'running' && agent.slug && (
             <a
@@ -380,37 +404,15 @@ function AgentCard({
             </button>
           )}
 
-          {(agent.status !== 'provisioning' || stuckProvisioning) && (
-            confirmDelete ? (
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => { onAction(agent.id, 'delete'); setConfirmDelete(false); }}
-                  disabled={isLoading}
-                  className="px-3 py-2 rounded-lg text-xs font-medium disabled:opacity-50"
-                  style={{ background: '#ef4444', color: 'white' }}
-                >
-                  Confirm
-                </button>
-                <button
-                  onClick={() => setConfirmDelete(false)}
-                  className="px-3 py-2 rounded-lg text-xs"
-                  style={{ color: 'var(--text-dim)' }}
-                >
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setConfirmDelete(true)}
-                disabled={isLoading}
-                className="flex items-center gap-1 px-2 py-2 rounded-lg text-xs transition-all hover:bg-[rgba(239,68,68,0.1)] disabled:opacity-50"
-                style={{ color: 'var(--text-dim)' }}
-                title="Delete agent"
-              >
-                <Trash2 size={12} />
-              </button>
-            )
-          )}
+          <Link
+            to={`/dashboard/agents/${agent.id}`}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs transition-all hover:bg-[var(--ink-light)]"
+            style={{ color: 'var(--text-dim)', border: '1px solid var(--ink-lighter)' }}
+            title="Settings & config (rename, upgrade, delete)"
+          >
+            <Settings size={12} />
+            Config
+          </Link>
         </div>
       </div>
 

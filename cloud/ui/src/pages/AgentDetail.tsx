@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import {
   Moon, LogOut, ChevronLeft, Loader2, ExternalLink,
-  Square, Play, RotateCcw, AlertTriangle, RefreshCw, Pencil, Check, X,
+  Square, Play, RotateCcw, AlertTriangle, RefreshCw, Pencil, Check, X, Trash2,
 } from 'lucide-react';
 import { InfoCard } from '../components/InfoCard';
 import type { InfoRow } from '../components/InfoCard';
@@ -88,6 +88,7 @@ function fmtBytes(n: number): string {
 
 export default function AgentDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [data, setData] = useState<DetailPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -96,6 +97,8 @@ export default function AgentDetail() {
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
   const [savingName, setSavingName] = useState(false);
+  const [deleteDraft, setDeleteDraft] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   const fetchDetails = useCallback(async () => {
     if (!id) return;
@@ -181,6 +184,24 @@ export default function AgentDetail() {
       }
     } finally {
       setSavingName(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!id || deleteDraft.trim() !== agent.name) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/agents/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        navigate('/dashboard');
+      } else {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        alert(`Delete failed: ${err.detail || res.statusText}`);
+        setDeleting(false);
+      }
+    } catch (e) {
+      alert(`Delete failed: ${e instanceof Error ? e.message : 'Network error'}`);
+      setDeleting(false);
     }
   };
 
@@ -396,6 +417,40 @@ export default function AgentDetail() {
             <span className="ml-2">(60 s TTL)</span>
           </span>
           <code className="font-mono">{agent.id}</code>
+        </div>
+
+        {/* Danger zone — delete only lives here, behind a type-the-name failsafe */}
+        <div
+          className="mt-8 rounded-2xl border p-5"
+          style={{ background: 'rgba(239,68,68,0.04)', borderColor: 'rgba(239,68,68,0.25)' }}
+        >
+          <h3 className="text-sm font-semibold flex items-center gap-2 mb-1" style={{ color: '#f87171' }}>
+            <AlertTriangle size={15} /> Danger zone
+          </h3>
+          <p className="text-xs mb-4" style={{ color: 'var(--text-dim)' }}>
+            Deleting <strong style={{ color: 'var(--text)' }}>{agent.name}</strong> destroys its
+            machine and removes the agent. This cannot be undone. Type the agent's name to confirm.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+            <input
+              type="text"
+              value={deleteDraft}
+              onChange={e => setDeleteDraft(e.target.value)}
+              placeholder={agent.name}
+              disabled={deleting}
+              className="flex-1 max-w-xs px-3 py-2 rounded-lg text-sm outline-none disabled:opacity-60"
+              style={{ background: 'var(--ink)', color: 'var(--text)', border: '1px solid var(--ink-lighter)' }}
+            />
+            <button
+              onClick={handleDelete}
+              disabled={deleting || deleteDraft.trim() !== agent.name}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{ background: deleteDraft.trim() === agent.name ? '#ef4444' : 'transparent', color: deleteDraft.trim() === agent.name ? 'white' : 'var(--text-dim)', border: '1px solid rgba(239,68,68,0.4)' }}
+            >
+              {deleting ? <Loader2 className="animate-spin" size={14} /> : <Trash2 size={14} />}
+              Delete agent
+            </button>
+          </div>
         </div>
       </main>
     </div>
