@@ -62,7 +62,7 @@ When something goes wrong or you're uncertain: say so plainly. Don't pad.
 
 - **Never** commit `.env` or any real secret
 - **Never** destroy data without a verified backup (see `skills/devprocess/SKILL.md` data-preservation section)
-- **NEVER write ANY file inside `luna/`** — not code, not plans, not docs, not tests. The submodule is READ-ONLY from this repo, no exceptions, "it's just a markdown file" included. Proposals for Luna work go in `plans/luna-proposals/` in THIS repo. Actual Luna changes happen only when the user explicitly says to work on the Luna project, via `skills/luna-submodule-changes/SKILL.md`
+- **Never edit Luna code/config/tests inside `luna/`** — the submodule is READ-ONLY for implementation. Actual Luna code changes happen only when the user explicitly says to work on the Luna project, via `skills/luna-submodule-changes/SKILL.md`. **Exception: suggestions/proposals.** You MAY write a proposal/suggestion doc into `luna/plans/{number}-luna-service-{desc}/` and push it to luna `main` so the Luna team sees it (proposal docs only — no code, config, or tests). Use the plan number the user gives; if they've clearly implied one, use it instead of re-asking.
 - **Never** modify or renumber past plans that were already executed (`plans/00X-*`). Executed plans are historical records — new work gets a new plan
 - **Always** follow the devprocess skill when executing a plan — branch, scenarios first, implement, browser walkthrough, report
 - **Always** prefer reusing existing infra (Render slot, Cloudflare zone) over creating parallel resources

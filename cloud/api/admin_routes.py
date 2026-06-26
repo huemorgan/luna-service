@@ -240,6 +240,82 @@ def _gh_headers() -> dict[str, str]:
     return headers
 
 
+LUNA_SDK_PATH = "luna_sdk/__init__.py"
+
+
+async def _fetch_luna_sdk_contract(ref: str) -> tuple[int | None, int | None]:
+    """Read (`__sdk_version__`, `__sdk_min_plugin_major__`) from luna_sdk at a ref.
+
+    These are the target band for an upgrade-check. Best-effort; returns
+    (None, None) on any failure so a build never blocks on it.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                f"https://api.github.com/repos/{LUNA_GITHUB_REPO}/contents/{LUNA_SDK_PATH}",
+                params={"ref": ref}, headers=_gh_headers(),
+            )
+        if resp.status_code == 200:
+            content = base64.b64decode(resp.json().get("content", "")).decode("utf-8")
+            mj = re.search(r'__sdk_version__\s*=\s*"?(\d+)"?', content)
+            mn = re.search(r'__sdk_min_plugin_major__\s*=\s*"?(\d+)"?', content)
+            return (
+                int(mj.group(1)) if mj else None,
+                int(mn.group(1)) if mn else None,
+            )
+        log.warning("GitHub sdk-contract returned %s for ref %s", resp.status_code, ref)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("GitHub sdk-contract fetch failed for %s: %s", ref, exc)
+    return None, None
+
+
+def _clean_commit_subjects(messages: list[str]) -> list[str]:
+    """First lines of commit messages, dropping merge/version-bump noise."""
+    out: list[str] = []
+    for m in messages:
+        subject = (m or "").strip().splitlines()[0].strip() if m else ""
+        if not subject:
+            continue
+        low = subject.lower()
+        if low.startswith("merge ") or low.startswith("merge branch") or low.startswith("merge pull"):
+            continue
+        out.append(subject)
+    return out
+
+
+async def _fetch_release_notes(ref: str, prev_sha: str | None) -> str | None:
+    """Succinct changelog (markdown bullets) for what's new on `ref`.
+
+    If `prev_sha` is known, diff `prev_sha...ref`; otherwise list the most recent
+    commits on `ref`. Best-effort — returns None on failure.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=12) as client:
+            subjects: list[str] = []
+            if prev_sha:
+                resp = await client.get(
+                    f"https://api.github.com/repos/{LUNA_GITHUB_REPO}/compare/{prev_sha}...{ref}",
+                    headers=_gh_headers(),
+                )
+                if resp.status_code == 200:
+                    commits = resp.json().get("commits", []) or []
+                    subjects = _clean_commit_subjects([c.get("commit", {}).get("message", "") for c in commits])
+            if not subjects:
+                resp = await client.get(
+                    f"https://api.github.com/repos/{LUNA_GITHUB_REPO}/commits",
+                    params={"sha": ref, "per_page": 20}, headers=_gh_headers(),
+                )
+                if resp.status_code == 200:
+                    subjects = _clean_commit_subjects([c.get("commit", {}).get("message", "") for c in resp.json()])
+        if not subjects:
+            return None
+        subjects = subjects[:20]
+        return "\n".join(f"- {s}" for s in subjects)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("GitHub release-notes fetch failed for %s: %s", ref, exc)
+        return None
+
+
 async def _fetch_luna_ref_info(ref: str) -> tuple[str | None, str | None]:
     """Return (luna __version__, head commit sha) for a branch/ref via GitHub."""
     version: str | None = None
@@ -461,6 +537,9 @@ def _image_dict(img: LunaImage, agent_count: int = 0, default_cfg: dict | None =
         "agent_count": agent_count,
         "image_config": {**base, **(img.image_config or {})},
         "cache_warmed_at": img.cache_warmed_at.isoformat() if img.cache_warmed_at else None,
+        "sdk_major": img.sdk_major,
+        "sdk_min_major": img.sdk_min_major,
+        "release_notes": img.release_notes,
     }
 
 
@@ -931,6 +1010,12 @@ async def build_image(
     fly_app = os.environ.get("FLY_APP", "luna-agents")
     registry_tag = f"registry.fly.io/{fly_app}:{version}"
 
+    # 024: capture the upgrade-preview contract for this image — the SDK band the
+    # target ships (drives upgrade-check) + a succinct changelog. Best-effort.
+    sdk_major, sdk_min_major = await _fetch_luna_sdk_contract(branch)
+    if branch == "main" and not git_sha:
+        _, git_sha = await _fetch_luna_ref_info("main")
+
     async with get_db_session() as db:
         existing = (await db.execute(
             select(LunaImage).where(LunaImage.version == version)
@@ -941,6 +1026,14 @@ async def build_image(
                 f"Image {version} already exists (status: {existing.build_status})",
             )
 
+        prev_main = (await db.execute(
+            select(LunaImage).where(
+                LunaImage.is_main == True,  # noqa: E712
+                LunaImage.build_status == "built",
+            )
+        )).scalar_one_or_none()
+        release_notes = await _fetch_release_notes(branch, prev_main.git_sha if prev_main else None)
+
         img = LunaImage(
             version=version,
             registry_tag=registry_tag,
@@ -948,6 +1041,9 @@ async def build_image(
             created_by=admin.id,
             git_branch=branch,
             git_sha=git_sha,
+            sdk_major=sdk_major,
+            sdk_min_major=sdk_min_major,
+            release_notes=release_notes,
         )
         if existing:
             await db.delete(existing)

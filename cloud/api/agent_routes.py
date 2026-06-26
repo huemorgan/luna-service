@@ -9,7 +9,8 @@ import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -84,6 +85,57 @@ def _agent_dict(a: Agent, latest_version: str | None = None) -> dict:
         "created_at": a.created_at.isoformat(),
         "last_active_at": a.last_active_at.isoformat() if a.last_active_at else None,
     }
+
+
+async def _tenant_request(
+    agent: Agent,
+    method: str,
+    path: str,
+    json_body: dict | None = None,
+    *,
+    user_email: str,
+    timeout: float = 25.0,
+) -> tuple[int | None, dict | None]:
+    """Call the tenant's Luna over the trusted-proxy channel.
+
+    Authenticates as the machine owner (proxy secret + user header). Wakes the
+    machine on a connection failure and retries once. Returns
+    ``(status_code, json | None)``; ``(None, None)`` when unreachable. Never
+    raises — callers degrade gracefully.
+    """
+    from cloud.api.proxy import _try_wake_agent
+    from cloud.runtime.proxy_secret import derive_proxy_secret
+
+    root_secret = os.environ.get("CLOUD_TRUSTED_PROXY_SECRET", "dev-proxy-secret")
+    headers = {
+        "x-luna-proxy-secret": derive_proxy_secret(root_secret, str(agent.id)),
+        "x-luna-user": user_email,
+        "content-type": "application/json",
+    }
+    if agent.runtime_ref:
+        headers["fly-force-instance-id"] = agent.runtime_ref
+    url = f"{(agent.internal_url or '').rstrip('/')}{path}"
+
+    async def _send() -> tuple[int, dict | None]:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10)) as client:
+            resp = await client.request(method, url, headers=headers, json=json_body)
+            try:
+                data = resp.json()
+            except Exception:  # noqa: BLE001
+                data = None
+            return resp.status_code, data
+
+    try:
+        return await _send()
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout):
+        if await _try_wake_agent(agent):
+            try:
+                return await _send()
+            except Exception:  # noqa: BLE001
+                return None, None
+        return None, None
+    except Exception:  # noqa: BLE001
+        return None, None
 
 
 @router.get("")
@@ -286,17 +338,99 @@ async def retry_agent(
     return result
 
 
+@router.get("/{agent_id}/upgrade-check")
+async def upgrade_check(
+    agent_id: str,
+    auth: tuple[User, Account] = Depends(require_active_account),
+):
+    """Pre-flight an upgrade: what's new + how the target image treats the
+    machine's installed plugins (consumes Luna 0.17.002+ /api/plugins/upgrade-check).
+
+    Always 200. ``upgradable:false`` when nothing to do. When the machine can't be
+    pre-checked (asleep, unreachable, or on a pre-0.17 image), ``compat:"unavailable"``
+    with release notes still shown so the user can upgrade with eyes open.
+    """
+    user, account = auth
+    async with get_db_session() as db:
+        agent = (await db.execute(
+            select(Agent).where(
+                Agent.id == uuid.UUID(agent_id),
+                Agent.account_id == account.id,
+            )
+        )).scalar_one_or_none()
+        if not agent:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
+        target = (await db.execute(
+            select(LunaImage).where(
+                LunaImage.is_main == True,  # noqa: E712
+                LunaImage.build_status == "built",
+            )
+        )).scalar_one_or_none()
+
+    if not target:
+        return {"upgradable": False, "reason": "No newer image is available."}
+    if not agent.runtime_ref:
+        return {"upgradable": False, "reason": "This machine isn't provisioned yet."}
+    if agent.image_version == target.version:
+        return {"upgradable": False, "reason": "Already on the latest version."}
+
+    base = {
+        "upgradable": True,
+        "current_version": agent.image_version,
+        "target_version": target.version,
+        "release_notes": target.release_notes,
+    }
+    if target.sdk_major is None or target.sdk_min_major is None:
+        return {**base, "compat": "unavailable",
+                "reason": "The target image didn't record compatibility data."}
+
+    code, data = await _tenant_request(
+        agent, "POST", "/api/plugins/upgrade-check",
+        {
+            "luna_version": target.version,
+            "sdk_major": target.sdk_major,
+            "sdk_min_major": target.sdk_min_major,
+        },
+        user_email=user.email,
+    )
+    if code == 200 and isinstance(data, dict):
+        return {
+            **base,
+            "compat": "ok",
+            "verdict": data.get("verdict"),
+            "summary": data.get("summary"),
+            "plugins": data.get("plugins", []),
+        }
+    if code == 404:
+        return {**base, "compat": "unavailable",
+                "reason": "This machine is on an older Luna that can't pre-check compatibility."}
+    return {**base, "compat": "unavailable",
+            "reason": "Couldn't reach the machine to check compatibility."}
+
+
+class UpgradeRequest(BaseModel):
+    mode: str = "upgrade_only"  # "upgrade_only" | "update_plugins_then_upgrade"
+
+
 @router.post("/{agent_id}/upgrade")
 async def upgrade_agent(
     agent_id: str,
+    request: Request,
     auth: tuple[User, Account] = Depends(require_active_account),
 ):
     """Upgrade this machine to the current main image (the latest version).
 
     User-facing counterpart of the admin per-machine image update — always
-    targets the main image, scoped to the caller's account.
+    targets the main image, scoped to the caller's account. With
+    ``mode="update_plugins_then_upgrade"`` the machine's ``needs_upgrade`` plugins
+    are bumped to a target-compatible version *before* the image swap.
     """
-    _, account = auth
+    user, account = auth
+    try:
+        body = UpgradeRequest(**(await request.json()))
+    except Exception:  # noqa: BLE001 — empty/invalid body → defaults
+        body = UpgradeRequest()
+
     async with get_db_session() as db:
         agent = (await db.execute(
             select(Agent).where(
@@ -322,6 +456,34 @@ async def upgrade_agent(
         runtime_ref = agent.runtime_ref
         target_tag = target.registry_tag
         target_version = target.version
+        target_sdk_major = target.sdk_major
+        target_sdk_min_major = target.sdk_min_major
+
+    plugin_results: list[dict] = []
+    if body.mode == "update_plugins_then_upgrade" and target_sdk_major is not None:
+        code, data = await _tenant_request(
+            agent, "POST", "/api/plugins/upgrade-check",
+            {"luna_version": target_version, "sdk_major": target_sdk_major,
+             "sdk_min_major": target_sdk_min_major},
+            user_email=user.email,
+        )
+        plugins = (data or {}).get("plugins", []) if code == 200 else []
+        for p in plugins:
+            if p.get("status") != "needs_upgrade":
+                continue
+            name = p.get("name")
+            mp_url = p.get("marketplace_url")
+            if not mp_url:
+                plugin_results.append({"name": name, "ok": False,
+                                       "error": "marketplace_url unknown"})
+                continue
+            ucode, _ = await _tenant_request(
+                agent, "POST", "/api/p/plugin-marketplace/upgrade",
+                {"marketplace_url": mp_url, "name": name, "version": p.get("upgrade_to")},
+                user_email=user.email,
+            )
+            plugin_results.append({"name": name, "ok": ucode == 200,
+                                   "to": p.get("upgrade_to")})
 
     if not os.environ.get("FLY_API_TOKEN"):
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Fly API not configured")
@@ -340,7 +502,10 @@ async def upgrade_agent(
         agent.image_version = target_version
         await db.commit()
         await db.refresh(agent)
-        return _agent_dict(agent, target_version)
+        result = _agent_dict(agent, target_version)
+    if plugin_results:
+        result["plugin_results"] = plugin_results
+    return result
 
 
 @router.delete("/{agent_id}")

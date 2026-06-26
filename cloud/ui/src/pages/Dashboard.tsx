@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   Moon, LogOut, Bot, Loader2, Plus, ExternalLink,
   RotateCcw, Square, Play, AlertTriangle, Shield, ChevronDown,
-  Settings, ArrowUpCircle,
+  Settings, ArrowUpCircle, ChevronRight, CheckCircle2, Sparkles,
 } from 'lucide-react';
 
 interface UserInfo {
@@ -25,6 +25,26 @@ interface AgentInfo {
   error_at: string | null;
   created_at: string;
   last_active_at: string | null;
+}
+
+interface PluginStatus {
+  name: string;
+  installed_version?: string | null;
+  status: string;
+  upgrade_to?: string | null;
+  reason?: string | null;
+}
+
+interface UpgradeCheck {
+  upgradable: boolean;
+  reason?: string;
+  current_version?: string | null;
+  target_version?: string;
+  release_notes?: string | null;
+  compat?: 'ok' | 'unavailable';
+  verdict?: string;
+  summary?: Record<string, number>;
+  plugins?: PluginStatus[];
 }
 
 const STATUS_DOT: Record<string, string> = {
@@ -101,20 +121,37 @@ export default function Dashboard() {
     }
   };
 
-  const handleAction = async (agentId: string, action: 'start' | 'stop' | 'retry' | 'upgrade') => {
+  const handleAction = async (agentId: string, action: 'start' | 'stop' | 'retry') => {
     setActionLoading(agentId);
     try {
       const res = await fetch(`/api/agents/${agentId}/${action}`, { method: 'POST' });
       if (res.ok) {
         const updated = await res.json();
         setAgents(prev => prev.map(a => a.id === agentId ? updated : a));
-      } else if (action === 'upgrade') {
-        const err = await res.json().catch(() => ({ detail: res.statusText }));
-        alert(`Upgrade failed: ${err.detail || res.statusText}`);
       }
     } finally {
       setActionLoading(null);
     }
+  };
+
+  // Upgrade with an explicit mode (used by the upgrade tray). Returns an error
+  // string on failure so the tray can surface it inline.
+  const handleUpgrade = async (
+    agentId: string,
+    mode: 'upgrade_only' | 'update_plugins_then_upgrade',
+  ): Promise<string | null> => {
+    const res = await fetch(`/api/agents/${agentId}/upgrade`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      setAgents(prev => prev.map(a => a.id === agentId ? updated : a));
+      return null;
+    }
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    return err.detail || res.statusText || 'Upgrade failed';
   };
 
   if (loading) {
@@ -236,6 +273,7 @@ export default function Dashboard() {
                 agent={agent}
                 isLoading={actionLoading === agent.id}
                 onAction={handleAction}
+                onUpgrade={handleUpgrade}
               />
             ))}
           </div>
@@ -246,11 +284,12 @@ export default function Dashboard() {
 }
 
 function AgentCard({
-  agent, isLoading, onAction,
+  agent, isLoading, onAction, onUpgrade,
 }: {
   agent: AgentInfo;
   isLoading: boolean;
-  onAction: (id: string, action: 'start' | 'stop' | 'retry' | 'upgrade') => void;
+  onAction: (id: string, action: 'start' | 'stop' | 'retry') => void;
+  onUpgrade: (id: string, mode: 'upgrade_only' | 'update_plugins_then_upgrade') => Promise<string | null>;
 }) {
   const dotColor = STATUS_DOT[agent.status] || '#94a3b8';
   const stuckProvisioning = agent.status === 'provisioning' && agent.created_at
@@ -325,19 +364,6 @@ function AgentCard({
 
         <div className="flex items-center gap-2">
           {isLoading && <Loader2 className="animate-spin" size={16} style={{ color: 'var(--moon)' }} />}
-
-          {agent.upgrade_available && (
-            <button
-              onClick={() => onAction(agent.id, 'upgrade')}
-              disabled={isLoading}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all hover:scale-105 disabled:opacity-50"
-              style={{ background: 'rgba(201,184,255,0.15)', color: 'var(--moon)', border: '1px solid rgba(201,184,255,0.4)' }}
-              title={agent.latest_version ? `Upgrade to v${agent.latest_version}` : 'Upgrade to latest'}
-            >
-              <ArrowUpCircle size={14} />
-              Upgrade
-            </button>
-          )}
 
           {agent.status === 'running' && agent.slug && (
             <a
@@ -424,6 +450,220 @@ function AgentCard({
         >
           <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" style={{ color: '#ef4444' }} />
           <span style={{ color: '#fca5a5' }}>{agent.error_message}</span>
+        </div>
+      )}
+
+      {/* Upgrade tray — docked under the machine box when a newer image exists */}
+      {agent.upgrade_available && <UpgradeTray agent={agent} onUpgrade={onUpgrade} />}
+    </div>
+  );
+}
+
+const VERDICT_STYLE: Record<string, { color: string; bg: string; label: string }> = {
+  ok: { color: '#22c55e', bg: 'rgba(34,197,94,0.12)', label: 'Compatible' },
+  upgrade_with_changes: { color: '#facc15', bg: 'rgba(250,204,21,0.12)', label: 'Updates needed' },
+  blocked: { color: '#ef4444', bg: 'rgba(239,68,68,0.12)', label: 'Some plugins unsupported' },
+};
+
+const PLUGIN_STATUS_STYLE: Record<string, { color: string; label: (p: PluginStatus) => string }> = {
+  compatible: { color: '#22c55e', label: () => 'compatible' },
+  baked: { color: '#22c55e', label: () => 'built in' },
+  needs_upgrade: { color: '#facc15', label: (p) => `update available${p.upgrade_to ? ` → v${p.upgrade_to}` : ''}` },
+  unsupported: { color: '#ef4444', label: () => 'unsupported — will be disabled' },
+  unknown: { color: '#94a3b8', label: () => 'unverified' },
+};
+
+function UpgradeTray({
+  agent, onUpgrade,
+}: {
+  agent: AgentInfo;
+  onUpgrade: (id: string, mode: 'upgrade_only' | 'update_plugins_then_upgrade') => Promise<string | null>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [check, setCheck] = useState<UpgradeCheck | null>(null);
+  const [loadingCheck, setLoadingCheck] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const targetLabel = agent.latest_version ? `v${agent.latest_version}` : 'a new version';
+
+  const expand = async () => {
+    const next = !open;
+    setOpen(next);
+    if (next && !check && !loadingCheck) {
+      setLoadingCheck(true);
+      try {
+        const res = await fetch(`/api/agents/${agent.id}/upgrade-check`);
+        setCheck(res.ok ? await res.json() : { upgradable: true, compat: 'unavailable', reason: 'Couldn’t load the compatibility report.' });
+      } catch {
+        setCheck({ upgradable: true, compat: 'unavailable', reason: 'Couldn’t load the compatibility report.' });
+      } finally {
+        setLoadingCheck(false);
+      }
+    }
+  };
+
+  const doUpgrade = async (mode: 'upgrade_only' | 'update_plugins_then_upgrade') => {
+    setUpgrading(true);
+    setError(null);
+    const err = await onUpgrade(agent.id, mode);
+    setUpgrading(false);
+    if (err) setError(err);
+  };
+
+  const verdict = check?.verdict;
+  const verdictStyle = verdict ? VERDICT_STYLE[verdict] : null;
+  const notes = (check?.release_notes || '')
+    .split('\n')
+    .map(l => l.replace(/^[-*]\s*/, '').trim())
+    .filter(Boolean);
+
+  return (
+    <div
+      className="mt-4 -mx-5 -mb-5 rounded-b-2xl overflow-hidden"
+      style={{ borderTop: '1px solid var(--ink-lighter)', background: 'rgba(201,184,255,0.05)' }}
+    >
+      {/* Collapsed bar */}
+      <button
+        onClick={expand}
+        className="w-full flex items-center justify-between px-5 py-3 text-left transition-colors hover:bg-[rgba(201,184,255,0.06)]"
+      >
+        <span className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--moon)' }}>
+          <ArrowUpCircle size={15} />
+          New version available — {targetLabel}
+        </span>
+        <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-dim)' }}>
+          Details
+          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </span>
+      </button>
+
+      {/* Expanded drawer */}
+      {open && (
+        <div className="px-5 pb-5 pt-1 space-y-4">
+          {/* What's new */}
+          <div>
+            <div className="flex items-center gap-1.5 mb-1.5 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-dim)' }}>
+              <Sparkles size={12} /> What's new in {targetLabel}
+            </div>
+            {loadingCheck && !check ? (
+              <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-dim)' }}>
+                <Loader2 className="animate-spin" size={12} /> Loading…
+              </div>
+            ) : notes.length > 0 ? (
+              <ul className="space-y-0.5 text-xs" style={{ color: 'var(--text)' }}>
+                {notes.slice(0, 8).map((n, i) => (
+                  <li key={i} className="flex gap-1.5">
+                    <span style={{ color: 'var(--moon)' }}>•</span>
+                    <span>{n}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs" style={{ color: 'var(--text-dim)' }}>No release notes recorded for this version.</p>
+            )}
+          </div>
+
+          {/* Compatibility */}
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide mb-1.5" style={{ color: 'var(--text-dim)' }}>
+              Compatibility
+            </div>
+            {loadingCheck && !check ? (
+              <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-dim)' }}>
+                <Loader2 className="animate-spin" size={12} /> Checking your plugins…
+              </div>
+            ) : check?.compat === 'ok' ? (
+              <div>
+                {verdictStyle && (
+                  <span
+                    className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium mb-2"
+                    style={{ background: verdictStyle.bg, color: verdictStyle.color }}
+                  >
+                    {verdict === 'ok' ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
+                    {verdictStyle.label}
+                  </span>
+                )}
+                {check.plugins && check.plugins.length > 0 ? (
+                  <ul className="space-y-1 text-xs">
+                    {check.plugins.map((p) => {
+                      const s = PLUGIN_STATUS_STYLE[p.status] || PLUGIN_STATUS_STYLE.unknown;
+                      return (
+                        <li key={p.name} className="flex items-center justify-between gap-2">
+                          <span style={{ color: 'var(--text)' }}>
+                            {p.name}
+                            {p.installed_version && (
+                              <span className="font-mono ml-1.5" style={{ color: 'var(--text-dim)', opacity: 0.6 }}>v{p.installed_version}</span>
+                            )}
+                          </span>
+                          <span style={{ color: s.color }}>{s.label(p)}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="text-xs" style={{ color: 'var(--text-dim)' }}>No installed plugins to check.</p>
+                )}
+                <p className="text-[10px] mt-2" style={{ color: 'var(--text-dim)', opacity: 0.7 }}>
+                  Based on declared SDK compatibility — not a runtime guarantee.
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs" style={{ color: 'var(--text-dim)' }}>
+                {check?.reason || 'Compatibility couldn’t be verified for this machine.'}
+              </p>
+            )}
+          </div>
+
+          {error && (
+            <div className="flex items-start gap-2 px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' }}>
+              <AlertTriangle size={12} className="flex-shrink-0 mt-0.5" style={{ color: '#ef4444' }} />
+              <span style={{ color: '#fca5a5' }}>{error}</span>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            {verdict === 'upgrade_with_changes' && (
+              <button
+                onClick={() => doUpgrade('update_plugins_then_upgrade')}
+                disabled={upgrading}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all hover:scale-105 disabled:opacity-50"
+                style={{ background: 'var(--moon)', color: 'var(--ink)' }}
+              >
+                {upgrading ? <Loader2 className="animate-spin" size={14} /> : <ArrowUpCircle size={14} />}
+                Update plugins & upgrade
+              </button>
+            )}
+            <button
+              onClick={() => doUpgrade('upgrade_only')}
+              disabled={upgrading}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition-all hover:scale-105 disabled:opacity-50"
+              style={
+                verdict === 'blocked'
+                  ? { background: 'rgba(239,68,68,0.12)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.4)' }
+                  : verdict === 'upgrade_with_changes'
+                    ? { color: 'var(--text-dim)', border: '1px solid var(--ink-lighter)' }
+                    : { background: 'var(--moon)', color: 'var(--ink)' }
+              }
+            >
+              {upgrading ? <Loader2 className="animate-spin" size={14} /> : <ArrowUpCircle size={14} />}
+              {verdict === 'ok' || !verdict ? 'Upgrade' : 'Upgrade anyway'}
+            </button>
+            <button
+              onClick={() => setOpen(false)}
+              disabled={upgrading}
+              className="px-3 py-2 rounded-lg text-xs transition-colors hover:opacity-80 disabled:opacity-50"
+              style={{ color: 'var(--text-dim)' }}
+            >
+              Cancel
+            </button>
+          </div>
+          {verdict === 'blocked' && (
+            <p className="text-[10px]" style={{ color: '#fca5a5', opacity: 0.85 }}>
+              Unsupported plugins will come back disabled after the upgrade. You can update or remove them first.
+            </p>
+          )}
         </div>
       )}
     </div>

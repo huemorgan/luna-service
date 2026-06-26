@@ -115,6 +115,12 @@ class LunaImage(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     image_config: Mapped[dict | None] = mapped_column(JSONB)
     cache_warmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 024: upgrade-preview contract. `sdk_major`/`sdk_min_major` are the target
+    # band passed to a tenant's /api/plugins/upgrade-check; `release_notes` is a
+    # succinct changelog captured at build time. All best-effort/nullable.
+    sdk_major: Mapped[int | None] = mapped_column(Integer)
+    sdk_min_major: Mapped[int | None] = mapped_column(Integer)
+    release_notes: Mapped[str | None] = mapped_column(Text)
 
 
 class GatewayService(Base):
