@@ -21,10 +21,11 @@ name = "plugin-charts"
 version = "0.1.0"
 sha256 = "52e063f327a2f1ed505b239344eca9aadb0806fe1921e3f6b58f0f0ba0a9f1b9"
 
+# 0.2.1: fixes on_load crash on luna 0.19.x (stdlib logger got a `tools=` kwarg).
 [[plugins]]
 name = "plugin-web-access"
-version = "0.2.0"
-sha256 = "a4e546e159432a60fc754e0feb5645e23d274c4812760906b6270a106624c0dc"
+version = "0.2.1"
+sha256 = "cf498f4d05c3a75db77226168f64752f3a02067a71e282f615600fdc1a66c4fa"
 
 # Plan 025: plugin-files 0.3.0 registers the StorageProvider ("storage" key);
 # plugin-browser 0.3.1 routes screenshots through it into the /browser folder.
