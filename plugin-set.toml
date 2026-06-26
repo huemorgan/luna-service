@@ -26,7 +26,15 @@ name = "plugin-web-access"
 version = "0.2.0"
 sha256 = "a4e546e159432a60fc754e0feb5645e23d274c4812760906b6270a106624c0dc"
 
+# Plan 025: plugin-files 0.3.0 registers the StorageProvider ("storage" key);
+# plugin-browser 0.3.1 routes screenshots through it into the /browser folder.
+# Requires a luna core with ctx.storage (008.95 Phase A) — present from 0.19.000.
 [[plugins]]
 name = "plugin-files"
-version = "0.2.0"
-sha256 = "1f38cd1771375b8b9cdde605934b0d8be0ae6c777d3b24db967d2a51412ea293"
+version = "0.3.0"
+sha256 = "0d24fa9094f128fb83f0a7c1fa828866c3a1e92eb772c2d5dddeb3a763e9ed69"
+
+[[plugins]]
+name = "plugin-browser"
+version = "0.3.1"
+sha256 = "a09a5a013ef98b3dfe2247aff66bbbfaa3e55dc711e48b00534b079ffe913cbb"
