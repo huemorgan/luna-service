@@ -41,6 +41,17 @@ SEED_SERVICES: list[dict] = [
         "provision_by_default": False,
     },
     {
+        # Browser Use Cloud — managed AI browser automation. v3 REST API lives
+        # under /api/v3, so the gateway supplies that prefix (same trick as
+        # OpenAI's /v1). Auth is a bare custom header (no scheme); keys are bu_…
+        "slug": "browser-use",
+        "display_name": "Browser Use",
+        "upstream_url": "https://api.browser-use.com/api/v3",
+        "auth_style": "header:X-Browser-Use-API-Key",
+        "enabled": True,
+        "provision_by_default": True,
+    },
+    {
         # Composio's REST API lives under /api/v3 — when Luna calls
         # LUNA_COMPOSIO_BASE_URL/toolkits in proxy mode the gateway has to
         # supply the /api/v3 prefix itself (same trick as OpenAI's /v1 above).

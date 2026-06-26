@@ -339,16 +339,6 @@ function AgentCard({
                   v{agent.image_version}
                 </span>
               )}
-              {agent.upgrade_available && (
-                <span
-                  className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full"
-                  style={{ background: 'rgba(201,184,255,0.15)', color: 'var(--moon)' }}
-                  title={agent.latest_version ? `New version v${agent.latest_version} available` : 'Update available'}
-                >
-                  <ArrowUpCircle size={10} />
-                  update available
-                </span>
-              )}
             </div>
             {(agent.status === 'error' || stuckProvisioning) && agent.error_message && (
               <div
