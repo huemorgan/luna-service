@@ -15,6 +15,30 @@ log = logging.getLogger(__name__)
 HEALTH_TIMEOUT = 90
 HEALTH_INTERVAL = 3
 
+# Plan 025.5: per-agent persistent files. Each agent gets a Fly Volume mounted at
+# WORKSPACE_MOUNT; plugin-files runs in `fly` backend mode against FILES_ROOT.
+WORKSPACE_MOUNT = "/workspace"
+FILES_ROOT = "/workspace/files"
+SCRATCH_DIR = "/tmp/luna-scratch"
+DEFAULT_VOLUME_GB = 1
+SNAPSHOT_RETENTION_DAYS = 7
+
+
+def volume_name(agent_slug: str) -> str:
+    """Fly volume name for an agent (names must match [a-z0-9_])."""
+    return f"luna_data_{agent_slug}".replace("-", "_")
+
+
+def files_env(root: str = FILES_ROOT, scratch: str = SCRATCH_DIR) -> dict[str, str]:
+    """Env that tells plugin-files the mount is a durable Fly volume + pins scratch."""
+    return {
+        "LUNA_FILES_BACKEND": "fly",
+        "LUNA_FILES_ROOT": root,
+        "LUNA_FILES_DURABLE": "1",
+        "LUNA_SCRATCH_DIR": scratch,
+        "TMPDIR": scratch,
+    }
+
 
 class FlyMachinesRuntime:
     def __init__(
@@ -41,6 +65,56 @@ class FlyMachinesRuntime:
                 timeout=httpx.Timeout(60, connect=10),
             )
         return self._client
+
+    async def _ensure_volume(
+        self, client: httpx.AsyncClient, name: str, region: str, size_gb: int
+    ) -> dict:
+        """Find an agent's volume by (name, region) or create it. Idempotent.
+
+        Reuse-by-name is what makes recreate safe: the destroy-then-recreate path
+        in provision() re-attaches the SAME disk instead of orphaning data.
+        """
+        resp = await client.get("/volumes")
+        resp.raise_for_status()
+        for v in resp.json():
+            if (
+                v.get("name") == name
+                and v.get("region") == region
+                and v.get("state") not in ("destroyed", "destroying")
+            ):
+                log.info("Reusing Fly volume %s (id=%s) in %s", name, v["id"], region)
+                return v
+        resp = await client.post(
+            "/volumes",
+            json={
+                "name": name,
+                "region": region,
+                "size_gb": size_gb,
+                "encrypted": True,
+                "snapshot_retention": SNAPSHOT_RETENTION_DAYS,
+            },
+        )
+        if resp.status_code not in (200, 201):
+            raise RuntimeError(f"Fly create volume failed ({resp.status_code}): {resp.text}")
+        vol = resp.json()
+        log.info("Created Fly volume %s (id=%s, %sGB) in %s", name, vol["id"], size_gb, region)
+        return vol
+
+    async def _delete_volume(self, client: httpx.AsyncClient, volume_id: str) -> None:
+        """Delete a volume, tolerating 'still attached' for a few seconds and 404."""
+        import asyncio
+        for attempt in range(5):
+            resp = await client.delete(f"/volumes/{volume_id}")
+            if resp.status_code in (200, 202, 204, 404):
+                log.info("Deleted Fly volume %s", volume_id)
+                return
+            # 409/422: machine not fully gone yet — back off and retry.
+            log.warning(
+                "Volume delete %s returned %s (attempt %s): %s",
+                volume_id, resp.status_code, attempt + 1, resp.text[:200],
+            )
+            await asyncio.sleep(3)
+        log.error("Gave up deleting volume %s — may be orphaned, needs sweep", volume_id)
 
     async def provision(self, spec: AgentSpec) -> RuntimeHandle:
         client = self._get_client()
@@ -104,12 +178,22 @@ class FlyMachinesRuntime:
 
         region = machine_cfg.get("region", self.region)
 
+        # Plan 025.5: ensure a per-agent persistent Fly volume, mount it at
+        # /workspace, and tell plugin-files this root is durable. Volume is
+        # created in the SAME region as the machine (Fly requires this).
+        size_gb = machine_cfg.get("volume_gb", DEFAULT_VOLUME_GB)
+        vol_name = volume_name(spec.agent_slug)
+        vol = await self._ensure_volume(client, vol_name, region, size_gb)
+        volume_id = vol["id"]
+        env_vars.update(files_env())
+
         payload = {
             "name": machine_name,
             "region": region,
             "config": {
                 "image": spec.image_tag if spec.image_tag != "local-luna-luna:latest" else self.image,
                 "env": env_vars,
+                "mounts": [{"volume": volume_id, "path": WORKSPACE_MOUNT}],
                 "restart": {"policy": "always"},
                 "auto_destroy": False,
                 "guest": {
@@ -154,7 +238,16 @@ class FlyMachinesRuntime:
         await self._wait_healthy(machine_id)
 
         internal_url = f"https://{self.app_name}.fly.dev"
-        return RuntimeHandle("fly-machine", machine_id, internal_url)
+        return RuntimeHandle(
+            "fly-machine",
+            machine_id,
+            internal_url,
+            extra={
+                "volume_id": volume_id,
+                "volume_region": region,
+                "volume_size_gb": size_gb,
+            },
+        )
 
     async def _wait_healthy(self, machine_id: str):
         import asyncio
@@ -202,6 +295,75 @@ class FlyMachinesRuntime:
     async def destroy(self, handle: RuntimeHandle) -> None:
         client = self._get_client()
         await client.delete(f"/machines/{handle.runtime_ref}?force=true")
+
+        # Plan 025.5: remove the agent's persistent volume so we don't pay for
+        # orphans. Prefer the stored volume_id; fall back to name lookup.
+        extra = handle.extra or {}
+        volume_id = extra.get("volume_id")
+        if not volume_id and extra.get("agent_slug"):
+            try:
+                resp = await client.get("/volumes")
+                if resp.status_code == 200:
+                    target = volume_name(extra["agent_slug"])
+                    for v in resp.json():
+                        if v.get("name") == target:
+                            volume_id = v["id"]
+                            break
+            except Exception as e:
+                log.warning("Volume lookup failed during destroy: %s", e)
+        if volume_id:
+            try:
+                await self._delete_volume(client, volume_id)
+            except Exception as e:
+                log.warning("Failed to delete volume %s during destroy: %s", volume_id, e)
+
+    async def attach_volume(
+        self,
+        machine_id: str,
+        agent_slug: str,
+        region: str | None = None,
+        size_gb: int = DEFAULT_VOLUME_GB,
+    ) -> dict:
+        """Backfill: attach a persistent volume + files env to an existing machine.
+
+        Idempotent — if the machine already mounts /workspace, returns skipped.
+        Recreates the machine with the new config (Fly behavior); the old
+        ephemeral ~/.luna/files was never durable, so nothing real is lost.
+        """
+        client = self._get_client()
+        resp = await client.get(f"/machines/{machine_id}")
+        resp.raise_for_status()
+        machine = resp.json()
+        config = machine.get("config", {})
+        region = region or machine.get("region") or self.region
+
+        mounts = config.get("mounts") or []
+        if any(m.get("path") == WORKSPACE_MOUNT for m in mounts):
+            existing = mounts[0].get("volume")
+            log.info("Machine %s already has a /workspace mount (vol=%s)", machine_id, existing)
+            return {
+                "volume_id": existing,
+                "volume_region": region,
+                "volume_size_gb": size_gb,
+                "skipped": True,
+            }
+
+        vol = await self._ensure_volume(client, volume_name(agent_slug), region, size_gb)
+        config["mounts"] = [{"volume": vol["id"], "path": WORKSPACE_MOUNT}]
+        env = dict(config.get("env", {}))
+        env.update(files_env())
+        config["env"] = env
+
+        resp = await client.post(f"/machines/{machine_id}", json={"config": config})
+        resp.raise_for_status()
+        await self._wait_healthy(machine_id)
+        log.info("Attached volume %s to machine %s at /workspace", vol["id"], machine_id)
+        return {
+            "volume_id": vol["id"],
+            "volume_region": region,
+            "volume_size_gb": size_gb,
+            "skipped": False,
+        }
 
     async def list_machines(self) -> list[dict]:
         client = self._get_client()

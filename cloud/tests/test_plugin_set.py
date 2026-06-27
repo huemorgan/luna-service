@@ -199,7 +199,7 @@ async def test_resolve_returns_selection(admin_client, anon_client, sample_image
 
 @pytest.mark.asyncio
 async def test_resolve_falls_back_to_seed(anon_client, sample_image):
-    """No selection saved → returns the plugin-set.toml seed (3 leaf plugins)."""
+    """No selection saved → returns the plugin-set.toml seed (curated leaf set)."""
     iid = str(sample_image.id)
     resp = await anon_client.get(
         f"/api/admin/images/{iid}/plugin-set",
@@ -207,4 +207,4 @@ async def test_resolve_falls_back_to_seed(anon_client, sample_image):
     )
     assert resp.status_code == 200
     names = {p["name"] for p in resp.json()["plugins"]}
-    assert names == {"plugin-charts", "plugin-web-access", "plugin-files"}
+    assert names == {"plugin-charts", "plugin-web-access", "plugin-files", "plugin-browser"}

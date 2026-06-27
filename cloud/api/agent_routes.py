@@ -528,7 +528,12 @@ async def destroy_agent(
             from cloud.provisioning.workflow import _get_runtime
             from cloud.runtime.base import RuntimeHandle
             runtime = _get_runtime()
-            handle = RuntimeHandle(agent.runtime_kind or "fly-machine", agent.runtime_ref, agent.internal_url or "")
+            handle = RuntimeHandle(
+                agent.runtime_kind or "fly-machine",
+                agent.runtime_ref,
+                agent.internal_url or "",
+                extra={"volume_id": agent.volume_id, "agent_slug": agent.slug},
+            )
             try:
                 await runtime.destroy(handle)
             except Exception as e:
@@ -703,7 +708,14 @@ async def get_agent_details(
                 "size_bytes": 0,
                 "configured": r2_configured(),
             },
-            "volume": {"mount": "/workspace", "size_gb": 1},
+            "volume": {
+                "mount": "/workspace",
+                "volume_id": agent.volume_id,
+                "region": agent.volume_region,
+                "size_gb": agent.volume_size_gb,
+                "durable": bool(agent.volume_id),
+                "files": metrics.get("storage_files"),
+            },
             "vault_key_ref": agent.vault_key_ref,
         },
         "compute": compute,
