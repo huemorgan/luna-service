@@ -1517,21 +1517,75 @@ async def migrate_all_machines(request: Request, admin: User = Depends(require_a
 
 
 # ── Plan 025.5: persistent files — backfill Fly volumes onto existing machines ──
+#
+# A Fly volume can only be mounted by a machine in the volume's *zone*, and a
+# freshly-created volume lands in an arbitrary zone while an existing machine is
+# zone-pinned. So we can't add a mount to a live machine in place ("volume does
+# not exist"). Instead we destroy the machine and re-provision it: the provision
+# path creates the volume first and Fly co-locates the new machine in its zone.
+# The agent's durable state (per-agent Postgres DB + R2) is untouched; only the
+# ephemeral machine (which never had durable files) is recreated.
 
-async def _persist_volume(agent_id, result: dict) -> None:
-    if not result.get("volume_id"):
-        return
-    async with get_db_session() as db:
-        a = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one()
-        a.volume_id = result["volume_id"]
-        a.volume_region = result.get("volume_region")
-        a.volume_size_gb = result.get("volume_size_gb")
-        await db.commit()
+
+async def _main_image_id(db) -> str | None:
+    img = (await db.execute(
+        select(LunaImage).where(LunaImage.is_main == True,  # noqa: E712
+                                LunaImage.build_status == "built")
+    )).scalar_one_or_none()
+    return str(img.id) if img else None
+
+
+async def _wait_machine_gone(fly, machine_id: str, timeout: int = 30) -> None:
+    """Poll until a destroyed machine is really gone, so re-provision can reuse the name."""
+    import asyncio
+    client = fly._get_client()
+    for _ in range(timeout):
+        resp = await client.get(f"/machines/{machine_id}")
+        if resp.status_code == 404:
+            return
+        if resp.json().get("state") in ("destroyed", "destroying"):
+            await asyncio.sleep(1)
+            continue
+        await asyncio.sleep(1)
+
+
+async def _recreate_with_volume(fly, account_id, agent_id, machine_id: str, image_id: str) -> dict:
+    """Idempotently give one agent a persistent volume by destroy + re-provision.
+
+    Returns a dict describing the outcome (skipped + reason, or the new machine
+    id / volume id). Never raises for a dead/missing machine — those are skipped.
+    """
+    client = fly._get_client()
+    resp = await client.get(f"/machines/{machine_id}")
+    if resp.status_code == 404:
+        return {"skipped": True, "reason": "machine_not_found"}
+    resp.raise_for_status()
+    machine = resp.json()
+    state = machine.get("state")
+    mounts = (machine.get("config") or {}).get("mounts") or []
+    if any(m.get("path") == "/workspace" for m in mounts):
+        return {"skipped": True, "reason": "already_mounted", "volume_id": mounts[0].get("volume")}
+    if state not in ("started", "stopped"):
+        return {"skipped": True, "reason": f"machine_{state}"}
+
+    await client.delete(f"/machines/{machine_id}?force=true")
+    await _wait_machine_gone(fly, machine_id)
+
+    from cloud.provisioning.workflow import provision_luna_for_account_with_image
+    agent = await provision_luna_for_account_with_image(
+        str(account_id), agent_id=str(agent_id), image_id=image_id,
+    )
+    return {
+        "skipped": False,
+        "new_machine_id": getattr(agent, "runtime_ref", None),
+        "volume_id": getattr(agent, "volume_id", None),
+        "status": getattr(agent, "status", None),
+    }
 
 
 @router.post("/machines/{machine_id}/attach-volume")
 async def attach_machine_volume(machine_id: str, request: Request, admin: User = Depends(require_admin)):
-    """Attach a persistent Fly volume + files env to one existing machine.
+    """Give one existing agent a persistent Fly volume (destroy + re-provision).
 
     Idempotent: a machine already mounting /workspace is skipped. Pass
     ``{"dry_run": true}`` to preview without mutating.
@@ -1551,9 +1605,9 @@ async def attach_machine_volume(machine_id: str, request: Request, admin: User =
             raise HTTPException(status.HTTP_404_NOT_FOUND, "No agent found for this machine")
         agent_slug = agent.slug
         agent_id = agent.id
-        region = agent.volume_region
-        size_gb = agent.volume_size_gb or 1
+        account_id = agent.account_id
         already = agent.volume_id
+        image_id = await _main_image_id(db)
 
     if dry_run:
         return {"ok": True, "dry_run": True, "machine_id": machine_id,
@@ -1561,29 +1615,33 @@ async def attach_machine_volume(machine_id: str, request: Request, admin: User =
 
     if not os.environ.get("FLY_API_TOKEN"):
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Fly API not configured")
+    if not image_id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "No built main image to re-provision onto")
 
     from cloud.runtime.fly_machines import FlyMachinesRuntime
     fly = FlyMachinesRuntime()
     try:
-        result = await fly.attach_volume(machine_id, agent_slug, region=region, size_gb=size_gb)
+        result = await _recreate_with_volume(fly, account_id, agent_id, machine_id, image_id)
     except Exception as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Failed to attach volume: {e}")
 
-    await _persist_volume(agent_id, result)
     async with get_db_session() as db:
         await _audit(db, action="machine.volume_attached", actor=admin, actor_ip=ip,
                      target=machine_id,
                      metadata={"agent": agent_slug, "volume_id": result.get("volume_id"),
-                               "skipped": result.get("skipped")})
+                               "skipped": result.get("skipped"), "reason": result.get("reason")})
         await db.commit()
     return {"ok": True, **result, "agent": agent_slug}
 
 
 @router.post("/machines/attach-volume-all")
 async def attach_volume_all(request: Request, admin: User = Depends(require_admin)):
-    """Backfill persistent volumes onto every live machine. Staggered, idempotent.
+    """Backfill persistent volumes onto every live machine (destroy + re-provision).
 
-    Pass ``{"dry_run": true}`` to return the computed list without mutating.
+    Serial + idempotent: already-mounted and dead machines are skipped. Pass
+    ``{"dry_run": true}`` to return the computed list without mutating. Because
+    each agent is recreated (~1 min), prefer driving the per-machine endpoint in
+    a loop for large fleets to stay under HTTP timeouts.
     """
     ip = _client_ip(request)
     try:
@@ -1596,24 +1654,25 @@ async def attach_volume_all(request: Request, admin: User = Depends(require_admi
         agents = (await db.execute(
             select(Agent).where(Agent.runtime_ref.isnot(None))
         )).scalars().all()
-        rows = [(a.id, a.slug, a.runtime_ref, a.volume_region, a.volume_size_gb or 1, a.volume_id)
-                for a in agents]
+        rows = [(a.id, a.account_id, a.slug, a.runtime_ref, a.volume_id) for a in agents]
+        image_id = await _main_image_id(db)
 
     if dry_run:
         return {"ok": True, "dry_run": True,
                 "machines": [{"agent": slug, "machine_id": ref, "has_volume": bool(vid)}
-                             for (_id, slug, ref, _r, _s, vid) in rows]}
+                             for (_id, _acct, slug, ref, vid) in rows]}
 
     if rows and not os.environ.get("FLY_API_TOKEN"):
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Fly API not configured")
+    if rows and not image_id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "No built main image to re-provision onto")
 
     from cloud.runtime.fly_machines import FlyMachinesRuntime
     fly = FlyMachinesRuntime()
     attached, skipped, errors = 0, 0, []
-    for (agent_id, slug, ref, region, size_gb, _vid) in rows:
+    for (agent_id, account_id, slug, ref, _vid) in rows:
         try:
-            result = await fly.attach_volume(ref, slug, region=region, size_gb=size_gb)
-            await _persist_volume(agent_id, result)
+            result = await _recreate_with_volume(fly, account_id, agent_id, ref, image_id)
             if result.get("skipped"):
                 skipped += 1
             else:
