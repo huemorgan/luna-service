@@ -72,6 +72,10 @@ async def lifespan(app: FastAPI):
             ("cached_metrics_at", "TIMESTAMPTZ"),
             ("image_version", "TEXT"),
             ("config_overrides", "JSONB"),
+            # Plan 025.5: per-agent persistent Fly volume.
+            ("volume_id", "TEXT"),
+            ("volume_region", "TEXT"),
+            ("volume_size_gb", "INTEGER"),
         ]:
             await conn.execute(text(
                 f"ALTER TABLE agents ADD COLUMN IF NOT EXISTS {col} {coltype}"

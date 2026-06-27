@@ -28,7 +28,14 @@ interface DetailPayload {
   storage: {
     postgres: { host: string | null; schema: string | null };
     r2: { prefix: string | null; object_count: number; size_bytes: number; configured: boolean };
-    volume: { mount: string; size_gb: number };
+    volume: {
+      mount: string;
+      volume_id?: string | null;
+      region?: string | null;
+      size_gb?: number | null;
+      durable?: boolean;
+      files?: { backend?: string; durable?: boolean; location?: string; used_bytes?: number; max_bytes?: number } | null;
+    };
     vault_key_ref: string | null;
   };
   compute: {
@@ -266,10 +273,26 @@ export default function AgentDetail() {
     ? <span style={{ color: 'var(--text-dim)' }}>{storage.r2.prefix || '—'} <span className="text-xs">· not yet in use</span></span>
     : <span>{storage.r2.prefix} <span style={{ color: 'var(--text-dim)' }} className="text-xs">· {fmtBytes(storage.r2.size_bytes)} · {storage.r2.object_count} object{storage.r2.object_count === 1 ? '' : 's'}</span></span>;
 
+  const vol = storage.volume;
+  const volumeDisplay = vol.durable ? (
+    <span>
+      {vol.mount}
+      <span style={{ color: 'var(--text-dim)' }} className="text-xs">
+        {' '}· {vol.size_gb ?? '?'} GB · persistent (Fly volume){vol.region ? ` · ${vol.region}` : ''}
+        {vol.files?.used_bytes != null ? ` · ${fmtBytes(vol.files.used_bytes)} used` : ''}
+      </span>
+    </span>
+  ) : (
+    <span>
+      {vol.mount}
+      <span style={{ color: '#eab308' }} className="text-xs"> · ephemeral (no volume — not persistent)</span>
+    </span>
+  );
+
   const storageRows: InfoRow[] = [
     { label: 'Postgres schema', value: <code className="font-mono text-xs">{storage.postgres.schema || '—'}</code> },
     { label: 'Postgres host', value: <code className="font-mono text-xs">{storage.postgres.host || '—'}</code> },
-    { label: 'Volume', value: <span>{storage.volume.mount} <span style={{ color: 'var(--text-dim)' }} className="text-xs">· {storage.volume.size_gb} GB</span></span> },
+    { label: 'Volume', value: volumeDisplay },
     { label: 'R2 prefix', value: r2Display },
     {
       label: 'Vault key',

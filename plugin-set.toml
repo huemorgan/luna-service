@@ -27,13 +27,17 @@ name = "plugin-web-access"
 version = "0.2.1"
 sha256 = "cf498f4d05c3a75db77226168f64752f3a02067a71e282f615600fdc1a66c4fa"
 
-# Plan 025: plugin-files 0.3.0 registers the StorageProvider ("storage" key);
-# plugin-browser 0.3.1 routes screenshots through it into the /browser folder.
+# Plan 025.5: plugin-files 0.4.0 adds the pluggable `fly` backend (durable Fly
+# volume mode via LUNA_FILES_BACKEND=fly / LUNA_FILES_ROOT / LUNA_FILES_DURABLE).
+# plugin-browser 0.3.1 routes screenshots through the StorageProvider.
 # Requires a luna core with ctx.storage (008.95 Phase A) — present from 0.19.000.
+# Plan 025.5: re-pinned from the official index (plugin-files 0.4.0 published).
+# Remember to also set the admin Plugin Set picker (image_config.plugin_set) to
+# 0.4.0 with this same sha256. The build fails closed on a mismatch.
 [[plugins]]
 name = "plugin-files"
-version = "0.3.0"
-sha256 = "0d24fa9094f128fb83f0a7c1fa828866c3a1e92eb772c2d5dddeb3a763e9ed69"
+version = "0.4.0"
+sha256 = "cb14560803782dfe6fea8d936c81ff9f904534045004fde1d3f3fe2b60ccfca9"
 
 [[plugins]]
 name = "plugin-browser"

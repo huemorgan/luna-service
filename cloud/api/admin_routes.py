@@ -1516,6 +1516,119 @@ async def migrate_all_machines(request: Request, admin: User = Depends(require_a
     return {"ok": True, "updated": updated, "errors": errors, "version": main_image.version}
 
 
+# ── Plan 025.5: persistent files — backfill Fly volumes onto existing machines ──
+
+async def _persist_volume(agent_id, result: dict) -> None:
+    if not result.get("volume_id"):
+        return
+    async with get_db_session() as db:
+        a = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one()
+        a.volume_id = result["volume_id"]
+        a.volume_region = result.get("volume_region")
+        a.volume_size_gb = result.get("volume_size_gb")
+        await db.commit()
+
+
+@router.post("/machines/{machine_id}/attach-volume")
+async def attach_machine_volume(machine_id: str, request: Request, admin: User = Depends(require_admin)):
+    """Attach a persistent Fly volume + files env to one existing machine.
+
+    Idempotent: a machine already mounting /workspace is skipped. Pass
+    ``{"dry_run": true}`` to preview without mutating.
+    """
+    ip = _client_ip(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    dry_run = bool((body or {}).get("dry_run"))
+
+    async with get_db_session() as db:
+        agent = (await db.execute(
+            select(Agent).where(Agent.runtime_ref == machine_id)
+        )).scalar_one_or_none()
+        if not agent:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "No agent found for this machine")
+        agent_slug = agent.slug
+        agent_id = agent.id
+        region = agent.volume_region
+        size_gb = agent.volume_size_gb or 1
+        already = agent.volume_id
+
+    if dry_run:
+        return {"ok": True, "dry_run": True, "machine_id": machine_id,
+                "agent": agent_slug, "would_attach": not already, "current_volume_id": already}
+
+    if not os.environ.get("FLY_API_TOKEN"):
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Fly API not configured")
+
+    from cloud.runtime.fly_machines import FlyMachinesRuntime
+    fly = FlyMachinesRuntime()
+    try:
+        result = await fly.attach_volume(machine_id, agent_slug, region=region, size_gb=size_gb)
+    except Exception as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Failed to attach volume: {e}")
+
+    await _persist_volume(agent_id, result)
+    async with get_db_session() as db:
+        await _audit(db, action="machine.volume_attached", actor=admin, actor_ip=ip,
+                     target=machine_id,
+                     metadata={"agent": agent_slug, "volume_id": result.get("volume_id"),
+                               "skipped": result.get("skipped")})
+        await db.commit()
+    return {"ok": True, **result, "agent": agent_slug}
+
+
+@router.post("/machines/attach-volume-all")
+async def attach_volume_all(request: Request, admin: User = Depends(require_admin)):
+    """Backfill persistent volumes onto every live machine. Staggered, idempotent.
+
+    Pass ``{"dry_run": true}`` to return the computed list without mutating.
+    """
+    ip = _client_ip(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    dry_run = bool((body or {}).get("dry_run"))
+
+    async with get_db_session() as db:
+        agents = (await db.execute(
+            select(Agent).where(Agent.runtime_ref.isnot(None))
+        )).scalars().all()
+        rows = [(a.id, a.slug, a.runtime_ref, a.volume_region, a.volume_size_gb or 1, a.volume_id)
+                for a in agents]
+
+    if dry_run:
+        return {"ok": True, "dry_run": True,
+                "machines": [{"agent": slug, "machine_id": ref, "has_volume": bool(vid)}
+                             for (_id, slug, ref, _r, _s, vid) in rows]}
+
+    if rows and not os.environ.get("FLY_API_TOKEN"):
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Fly API not configured")
+
+    from cloud.runtime.fly_machines import FlyMachinesRuntime
+    fly = FlyMachinesRuntime()
+    attached, skipped, errors = 0, 0, []
+    for (agent_id, slug, ref, region, size_gb, _vid) in rows:
+        try:
+            result = await fly.attach_volume(ref, slug, region=region, size_gb=size_gb)
+            await _persist_volume(agent_id, result)
+            if result.get("skipped"):
+                skipped += 1
+            else:
+                attached += 1
+        except Exception as e:
+            log.error("attach-volume failed for %s (%s): %s", slug, ref, e)
+            errors.append({"machine_id": ref, "agent": slug, "error": str(e)})
+
+    async with get_db_session() as db:
+        await _audit(db, action="machine.volume_attach_all", actor=admin, actor_ip=ip,
+                     metadata={"attached": attached, "skipped": skipped, "errors": len(errors)})
+        await db.commit()
+    return {"ok": True, "attached": attached, "skipped": skipped, "errors": errors}
+
+
 # ── Audit log ─────────────────────────────────────────────────────────────────
 
 @router.get("/audit-log")

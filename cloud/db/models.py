@@ -81,6 +81,10 @@ class Agent(Base):
     internal_url: Mapped[str | None] = mapped_column(Text)
     db_schema: Mapped[str | None] = mapped_column(Text)
     vault_key_ref: Mapped[str | None] = mapped_column(Text)
+    # Plan 025.5: per-agent persistent Fly volume backing plugin-files.
+    volume_id: Mapped[str | None] = mapped_column(Text)
+    volume_region: Mapped[str | None] = mapped_column(Text)
+    volume_size_gb: Mapped[int | None] = mapped_column(Integer)
     error_message: Mapped[str | None] = mapped_column(Text)
     error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

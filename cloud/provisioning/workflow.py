@@ -185,6 +185,12 @@ async def _provision_core(
         agent.runtime_ref = handle.runtime_ref
         agent.internal_url = handle.internal_url
         agent.db_schema = tenant_db.db_name  # store the agent's DB name
+        # Plan 025.5: persist the per-agent Fly volume so recreate re-attaches it
+        # and delete can clean it up. Only overwrite when the runtime reported one.
+        if handle.extra.get("volume_id"):
+            agent.volume_id = handle.extra["volume_id"]
+            agent.volume_region = handle.extra.get("volume_region")
+            agent.volume_size_gb = handle.extra.get("volume_size_gb")
         if image_version is not None:
             agent.image_version = image_version
         agent.error_message = None
