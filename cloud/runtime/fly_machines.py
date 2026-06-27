@@ -347,8 +347,20 @@ class FlyMachinesRuntime:
         """
         client = self._get_client()
         resp = await client.get(f"/machines/{machine_id}")
+        if resp.status_code == 404:
+            log.info("Machine %s not found — skipping volume attach", machine_id)
+            return {"skipped": True, "reason": "machine_not_found"}
         resp.raise_for_status()
         machine = resp.json()
+
+        # A destroyed (or otherwise non-updatable) machine can't take a config
+        # update — bail BEFORE creating a volume so we don't orphan one. Stale
+        # DB records pointing at long-gone machines are common after churn.
+        state = machine.get("state")
+        if state not in ("started", "stopped"):
+            log.info("Machine %s is %s — skipping volume attach", machine_id, state)
+            return {"skipped": True, "reason": f"machine_{state}"}
+
         config = machine.get("config", {})
         region = region or machine.get("region") or self.region
 

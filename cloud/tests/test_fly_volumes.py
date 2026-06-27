@@ -187,6 +187,7 @@ async def test_destroy_resolves_volume_by_slug_when_id_missing():
 @pytest.mark.asyncio
 async def test_attach_volume_skips_when_already_mounted():
     fake = FakeFly(machine_record={
+        "state": "started",
         "region": "sjc",
         "config": {"env": {}, "mounts": [{"path": "/workspace", "volume": "vol_x"}]},
     })
@@ -202,7 +203,7 @@ async def test_attach_volume_skips_when_already_mounted():
 
 @pytest.mark.asyncio
 async def test_attach_volume_creates_and_mounts_preserving_env():
-    fake = FakeFly(machine_record={"region": "ord", "config": {"env": {"FOO": "bar"}}})
+    fake = FakeFly(machine_record={"state": "started", "region": "ord", "config": {"env": {"FOO": "bar"}}})
     rt = _runtime(fake)
 
     res = await rt.attach_volume("m1", "acct-my-luna")
@@ -213,3 +214,16 @@ async def test_attach_volume_creates_and_mounts_preserving_env():
     assert post_cfg["mounts"][0]["path"] == WORKSPACE_MOUNT
     assert post_cfg["env"]["LUNA_FILES_BACKEND"] == "fly"
     assert post_cfg["env"]["FOO"] == "bar"  # existing env preserved
+
+
+@pytest.mark.asyncio
+async def test_attach_volume_skips_destroyed_machine_without_orphaning_volume():
+    fake = FakeFly(machine_record={"state": "destroyed", "region": "sjc", "config": {}})
+    rt = _runtime(fake)
+
+    res = await rt.attach_volume("m1", "acct-my-luna")
+
+    assert res["skipped"] is True
+    assert res["reason"] == "machine_destroyed"
+    # critically: no volume was created for a dead machine
+    assert not any(c[0] == "POST" and c[1] == "/volumes" for c in fake.calls)
