@@ -92,10 +92,14 @@ class FlyMachinesRuntime:
         resp = await client.get("/volumes")
         resp.raise_for_status()
         for v in resp.json():
+            # Only reuse a volume that is actually usable. Fly keeps deleted
+            # volumes around briefly in pending_destroy / scheduling_destroy /
+            # destroying states — reusing one of those yields "volume not found"
+            # at machine-create time. "created" is the only mountable state.
             if (
                 v.get("name") == name
                 and v.get("region") == region
-                and v.get("state") not in ("destroyed", "destroying")
+                and v.get("state") == "created"
             ):
                 log.info("Reusing Fly volume %s (id=%s) in %s", name, v["id"], region)
                 return v

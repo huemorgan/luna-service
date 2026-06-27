@@ -170,6 +170,20 @@ async def test_provision_reuses_existing_volume_by_name():
 
 
 @pytest.mark.asyncio
+async def test_provision_ignores_volume_pending_destroy_and_creates_new():
+    # A deleted volume lingers in pending_destroy with the same name — it must
+    # NOT be reused (would cause 'volume not found' at machine-create).
+    name = volume_name("acct-my-luna")
+    fake = FakeFly(volumes=[{"id": "vol_dead", "name": name, "region": "sjc", "state": "pending_destroy"}])
+    rt = _runtime(fake)
+
+    handle = await rt.provision(_spec())
+
+    assert handle.extra["volume_id"] == "vol_1"  # a fresh volume, not vol_dead
+    assert any(c[0] == "POST" and c[1] == "/volumes" for c in fake.calls)
+
+
+@pytest.mark.asyncio
 async def test_destroy_deletes_machine_and_volume():
     fake = FakeFly()
     rt = _runtime(fake)
