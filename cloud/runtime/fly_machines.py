@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
+import re
 
 import httpx
 
@@ -24,9 +26,22 @@ DEFAULT_VOLUME_GB = 1
 SNAPSHOT_RETENTION_DAYS = 7
 
 
+VOLUME_NAME_MAX = 30  # Fly hard limit: [a-z0-9_], at most 30 chars
+
+
 def volume_name(agent_slug: str) -> str:
-    """Fly volume name for an agent (names must match [a-z0-9_])."""
-    return f"luna_data_{agent_slug}".replace("-", "_")
+    """Deterministic Fly volume name for an agent.
+
+    Fly requires lowercase alphanumeric + underscores, max 30 chars. Slugs can be
+    longer than that, so we keep a readable prefix of the (sanitized) slug and
+    append a short hash of the *full* slug for uniqueness. Deterministic, so
+    provision/attach/destroy all resolve the same volume for a given agent.
+    """
+    sanitized = re.sub(r"[^a-z0-9]+", "_", agent_slug.lower()).strip("_") or "agent"
+    digest = hashlib.sha256(agent_slug.encode()).hexdigest()[:6]
+    # budget: "luna_" (5) + base + "_" (1) + digest (6) == 30  ->  base <= 18
+    base = sanitized[: VOLUME_NAME_MAX - 5 - 1 - len(digest)].strip("_") or "agent"
+    return f"luna_{base}_{digest}"
 
 
 def files_env(root: str = FILES_ROOT, scratch: str = SCRATCH_DIR) -> dict[str, str]:

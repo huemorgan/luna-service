@@ -5,6 +5,8 @@ Unit tests for the runtime volume logic, with a fake Fly Machines API client.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from cloud.runtime.base import AgentSpec, RuntimeHandle
@@ -95,8 +97,25 @@ def _spec(slug="acct-my-luna") -> AgentSpec:
 
 
 def test_volume_name_sanitizes_slug():
-    assert volume_name("acct-my-luna") == "luna_data_acct_my_luna"
-    assert volume_name("a-b-c") == "luna_data_a_b_c"
+    name = volume_name("acct-my-luna")
+    assert name.startswith("luna_acct_my_luna_")
+    assert re.fullmatch(r"[a-z0-9_]+", name)
+
+
+def test_volume_name_respects_fly_30_char_limit():
+    # Long slugs used to overflow Fly's 30-char limit (caused a 400 on create).
+    long_slug = "vaselin-test-0-13-016-8-5-pluginsdk-9849753"
+    name = volume_name(long_slug)
+    assert len(name) <= 30
+    assert re.fullmatch(r"[a-z0-9_]+", name)
+
+
+def test_volume_name_is_deterministic_and_unique():
+    assert volume_name("acct-my-luna") == volume_name("acct-my-luna")
+    # Distinct slugs that share a truncated prefix must not collide (hash suffix).
+    a = volume_name("vaselin-test-0-19-001-aaaaaaaaaaaaaaa")
+    b = volume_name("vaselin-test-0-19-001-bbbbbbbbbbbbbbb")
+    assert a != b
 
 
 def test_files_env_declares_durable_fly_backend():
