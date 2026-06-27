@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from cloud.db import session as db_session
 from cloud.db.models import GatewayKey, GatewayService
 from cloud.gateway import keys as key_pool
+from cloud.gateway import policy
 from cloud.gateway import tokens as token_svc
 from cloud.gateway.crypto import decrypt_key
 from cloud.gateway.metering import UsageScanner, record_usage
@@ -71,8 +72,24 @@ def _upstream_headers(request: Request, auth: AuthStyle, credential: str) -> dic
         k: v for k, v in request.headers.items()
         if k.lower() not in _DROP_REQUEST_HEADERS and k.lower() != auth.header.lower()
     }
-    headers[auth.header] = auth.render(credential)
+    if not auth.is_query:
+        headers[auth.header] = auth.render(credential)
     return headers
+
+
+def _upstream_url(request: Request, service: GatewayService, path: str,
+                  auth: AuthStyle, credential: str) -> str:
+    url = f"{service.upstream_url.rstrip('/')}/{path}"
+    if auth.is_query:
+        # Key-in-query APIs (plan 026): swap the inbound token param for the real
+        # key; preserve every other query param.
+        from urllib.parse import urlencode
+        params = [(k, v) for k, v in request.query_params.multi_items() if k != auth.header]
+        params.append((auth.header, credential))
+        return f"{url}?{urlencode(params)}"
+    if request.url.query:
+        url += f"?{request.url.query}"
+    return url
 
 
 async def _send_upstream(
@@ -83,12 +100,9 @@ async def _send_upstream(
     credential: str,
     body: bytes,
 ) -> httpx.Response:
-    url = f"{service.upstream_url.rstrip('/')}/{path}"
-    if request.url.query:
-        url += f"?{request.url.query}"
     req = _get_client().build_request(
         method=request.method,
-        url=url,
+        url=_upstream_url(request, service, path, auth, credential),
         headers=_upstream_headers(request, auth, credential),
         content=body or None,
     )
@@ -168,8 +182,11 @@ async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown service")
 
         auth = parse_auth_style(service.auth_style)
-        raw_header = request.headers.get(auth.header, "")
-        credential = auth.extract(raw_header) if raw_header else ""
+        if auth.is_query:
+            credential = request.query_params.get(auth.header, "").strip()
+        else:
+            raw_header = request.headers.get(auth.header, "")
+            credential = auth.extract(raw_header) if raw_header else ""
         if not credential:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing credential")
 
@@ -177,6 +194,19 @@ async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
             agent_id = await token_svc.verify_token(db, credential)
             if agent_id is None:
                 raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid tenant token")
+            # Plan 026.1 guardrails: per-agent allow/deny + budget. Default = allow.
+            denied = await policy.deny_reason(db, agent_id, service_slug)
+            if denied:
+                log.warning("gateway policy blocked agent=%s service=%s: %s",
+                            agent_id, service_slug, denied)
+                await record_usage(
+                    agent_id=agent_id, service_slug=service_slug, billable=False,
+                    key_id=None, status_code=403, input_tokens=0, output_tokens=0,
+                )
+                return JSONResponse(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    content={"error": {"type": "forbidden", "message": denied}},
+                )
             pool = await key_pool.resolve_keys(db, service_slug, agent_id)
             if not pool:
                 raise HTTPException(

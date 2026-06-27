@@ -288,6 +288,54 @@ async def issue_agent_token(agent_id: str, admin: User = Depends(require_admin))
     return {"token": raw, "note": "Shown once. Inject as the service env key var on the machine."}
 
 
+# ── Per-agent guardrail policy (plan 026.1) ───────────────────────────────────
+
+class PolicyUpdate(BaseModel):
+    allow: list[str] | None = None
+    deny: list[str] | None = None
+    monthly_request_cap: int | None = None
+
+
+@router.get("/agents/{agent_id}/policy")
+async def get_agent_policy_route(agent_id: str, admin: User = Depends(require_admin)):
+    async with db_session.get_session() as db:
+        agent = (await db.execute(
+            select(Agent).where(Agent.id == uuid.UUID(agent_id))
+        )).scalar_one_or_none()
+        if not agent:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
+        return (agent.config_overrides or {}).get("gateway") or {}
+
+
+@router.put("/agents/{agent_id}/policy")
+async def set_agent_policy(agent_id: str, body: PolicyUpdate, admin: User = Depends(require_admin)):
+    """Set this agent's gateway allow/deny + budget. Empty fields are dropped."""
+    from cloud.gateway.policy import invalidate_policy_cache
+
+    aid = uuid.UUID(agent_id)
+    async with db_session.get_session() as db:
+        agent = (await db.execute(select(Agent).where(Agent.id == aid))).scalar_one_or_none()
+        if not agent:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
+        overrides = dict(agent.config_overrides or {})
+        gw: dict = {}
+        if body.allow:
+            gw["allow"] = body.allow
+        if body.deny:
+            gw["deny"] = body.deny
+        if body.monthly_request_cap:
+            gw["monthly_request_cap"] = body.monthly_request_cap
+        if gw:
+            overrides["gateway"] = gw
+        else:
+            overrides.pop("gateway", None)
+        agent.config_overrides = overrides or None
+        _audit(db, actor=admin, action="gateway.policy.updated", target=agent.slug, metadata=gw)
+        await db.commit()
+    invalidate_policy_cache(aid)
+    return gw
+
+
 # ── Usage ─────────────────────────────────────────────────────────────────────
 
 @router.get("/usage")

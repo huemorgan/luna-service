@@ -47,8 +47,12 @@ async def test_parse_auth_styles():
     assert b.extract("Bearer k") == "k"
     assert b.extract("k") == "k"
 
+    # Plan 026: query-param auth is now supported.
+    c = parse_auth_style("query:apikey")
+    assert c.is_query and c.header == "apikey" and c.scheme is None
+
     with pytest.raises(ValueError):
-        parse_auth_style("query:apikey")
+        parse_auth_style("cookie:apikey")
 
 
 async def test_default_names():

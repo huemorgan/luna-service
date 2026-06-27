@@ -15,6 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cloud.config import get_settings
 from cloud.db.models import GatewayService
+from cloud.gateway.catalog import bindings_for_plugins, effective_plugin_names
+from cloud.gateway.crypto import decrypt_key
+from cloud.gateway.keys import has_active_key, resolve_keys
+from cloud.gateway.registry import get_service
 from cloud.gateway.tokens import issue_token
 from cloud.provisioning.services_config import (
     hosted_composio_key_provisioned,
@@ -24,6 +28,16 @@ from cloud.provisioning.services_config import (
 log = logging.getLogger(__name__)
 
 HOST_NAME = "Luna Cloud"
+
+
+def _emit_proxy_service(env: dict[str, str], svc: GatewayService, base: str, token: str) -> None:
+    """Proxy mode: base-url override + tenant token (real key stays server-side)."""
+    env[svc.luna_env_base_url_var] = f"{base}/proxy/{svc.slug}"
+    env[svc.luna_env_key_var] = token
+    # SDK-standard aliases (ANTHROPIC_BASE_URL, …) for the pydantic-ai chat path.
+    for luna_var in (svc.luna_env_base_url_var, svc.luna_env_key_var):
+        if luna_var.startswith("LUNA_"):
+            env[luna_var.removeprefix("LUNA_")] = env[luna_var]
 
 # Services Luna can't route through the proxy yet (no base-url support on the
 # Luna side until 007.001 lands). The real key keeps being injected for these.
@@ -55,16 +69,40 @@ async def build_gateway_env(
     )).scalars().all()
 
     env: dict[str, str] = {"LUNA_HOST_NAME": HOST_NAME}
+    emitted: set[str] = set()
     for svc in services:
-        env[svc.luna_env_base_url_var] = f"{base}/proxy/{svc.slug}"
-        env[svc.luna_env_key_var] = token
-        # Also emit the SDK-standard vars (ANTHROPIC_BASE_URL, OPENAI_API_KEY,
-        # …). Luna's pydantic-ai chat path builds default SDK clients, which
-        # read these directly — without them chat bypasses the gateway and
-        # sends the lsv1 token straight to the provider (401).
-        for luna_var in (svc.luna_env_base_url_var, svc.luna_env_key_var):
-            if luna_var.startswith("LUNA_"):
-                env[luna_var.removeprefix("LUNA_")] = env[luna_var]
+        _emit_proxy_service(env, svc, base, token)
+        emitted.add(svc.slug)
+
+    # Plan 026 — membership-driven services: any plugin this agent effectively
+    # runs (baked plugin_set ∪ installed opt-in) whose catalog binding points at
+    # a keyed service. provision_by_default services are already emitted above.
+    plugin_names = effective_plugin_names(image_config, agent_overrides)
+    bindings = await bindings_for_plugins(db, plugin_names)
+    for binding in bindings:
+        svc = await get_service(db, binding.service_slug)
+        if svc is None or not svc.enabled or svc.slug in emitted:
+            continue
+        # Key-gated: never provision a keyless proxy / env binding.
+        if not await has_active_key(db, svc.slug, agent_id):
+            log.info("gateway binding %s → %s skipped: no active key", binding.plugin_name, svc.slug)
+            continue
+        if binding.key_mode == "env":
+            # Admin opt-in fallback: the real key lands on the machine (compromised)
+            # for plugins that can't be proxied. No base-url override — direct upstream.
+            pool = await resolve_keys(db, svc.slug, agent_id)
+            if pool:
+                env[svc.luna_env_key_var] = decrypt_key(pool[0].api_key_enc)
+        else:  # proxy
+            _emit_proxy_service(env, svc, base, token)
+        emitted.add(svc.slug)
+
+    # Plan 026.1 — single gateway pair (additive). The vault builds
+    # {LUNA_GATEWAY_URL}/<slug> per connection and authenticates with this token.
+    # Kept alongside the per-service vars above for back-compat until luna ships
+    # ctx.vault.connect() (proposal 026.1-vault-virtual-keys).
+    env["LUNA_GATEWAY_URL"] = f"{base}/proxy"
+    env["LUNA_GATEWAY_TOKEN"] = token
 
     # Legacy exception — documented in plan 013 / tests 07.
     for var in LEGACY_REAL_KEY_VARS:

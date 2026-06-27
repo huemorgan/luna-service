@@ -49,6 +49,19 @@ async def resolve_keys(
     return out
 
 
+async def has_active_key(
+    db: AsyncSession, service_slug: str, agent_id: uuid.UUID | None = None,
+) -> bool:
+    """True when the pool has at least one usable key for this service.
+
+    Used by membership-driven provisioning + the discovery endpoint to decide
+    whether a plugin's service is actually keyed (don't provision a keyless
+    proxy, don't advertise a virtual key that can't resolve). Cooldown-aware via
+    ``resolve_keys`` so a fully-cooling pool reads as "no key".
+    """
+    return bool(await resolve_keys(db, service_slug, agent_id))
+
+
 async def mark_key_failure(db: AsyncSession, key_id: uuid.UUID, status_code: int) -> None:
     key = (await db.execute(
         select(GatewayKey).where(GatewayKey.id == key_id)

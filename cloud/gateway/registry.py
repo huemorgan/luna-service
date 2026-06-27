@@ -94,8 +94,13 @@ async def get_service(db: AsyncSession, slug: str) -> GatewayService | None:
 
 @dataclass
 class AuthStyle:
-    header: str          # e.g. "x-api-key" or "Authorization"
+    header: str          # header name, or (when location=="query") the query-param name
     scheme: str | None   # e.g. "Bearer" or None
+    location: str = "header"  # "header" | "query"
+
+    @property
+    def is_query(self) -> bool:
+        return self.location == "query"
 
     def render(self, key: str) -> str:
         return f"{self.scheme} {key}" if self.scheme else key
@@ -108,8 +113,72 @@ class AuthStyle:
 
 
 def parse_auth_style(style: str) -> AuthStyle:
-    """'header:x-api-key' → (x-api-key, None); 'header:Authorization:Bearer' → (Authorization, Bearer)."""
+    """Parse an auth_style string.
+
+    - ``header:x-api-key``              → header ``x-api-key``, no scheme
+    - ``header:Authorization:Bearer``  → header ``Authorization``, scheme ``Bearer``
+    - ``query:api_key``                → key passed as the ``api_key`` query param
+      (plan 026 — for key-in-query APIs like GIPHY)
+    """
     parts = style.split(":")
-    if len(parts) < 2 or parts[0] != "header":
+    if len(parts) < 2:
         raise ValueError(f"Unsupported auth_style: {style}")
-    return AuthStyle(header=parts[1], scheme=parts[2] if len(parts) > 2 else None)
+    if parts[0] == "header":
+        return AuthStyle(header=parts[1], scheme=parts[2] if len(parts) > 2 else None)
+    if parts[0] == "query":
+        return AuthStyle(header=parts[1], scheme=None, location="query")
+    raise ValueError(f"Unsupported auth_style: {style}")
+
+
+# ── Smart key suggestion (plan 026) ──────────────────────────────────────────
+#
+# Pre-fill a GatewayService proposal per plugin so an admin clicks "use
+# suggestion" instead of typing upstream URLs. Keyed by the service slug derived
+# from the plugin name (strip the "plugin-" prefix). Grows as plugins are added.
+#   slug -> (upstream_url, auth_style, display_name)
+KNOWN_SERVICES: dict[str, tuple[str, str, str]] = {
+    "funnelfighters": ("https://api.funnelfighters.io", "header:Authorization:Bearer", "FunnelFighters"),
+    "monday":         ("https://api.monday.com/v2",      "header:Authorization",        "monday.com"),
+    "render":         ("https://api.render.com/v1",       "header:Authorization:Bearer", "Render"),
+    "giphy":          ("https://api.giphy.com/v1",        "query:api_key",               "GIPHY"),
+    "browser-use":    ("https://api.browser-use.com/api/v3", "header:X-Browser-Use-API-Key", "Browser Use"),
+    "composio":       ("https://backend.composio.dev/api/v3", "header:x-api-key",         "Composio"),
+    "tavily":         ("https://api.tavily.com",           "header:Authorization:Bearer", "Tavily"),
+    "openai":         ("https://api.openai.com/v1",         "header:Authorization:Bearer", "OpenAI"),
+    "anthropic":      ("https://api.anthropic.com",         "header:x-api-key",            "Anthropic"),
+}
+
+
+def service_slug_for_plugin(plugin_name: str) -> str:
+    """Derive the gateway service slug from a plugin name ('plugin-monday' → 'monday')."""
+    return plugin_name.strip().lower().removeprefix("plugin-")
+
+
+def suggest_service(plugin_name: str, *, display_name: str | None = None) -> dict:
+    """Pre-filled GatewayService proposal for a plugin.
+
+    Known slug → correct one-click suggestion. Unknown slug → default names +
+    blank upstream/auth_style, flagged ``needs_review`` for the admin to finish.
+    """
+    slug = service_slug_for_plugin(plugin_name)
+    names = default_names(slug)
+    if slug in KNOWN_SERVICES:
+        upstream, auth_style, disp = KNOWN_SERVICES[slug]
+        return {
+            "slug": slug,
+            "display_name": disp,
+            "upstream_url": upstream,
+            "auth_style": auth_style,
+            "luna_env_key_var": names["luna_env_key_var"],
+            "luna_env_base_url_var": names["luna_env_base_url_var"],
+            "needs_review": False,
+        }
+    return {
+        "slug": slug,
+        "display_name": display_name or slug.replace("-", " ").title(),
+        "upstream_url": "",
+        "auth_style": "",
+        "luna_env_key_var": names["luna_env_key_var"],
+        "luna_env_base_url_var": names["luna_env_base_url_var"],
+        "needs_review": True,
+    }

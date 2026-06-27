@@ -150,6 +150,34 @@ class GatewayService(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
 
+class PluginCatalogEntry(Base):
+    """Plan 026 — plugin↔gateway-service binding catalog.
+
+    One row per plugin we know how to key. `tier` makes the two admin lists:
+    `default` mirrors the baked plugin_set, `supported` is the opt-in catalog.
+    `service_slug` points at the GatewayService whose pool key the plugin uses;
+    `key_mode` is "proxy" (token + base-url, key stays server-side) or "env"
+    (real key injected on the machine — admin opt-in, compromises the key).
+    `suggested` caches the auto-derived service proposal for one-click setup.
+    """
+
+    __tablename__ = "plugin_catalog"
+
+    plugin_name: Mapped[str] = mapped_column(Text, primary_key=True)  # "plugin-monday"
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    marketplace_url: Mapped[str | None] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(Text)
+    tier: Mapped[str] = mapped_column(Text, nullable=False, default="default")  # default | supported
+    service_slug: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("gateway_services.slug", ondelete="SET NULL")
+    )
+    key_mode: Mapped[str] = mapped_column(Text, nullable=False, default="proxy")  # proxy | env
+    suggested: Mapped[dict | None] = mapped_column(JSONB)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+
 class GatewayModel(Base):
     """Plan 018 — the system model catalog injected into tenants as
     LUNA_MODEL_CATALOG. One row per supported model. `enabled` = in/out of the

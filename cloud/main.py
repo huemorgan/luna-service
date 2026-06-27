@@ -14,7 +14,9 @@ from cloud.api.admin_routes import router as admin_router
 from cloud.api.agent_routes import router as agent_router
 from cloud.api.auth_routes import router as auth_router
 from cloud.api.gateway_admin_routes import router as gateway_admin_router
+from cloud.api.gateway_agent_routes import router as gateway_agent_router
 from cloud.api.gateway_proxy import router as gateway_proxy_router
+from cloud.api.plugin_catalog_routes import router as plugin_catalog_router
 from cloud.api.proxy import router as proxy_router
 from cloud.api.relay_routes import router as relay_router
 from cloud.config import get_settings
@@ -230,6 +232,8 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(admin_router)
     app.include_router(gateway_admin_router)
+    app.include_router(plugin_catalog_router)
+    app.include_router(gateway_agent_router)
     app.include_router(agent_router)
     app.include_router(relay_router)
     app.include_router(gateway_proxy_router)
