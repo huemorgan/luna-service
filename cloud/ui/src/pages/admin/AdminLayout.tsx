@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Moon, Shield, Package, Server, ScrollText, ArrowLeft, LogOut, Loader2, User, ChevronDown, KeyRound, Webhook, SlidersHorizontal } from 'lucide-react';
+import { Moon, Shield, Package, Server, ScrollText, ArrowLeft, LogOut, Loader2, User, ChevronDown, KeyRound, Webhook, SlidersHorizontal, Plug } from 'lucide-react';
 
 interface UserInfo {
   user: { id: string; email: string; name: string | null; avatar_url: string | null; is_admin: boolean };
@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { to: '/admin/defaults', label: 'Defaults', icon: SlidersHorizontal },
   { to: '/admin/machines', label: 'Machines', icon: Server },
   { to: '/admin/services', label: 'Key Registry', icon: KeyRound },
+  { to: '/admin/plugin-keys', label: 'Plugin Keys', icon: Plug },
   { to: '/admin/relay', label: 'Webhook Relay', icon: Webhook },
   { to: '/admin/changelog', label: 'Changelog', icon: ScrollText },
 ];
