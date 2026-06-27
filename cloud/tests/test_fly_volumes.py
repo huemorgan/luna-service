@@ -50,6 +50,13 @@ class FakeFly:
             return FakeResp(200, self.machines)
         if path == "/volumes":
             return FakeResp(200, list(self.volumes))
+        if path.startswith("/volumes/"):
+            vid = path.split("/")[-1]
+            vol = next((v for v in self.volumes if v.get("id") == vid), None)
+            if vol is None:
+                return FakeResp(404, {})
+            # freshly-created volumes are reported 'created' (readiness poll)
+            return FakeResp(200, {**vol, "state": vol.get("state", "created")})
         if path.startswith("/machines/") and "/wait" in path:
             return FakeResp(200, {})
         if path.startswith("/machines/"):

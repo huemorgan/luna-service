@@ -1549,27 +1549,31 @@ async def _wait_machine_gone(fly, machine_id: str, timeout: int = 30) -> None:
         await asyncio.sleep(1)
 
 
-async def _recreate_with_volume(fly, account_id, agent_id, machine_id: str, image_id: str) -> dict:
+async def _recreate_with_volume(fly, account_id, agent_id, machine_id: str, image_id: str,
+                                allow_missing: bool = False) -> dict:
     """Idempotently give one agent a persistent volume by destroy + re-provision.
 
     Returns a dict describing the outcome (skipped + reason, or the new machine
-    id / volume id). Never raises for a dead/missing machine — those are skipped.
+    id / volume id). A dead/missing machine is skipped unless ``allow_missing``
+    is set, in which case the agent is (re)provisioned fresh — used to restore an
+    agent whose machine has already gone away.
     """
     client = fly._get_client()
     resp = await client.get(f"/machines/{machine_id}")
     if resp.status_code == 404:
-        return {"skipped": True, "reason": "machine_not_found"}
-    resp.raise_for_status()
-    machine = resp.json()
-    state = machine.get("state")
-    mounts = (machine.get("config") or {}).get("mounts") or []
-    if any(m.get("path") == "/workspace" for m in mounts):
-        return {"skipped": True, "reason": "already_mounted", "volume_id": mounts[0].get("volume")}
-    if state not in ("started", "stopped"):
-        return {"skipped": True, "reason": f"machine_{state}"}
-
-    await client.delete(f"/machines/{machine_id}?force=true")
-    await _wait_machine_gone(fly, machine_id)
+        if not allow_missing:
+            return {"skipped": True, "reason": "machine_not_found"}
+    else:
+        resp.raise_for_status()
+        machine = resp.json()
+        state = machine.get("state")
+        mounts = (machine.get("config") or {}).get("mounts") or []
+        if any(m.get("path") == "/workspace" for m in mounts):
+            return {"skipped": True, "reason": "already_mounted", "volume_id": mounts[0].get("volume")}
+        if state not in ("started", "stopped") and not allow_missing:
+            return {"skipped": True, "reason": f"machine_{state}"}
+        await client.delete(f"/machines/{machine_id}?force=true")
+        await _wait_machine_gone(fly, machine_id)
 
     from cloud.provisioning.workflow import provision_luna_for_account_with_image
     agent = await provision_luna_for_account_with_image(
@@ -1596,6 +1600,7 @@ async def attach_machine_volume(machine_id: str, request: Request, admin: User =
     except Exception:
         body = {}
     dry_run = bool((body or {}).get("dry_run"))
+    force = bool((body or {}).get("force"))
 
     async with get_db_session() as db:
         agent = (await db.execute(
@@ -1621,7 +1626,8 @@ async def attach_machine_volume(machine_id: str, request: Request, admin: User =
     from cloud.runtime.fly_machines import FlyMachinesRuntime
     fly = FlyMachinesRuntime()
     try:
-        result = await _recreate_with_volume(fly, account_id, agent_id, machine_id, image_id)
+        result = await _recreate_with_volume(fly, account_id, agent_id, machine_id, image_id,
+                                             allow_missing=force)
     except Exception as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Failed to attach volume: {e}")
 

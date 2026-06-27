@@ -113,7 +113,22 @@ class FlyMachinesRuntime:
             raise RuntimeError(f"Fly create volume failed ({resp.status_code}): {resp.text}")
         vol = resp.json()
         log.info("Created Fly volume %s (id=%s, %sGB) in %s", name, vol["id"], size_gb, region)
+        await self._wait_volume_ready(client, vol["id"])
         return vol
+
+    async def _wait_volume_ready(self, client: httpx.AsyncClient, volume_id: str, timeout: int = 20) -> None:
+        """Poll a freshly-created volume until Fly reports it 'created'.
+
+        Without this, an immediate machine-create can race ahead of Fly's volume
+        propagation and fail with 'volume not found'.
+        """
+        import asyncio
+        for _ in range(timeout):
+            resp = await client.get(f"/volumes/{volume_id}")
+            if resp.status_code == 200 and resp.json().get("state") == "created":
+                return
+            await asyncio.sleep(1)
+        log.warning("Volume %s not 'created' after %ss — proceeding anyway", volume_id, timeout)
 
     async def _delete_volume(self, client: httpx.AsyncClient, volume_id: str) -> None:
         """Delete a volume, tolerating 'still attached' for a few seconds and 404."""
@@ -242,9 +257,21 @@ class FlyMachinesRuntime:
             },
         }
 
-        resp = await client.post("/machines", json=payload)
-        if resp.status_code not in (200, 201):
+        import asyncio
+        resp = None
+        for attempt in range(4):
+            resp = await client.post("/machines", json=payload)
+            if resp.status_code in (200, 201):
+                break
+            # Fly can briefly report a just-created volume as missing — back off.
+            if resp.status_code == 400 and "volume not found" in resp.text.lower():
+                log.warning("Machine create saw 'volume not found' (attempt %s) — retrying", attempt + 1)
+                await asyncio.sleep(3)
+                continue
             raise RuntimeError(f"Fly create machine failed ({resp.status_code}): {resp.text}")
+        if not resp or resp.status_code not in (200, 201):
+            raise RuntimeError(f"Fly create machine failed ({resp.status_code if resp else '—'}): "
+                               f"{resp.text if resp else 'no response'}")
 
         data = resp.json()
         machine_id = data["id"]
