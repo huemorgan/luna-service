@@ -69,3 +69,30 @@ persistent)` in amber.
 
 **Pass:** attach is idempotent, audited (`machine.volume_attached`), and the agent
 detail card flips to "persistent".
+
+---
+
+## Production rollout findings (2026-06-27)
+
+Executed live against `luna-agents` (Fly) + `luna-service` control plane. Three
+Fly behaviours that the first implementation got wrong, fixed during rollout:
+
+1. **Volume names cap at 30 chars** (`[a-z0-9_]`). `luna_data_<slug>` overflowed
+   for longer slugs (400 on create). Fix: `luna_<trunc-slug>_<6-char-hash>`,
+   deterministic so provision/attach/destroy resolve the same volume.
+2. **A volume is only mountable from a machine in its zone.** A fresh volume
+   lands in an arbitrary zone, so you cannot add a mount to an existing,
+   zone-pinned machine ("volume does not exist"). Backfill therefore **destroys
+   and re-provisions** the machine (provision creates the volume first and Fly
+   co-locates the new machine in its zone). The agent's durable state
+   (per-agent Postgres + R2) is untouched; only the ephemeral machine is
+   recreated. See `_recreate_with_volume` in `admin_routes.py`.
+3. **Deleted volumes linger** in `pending_destroy` / `scheduling_destroy` with
+   the same name. `_ensure_volume` must reuse only the `created` state, else it
+   grabs a half-deleted volume → "volume not found" at machine-create. (Fly
+   volume names need not be unique, so creating a fresh same-named volume while
+   an old one drains is fine.)
+
+Outcome: all live agents migrated to `0.19.002` (plugin-files 0.4.0) each with a
+1 GB `/workspace` volume; dead/stale test machines were skipped; deleting an
+agent cleaned up its volume.
