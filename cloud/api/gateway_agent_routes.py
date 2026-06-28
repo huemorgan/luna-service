@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from cloud.config import get_settings
@@ -20,6 +21,7 @@ from cloud.db.models import Agent, GatewayService, PluginCatalogEntry
 from cloud.gateway import tokens as token_svc
 from cloud.gateway.catalog import effective_plugin_names
 from cloud.gateway.keys import has_active_key
+from cloud.gateway.policy import deny_reason
 from cloud.gateway.registry import parse_auth_style
 
 log = logging.getLogger(__name__)
@@ -31,6 +33,10 @@ def _bearer(authorization: str | None, x_token: str | None) -> str | None:
     if authorization and authorization.lower().startswith("bearer "):
         return authorization[7:].strip()
     return x_token
+
+
+class ConnectBody(BaseModel):
+    slug: str
 
 
 @router.get("/services")
@@ -90,6 +96,13 @@ async def discover_services(
                 advertised.add(s.slug)
                 provisioned_slugs.add(s.slug)
 
+        # Agent-initiated connections (POST /connect → connect_gateway_key tool).
+        # These bind a service to *this* agent without a plugin membership.
+        for slug in (agent.config_overrides or {}).get("connected_services") or []:
+            if slug in svc_by_slug:
+                advertised.add(slug)
+                provisioned_slugs.add(slug)
+
         out = []
         for slug in sorted(advertised):
             svc = svc_by_slug[slug]
@@ -112,3 +125,63 @@ async def discover_services(
                 "status": "active" if (provisioned and has_key) else "available",
             })
     return out
+
+
+@router.post("/connect")
+async def connect_service(
+    body: ConnectBody,
+    authorization: str | None = Header(default=None),
+    x_luna_gateway_token: str | None = Header(default=None),
+):
+    """Bind a gateway service to the calling agent (plan 026.1).
+
+    Backs Luna's ``connect_gateway_key`` tool. Marks the service ``provisioned``
+    for this agent so the next discovery surfaces its virtual key — no machine
+    restart needed (the single gateway pair + device token already on the box do
+    the routing). Honours the per-agent allow/deny policy. Secrets-free.
+    """
+    token = _bearer(authorization, x_luna_gateway_token)
+    if not token:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing device token")
+
+    slug = body.slug.strip()
+    if not slug:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Missing slug")
+
+    async with db_session.get_session() as db:
+        agent_id = await token_svc.verify_token(db, token)
+        if agent_id is None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid device token")
+        agent = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one_or_none()
+        if not agent:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Unknown agent")
+
+        svc = (await db.execute(
+            select(GatewayService).where(
+                GatewayService.slug == slug, GatewayService.enabled.is_(True)
+            )
+        )).scalar_one_or_none()
+        if not svc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown service '{slug}'")
+
+        reason = await deny_reason(db, agent_id, slug)
+        if reason:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, reason)
+
+        overrides = dict(agent.config_overrides or {})
+        connected = list(overrides.get("connected_services") or [])
+        if slug not in connected:
+            connected.append(slug)
+            overrides["connected_services"] = connected
+            agent.config_overrides = overrides  # reassign so JSONB persists the change
+            await db.commit()
+
+        has_key = await has_active_key(db, slug, agent_id)
+        return {
+            "connected": has_key,
+            "provisioned": True,
+            "slug": slug,
+            "display_name": svc.display_name,
+            "has_key": has_key,
+            "status": "active" if has_key else "available",
+        }

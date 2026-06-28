@@ -95,6 +95,110 @@ async def test_discovery_bad_tokens_401(anon_client, db_session, sample_agent, s
     assert r.status_code == 401
 
 
+# ── Connect (bind endpoint) ──────────────────────────────────────────────────
+
+async def test_connect_promotes_available_to_provisioned(anon_client, db_session, sample_agent, sample_image):
+    await _svc(db_session, "monday", auth_style="header:Authorization")
+    await _key(db_session, "monday", value="m-real")
+    # Cataloged (so it's advertised) but the agent doesn't run plugin-monday.
+    await _binding(db_session, "plugin-monday", "monday", tier="supported")
+    token = await issue_token(db_session, sample_agent.id)
+    await db_session.commit()
+
+    # Before: available (has a key, not provisioned for this agent).
+    r = await anon_client.get("/api/agent/gateway/services",
+                              headers={"Authorization": f"Bearer {token}"})
+    body = {s["slug"]: s for s in r.json()}
+    assert body["monday"]["provisioned"] is False
+    assert body["monday"]["status"] == "available"
+
+    # Connect.
+    r = await anon_client.post("/api/agent/gateway/connect", json={"slug": "monday"},
+                               headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    out = r.json()
+    assert out["connected"] is True and out["provisioned"] is True
+    assert out["status"] == "active" and out["display_name"] == "monday"
+    assert "m-real" not in r.text and token not in r.text
+
+    # After: provisioned + active in discovery.
+    r = await anon_client.get("/api/agent/gateway/services",
+                              headers={"Authorization": f"Bearer {token}"})
+    body = {s["slug"]: s for s in r.json()}
+    assert body["monday"]["provisioned"] is True
+    assert body["monday"]["status"] == "active"
+
+    # Persisted on the agent.
+    await db_session.refresh(sample_agent)
+    assert "monday" in (sample_agent.config_overrides or {}).get("connected_services", [])
+
+
+async def test_connect_without_key_is_provisioned_but_inactive(anon_client, db_session, sample_agent, sample_image):
+    await _svc(db_session, "monday", auth_style="header:Authorization")  # no key in pool
+    token = await issue_token(db_session, sample_agent.id)
+    await db_session.commit()
+
+    r = await anon_client.post("/api/agent/gateway/connect", json={"slug": "monday"},
+                               headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    out = r.json()
+    assert out["provisioned"] is True
+    assert out["connected"] is False and out["has_key"] is False
+    assert out["status"] == "available"
+
+
+async def test_connect_idempotent(anon_client, db_session, sample_agent, sample_image):
+    await _svc(db_session, "monday", auth_style="header:Authorization")
+    await _key(db_session, "monday", value="m-real")
+    token = await issue_token(db_session, sample_agent.id)
+    await db_session.commit()
+
+    for _ in range(3):
+        r = await anon_client.post("/api/agent/gateway/connect", json={"slug": "monday"},
+                                   headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 200
+
+    await db_session.refresh(sample_agent)
+    assert (sample_agent.config_overrides or {}).get("connected_services") == ["monday"]
+
+
+async def test_connect_unknown_service_404(anon_client, db_session, sample_agent):
+    token = await issue_token(db_session, sample_agent.id)
+    await db_session.commit()
+    r = await anon_client.post("/api/agent/gateway/connect", json={"slug": "nope"},
+                               headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 404
+
+
+async def test_connect_disabled_service_404(anon_client, db_session, sample_agent):
+    await _svc(db_session, "monday", auth_style="header:Authorization", enabled=False)
+    token = await issue_token(db_session, sample_agent.id)
+    await db_session.commit()
+    r = await anon_client.post("/api/agent/gateway/connect", json={"slug": "monday"},
+                               headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 404
+
+
+async def test_connect_denied_by_policy_403(anon_client, db_session, sample_agent):
+    await _svc(db_session, "monday", auth_style="header:Authorization")
+    await _key(db_session, "monday", value="m-real")
+    sample_agent.config_overrides = {"gateway": {"deny": ["monday"]}}
+    token = await issue_token(db_session, sample_agent.id)
+    await db_session.commit()
+    r = await anon_client.post("/api/agent/gateway/connect", json={"slug": "monday"},
+                               headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 403
+
+
+async def test_connect_bad_token_401(anon_client, db_session, sample_agent):
+    await _svc(db_session, "monday", auth_style="header:Authorization")
+    await db_session.commit()
+    assert (await anon_client.post("/api/agent/gateway/connect", json={"slug": "monday"})).status_code == 401
+    r = await anon_client.post("/api/agent/gateway/connect", json={"slug": "monday"},
+                               headers={"Authorization": "Bearer lsv1-garbage"})
+    assert r.status_code == 401
+
+
 # ── Guardrails ───────────────────────────────────────────────────────────────
 
 @pytest.fixture
