@@ -43,6 +43,22 @@ interface UsageRow {
 
 const API = '/api/admin/gateway';
 
+/** Pull a human-readable string out of a FastAPI error body. A 422 returns
+ *  `detail` as an array of {loc,msg} objects — passing that straight to React
+ *  (as the old code did) crashes the form, so always coerce to a string. */
+async function apiError(res: Response): Promise<string> {
+  const body = await res.json().catch(() => null);
+  const d = body?.detail;
+  if (Array.isArray(d)) {
+    return d
+      .map((e: { loc?: (string | number)[]; msg?: string }) =>
+        `${e.loc?.slice(1).join('.') || 'field'}: ${e.msg || 'invalid'}`)
+      .join('; ');
+  }
+  if (typeof d === 'string') return d;
+  return `Failed (${res.status})`;
+}
+
 export default function ServicesPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
@@ -341,10 +357,7 @@ function AddKeyForm({ slug, onDone, onError }: { slug: string; onDone: () => voi
     if (res.ok) {
       setApiKey('');
       onDone();
-    } else {
-      const detail = (await res.json().catch(() => null))?.detail || `Failed (${res.status})`;
-      onError(detail);
-    }
+    } else onError(await apiError(res));
   };
 
   const inputStyle = { background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--ink-lighter)' };
@@ -414,10 +427,7 @@ function AddServiceForm({ onDone, onError }: { onDone: () => void; onError: (m: 
     });
     setSaving(false);
     if (res.ok) onDone();
-    else {
-      const detail = (await res.json().catch(() => null))?.detail || `Failed (${res.status})`;
-      onError(detail);
-    }
+    else onError(await apiError(res));
   };
 
   const inputStyle = { background: 'var(--ink)', color: 'var(--text)', border: '1px solid var(--ink-lighter)' };
@@ -426,7 +436,9 @@ function AddServiceForm({ onDone, onError }: { onDone: () => void; onError: (m: 
     <div className="rounded-2xl p-5 border mb-4 space-y-2" style={{ background: 'var(--surface)', borderColor: 'var(--moon)' }}>
       <div className="text-sm font-semibold mb-1" style={{ color: 'var(--text)' }}>New service</div>
       <div className="flex items-center gap-2">
-        <input type="text" value={slug} onChange={e => setSlug(e.target.value)} placeholder="slug (e.g. composio)"
+        <input type="text" value={slug}
+          onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+/, ''))}
+          placeholder="slug (e.g. fal-ai)"
           className="w-44 px-2.5 py-1.5 rounded-lg text-xs outline-none" style={inputStyle} autoFocus />
         <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Display name"
           className="w-44 px-2.5 py-1.5 rounded-lg text-xs outline-none" style={inputStyle} />
@@ -435,6 +447,7 @@ function AddServiceForm({ onDone, onError }: { onDone: () => void; onError: (m: 
         <select value={authStyle} onChange={e => setAuthStyle(e.target.value)}
           className="px-2.5 py-1.5 rounded-lg text-xs outline-none" style={inputStyle}>
           <option value="header:Authorization:Bearer">Authorization: Bearer</option>
+          <option value="header:Authorization:Key">Authorization: Key (fal.ai)</option>
           <option value="header:x-api-key">x-api-key</option>
         </select>
         <button onClick={submit} disabled={saving || !slug || !upstreamUrl}
