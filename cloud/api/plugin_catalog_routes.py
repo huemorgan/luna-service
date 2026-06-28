@@ -129,15 +129,26 @@ async def create_catalog(body: CatalogCreate, request: Request, admin: User = De
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown service '{body.service_slug}'")
 
         suggestion = suggest_service(body.plugin_name, display_name=body.display_name)
+        # Auto-bind the suggested service only if it's a registered GatewayService.
+        # The suggester knows the slug a plugin *wants* (e.g. "monday"), but that
+        # service may not exist in the pool yet — binding it anyway would violate
+        # the service_slug FK. Leave it null in that case; the suggestion still
+        # rides along in `suggested`, and the admin binds a real service from the
+        # row's key picker once it's registered.
+        resolved_slug = body.service_slug
+        if not resolved_slug and not suggestion["needs_review"]:
+            suggested_exists = (await db.execute(
+                select(GatewayService).where(GatewayService.slug == suggestion["slug"])
+            )).scalar_one_or_none()
+            if suggested_exists:
+                resolved_slug = suggestion["slug"]
         entry = PluginCatalogEntry(
             plugin_name=body.plugin_name,
             display_name=body.display_name or suggestion["display_name"],
             marketplace_url=body.marketplace_url,
             category=body.category,
             tier=body.tier,
-            service_slug=body.service_slug or (
-                suggestion["slug"] if not suggestion["needs_review"] else None
-            ),
+            service_slug=resolved_slug,
             key_mode=body.key_mode,
             suggested=suggestion,
         )

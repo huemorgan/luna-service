@@ -157,6 +157,32 @@ async def test_catalog_crud(admin_client, db_session):
     assert (await db_session.execute(select(PluginCatalogEntry))).scalars().first() is None
 
 
+async def test_create_from_marketplace_no_registered_service(admin_client, db_session):
+    """Plan 027: adding a supported plugin from the marketplace picker sends no
+    service_slug. The suggester knows it wants "monday", but if no GatewayService
+    is registered yet we must NOT bind it (FK would 500) — leave it null and keep
+    the suggestion for later."""
+    r = await admin_client.post("/api/admin/plugin-catalog", json={
+        "plugin_name": "plugin-monday", "display_name": "plugin-monday",
+        "tier": "supported", "service_slug": None,
+    })
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["service_slug"] is None            # not bound — no registered service
+    assert body["suggested"]["slug"] == "monday"   # suggestion preserved
+
+
+async def test_create_from_marketplace_binds_existing_service(admin_client, db_session):
+    """When the suggested service IS registered, auto-bind it from the suggestion."""
+    await _svc(db_session, "monday", auth_style="header:Authorization")
+    await db_session.commit()
+    r = await admin_client.post("/api/admin/plugin-catalog", json={
+        "plugin_name": "plugin-monday", "tier": "supported", "service_slug": None,
+    })
+    assert r.status_code == 201, r.text
+    assert r.json()["service_slug"] == "monday"
+
+
 async def test_catalog_requires_admin(regular_client):
     r = await regular_client.get("/api/admin/plugin-catalog")
     assert r.status_code in (401, 403)
