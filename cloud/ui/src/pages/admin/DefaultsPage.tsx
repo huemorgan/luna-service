@@ -215,7 +215,8 @@ export default function DefaultsPage() {
           <div>
             <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
               Opt-in plugins we offer with a default key, even before a user installs
-              them. Bind a key here, then install onto an agent to provision it.
+              them. Bind a key here, then when the user installs it, it'll have a
+              provisioned key by default.
             </p>
             <SupportedPluginsEditor
               entries={supported}
