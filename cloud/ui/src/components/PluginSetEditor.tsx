@@ -15,6 +15,7 @@ export interface CatalogPlugin {
   description: string;
   sha256: string;
   bakeable: boolean;
+  key_service?: string | null;
 }
 
 /** Optional per-row key binding (Defaults page). When provided, each baked
@@ -226,6 +227,12 @@ function PluginCard({ entry, latest, keying, expanded, isLast, onToggle, onRemov
   const catEntry = keying?.catalogByName[entry.name] || null;
   const keyed = !!catEntry?.keyed;
   const hasUpdate = !!latest && latest.version !== entry.version;
+  // Only connector plugins that consume an external key get a key control, and
+  // it's scoped to their own service. Leaf plugins (interview, charts…) show no
+  // key at all. Fall back to any existing binding so old data stays editable.
+  const keyService = latest?.key_service || null;
+  const showKey = !!keying && (!!keyService || !!catEntry?.service_slug);
+  const allowedSlugs = [keyService, catEntry?.service_slug].filter(Boolean) as string[];
 
   return (
     <div style={{ borderBottom: isLast ? undefined : '1px solid var(--ink-lighter)' }}>
@@ -248,7 +255,7 @@ function PluginCard({ entry, latest, keying, expanded, isLast, onToggle, onRemov
             <ArrowUpCircle size={11} /> update
           </span>
         )}
-        {keying && catEntry?.service_slug && (keyed ? (
+        {showKey && catEntry?.service_slug && (keyed ? (
           <span className="px-2 py-0.5 rounded-full text-[10px]" style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}>keyed</span>
         ) : (
           <span className="px-2 py-0.5 rounded-full text-[10px]" style={{ background: 'rgba(255,107,107,0.12)', color: '#ff6b6b' }}>no key</span>
@@ -258,7 +265,7 @@ function PluginCard({ entry, latest, keying, expanded, isLast, onToggle, onRemov
       {/* Expanded details */}
       {expanded && (
         <div className="px-3.5 pb-3.5 pt-1 space-y-3" style={{ background: 'var(--ink-light)' }}>
-          {keying && (
+          {showKey && keying && (
             <DetailRow label="Default key">
               <KeyControls
                 pluginName={entry.name}
@@ -266,6 +273,7 @@ function PluginCard({ entry, latest, keying, expanded, isLast, onToggle, onRemov
                 services={keying.services}
                 onBind={keying.onBind}
                 onMode={keying.onMode}
+                allowedSlugs={allowedSlugs}
               />
             </DetailRow>
           )}

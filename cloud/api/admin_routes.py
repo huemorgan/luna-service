@@ -22,6 +22,7 @@ from cloud.auth.deps import require_admin
 from cloud.config import get_settings
 from cloud.db.models import Agent, AppSetting, AuditLog, LunaImage, User
 from cloud.db.session import get_session as get_db_session
+from cloud.gateway.registry import key_service_for_plugin
 
 log = logging.getLogger(__name__)
 
@@ -722,6 +723,9 @@ async def _fetch_marketplace_catalog() -> list[dict]:
                 "description": p.get("description", ""),
                 "sha256": p.get("sha256", ""),
                 "bakeable": _is_bakeable(name),
+                # Which gateway service this plugin needs a key for (None = no
+                # external key — the UI hides the key control). Plan 026.
+                "key_service": key_service_for_plugin(name),
             })
         entries.sort(key=lambda e: e["name"])
         _catalog_cache["official"] = (now, entries)

@@ -149,8 +149,33 @@ KNOWN_SERVICES: dict[str, tuple[str, str, str]] = {
 }
 
 
+# Plugins that consume an EXTERNAL pooled key, and which gateway service each one
+# uses. A plugin absent from this map needs no external key (leaf plugins like
+# interview / charts / recall / web-access) — the admin UI hides the key control
+# for them entirely, and connector plugins only offer their own service (e.g.
+# plugin-browser → browser-use, never Anthropic). Keyed by normalised plugin name
+# because the service slug isn't always the suffix (plugin-browser → browser-use).
+PLUGIN_KEY_SERVICES: dict[str, str] = {
+    "plugin-browser": "browser-use",
+    "plugin-giphy": "giphy",
+    "plugin-monday": "monday",
+    "plugin-render": "render",
+    "plugin-funnelfighters": "funnelfighters",
+    "plugin-connectors": "composio",
+    "plugin-cloudflare": "cloudflare",
+}
+
+
+def key_service_for_plugin(plugin_name: str) -> str | None:
+    """The gateway service a plugin needs a key for, or None if it needs none."""
+    return PLUGIN_KEY_SERVICES.get((plugin_name or "").strip().lower().replace("_", "-"))
+
+
 def service_slug_for_plugin(plugin_name: str) -> str:
     """Derive the gateway service slug from a plugin name ('plugin-monday' → 'monday')."""
+    norm = (plugin_name or "").strip().lower().replace("_", "-")
+    if norm in PLUGIN_KEY_SERVICES:
+        return PLUGIN_KEY_SERVICES[norm]
     return plugin_name.strip().lower().removeprefix("plugin-")
 
 

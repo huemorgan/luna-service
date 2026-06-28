@@ -32,14 +32,21 @@ const inputStyle = {
 
 /** Service picker + proxy/env mode + keyed badge for one plugin. `entry` may be
  *  null when the plugin has no catalog binding yet (baked plugins). */
-export function KeyControls({ pluginName, entry, services, onBind, onMode }: {
+export function KeyControls({ pluginName, entry, services, onBind, onMode, allowedSlugs }: {
   pluginName: string;
   entry: CatalogEntry | null;
   services: ServiceLite[];
   onBind: (pluginName: string, serviceSlug: string) => void;
   onMode: (pluginName: string, mode: 'proxy' | 'env') => void;
+  // When set, the picker only offers these services (a connector plugin only
+  // gets its own service, never unrelated keys like Anthropic). The currently
+  // bound service is always kept so it stays visible/changeable.
+  allowedSlugs?: string[];
 }) {
   const slug = entry?.service_slug || '';
+  const allowed = allowedSlugs
+    ? services.filter(s => allowedSlugs.includes(s.slug) || s.slug === slug)
+    : services;
   return (
     <div className="flex items-center gap-1.5">
       {slug && (entry?.keyed ? (
@@ -60,7 +67,7 @@ export function KeyControls({ pluginName, entry, services, onBind, onMode }: {
         title="Default key: bind a gateway pool service"
       >
         <option value="">No key</option>
-        {services.map(s => (
+        {allowed.map(s => (
           <option key={s.slug} value={s.slug}>
             {s.display_name}{s.key_count ? ` (${s.key_count} key${s.key_count === 1 ? '' : 's'})` : ' — no keys'}
           </option>
