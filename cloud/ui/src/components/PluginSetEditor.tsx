@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import { Search, Trash2, Plus, Lock, Loader2, ChevronDown, ChevronRight, ArrowUpCircle, Check } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Trash2, ChevronDown, ChevronRight, ArrowUpCircle, Check, Info } from 'lucide-react';
 import { KeyControls } from './pluginKeys';
 import type { CatalogEntry, ServiceLite } from './pluginKeys';
+import MarketplacePicker from './MarketplacePicker';
+import type { CatalogPlugin } from './MarketplacePicker';
 
 export interface PluginSetEntry {
   name: string;
@@ -9,14 +11,7 @@ export interface PluginSetEntry {
   sha256: string;
 }
 
-export interface CatalogPlugin {
-  name: string;
-  version: string;
-  description: string;
-  sha256: string;
-  bakeable: boolean;
-  key_service?: string | null;
-}
+export type { CatalogPlugin };
 
 /** Optional per-row key binding (Defaults page). When provided, each baked
  *  plugin card also shows a service picker so admins set its default key here. */
@@ -42,12 +37,8 @@ export default function PluginSetEditor({
   onChange: (next: PluginSetEntry[]) => void;
   keying?: PluginKeying;
 }) {
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<CatalogPlugin[]>([]);
-  const [searching, setSearching] = useState(false);
   const [latest, setLatest] = useState<Record<string, CatalogPlugin>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
-  const debounce = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const included = value || [];
   const includedNames = new Set(included.map(e => e.name));
@@ -230,8 +221,19 @@ function PluginCard({ entry, latest, keying, expanded, isLast, onToggle, onRemov
   // Only connector plugins that consume an external key get a key control, and
   // it's scoped to their own service. Leaf plugins (interview, charts…) show no
   // key at all. Fall back to any existing binding so old data stays editable.
-  const keyService = latest?.key_service || null;
-  const showKey = !!keying && (!!keyService || !!catEntry?.service_slug);
+  const keyService = latest?.key_service || catEntry?.service_slug || null;
+  const needsKey = !!keying && !!keyService;
+  // A keyed plugin is "provisionable" through the gateway only when an enabled
+  // gateway service exists for it. Otherwise it needs a key but has no
+  // provisioning path yet — we say so with an (i) instead of a dead dropdown.
+  const svc = keyService ? keying?.services.find(s => s.slug === keyService) : undefined;
+  const provisionable = !!svc && svc.enabled !== false;
+  const svcLabel = svc?.display_name || titleCase(keyService || '');
+  const noProvisionReason =
+    `${entry.name} needs a ${svcLabel} key, but there's no gateway provisioning for it yet — ` +
+    `no enabled service is registered for "${keyService}". It can't pool a key here until that ` +
+    `service is set up and the plugin ships base-url proxy support (plan change-all-to-key-provisioning).`;
+  const showKey = needsKey && (provisionable || !!catEntry?.service_slug);
   const allowedSlugs = [keyService, catEntry?.service_slug].filter(Boolean) as string[];
 
   return (
@@ -255,11 +257,19 @@ function PluginCard({ entry, latest, keying, expanded, isLast, onToggle, onRemov
             <ArrowUpCircle size={11} /> update
           </span>
         )}
-        {showKey && catEntry?.service_slug && (keyed ? (
+        {showKey && catEntry?.service_slug ? (keyed ? (
           <span className="px-2 py-0.5 rounded-full text-[10px]" style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}>keyed</span>
         ) : (
           <span className="px-2 py-0.5 rounded-full text-[10px]" style={{ background: 'rgba(255,107,107,0.12)', color: '#ff6b6b' }}>no key</span>
-        ))}
+        )) : needsKey && !provisionable ? (
+          <span
+            className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px]"
+            style={{ background: 'rgba(250,204,21,0.12)', color: '#facc15' }}
+            title={noProvisionReason}
+          >
+            needs key <Info size={10} />
+          </span>
+        ) : null}
       </div>
 
       {/* Expanded details */}
@@ -275,6 +285,20 @@ function PluginCard({ entry, latest, keying, expanded, isLast, onToggle, onRemov
                 onMode={keying.onMode}
                 allowedSlugs={allowedSlugs}
               />
+            </DetailRow>
+          )}
+
+          {!showKey && needsKey && !provisionable && (
+            <DetailRow label="Key">
+              <div className="flex items-start gap-1.5 max-w-[420px]">
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] shrink-0" style={{ background: 'rgba(250,204,21,0.12)', color: '#facc15' }}>
+                  needs {svcLabel} key
+                </span>
+                <span className="flex items-start gap-1 text-[11px] leading-snug" style={{ color: 'var(--text-dim)' }}>
+                  <Info size={12} className="shrink-0 mt-0.5" />
+                  No gateway provisioning yet — no enabled service for <span className="font-mono">{keyService}</span>. Register the service + a pool key and ship base-url proxy support before a key can be pooled here.
+                </span>
+              </div>
             </DetailRow>
           )}
 
@@ -314,6 +338,10 @@ function PluginCard({ entry, latest, keying, expanded, isLast, onToggle, onRemov
       )}
     </div>
   );
+}
+
+function titleCase(slug: string): string {
+  return slug.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {

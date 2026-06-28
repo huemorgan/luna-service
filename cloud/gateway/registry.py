@@ -163,6 +163,7 @@ PLUGIN_KEY_SERVICES: dict[str, str] = {
     "plugin-funnelfighters": "funnelfighters",
     "plugin-connectors": "composio",
     "plugin-cloudflare": "cloudflare",
+    "plugin-web-access": "tavily",
 }
 
 

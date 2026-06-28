@@ -20,7 +20,7 @@ export interface CatalogEntry {
   keyed: boolean;
 }
 
-export interface ServiceLite { slug: string; display_name: string; key_count: number }
+export interface ServiceLite { slug: string; display_name: string; key_count: number; enabled?: boolean }
 export interface AgentLight { id: string; slug: string; name: string }
 
 export const CAT = '/api/admin/plugin-catalog';
