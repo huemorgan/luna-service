@@ -1286,6 +1286,97 @@ async def get_machine_env(machine_id: str, admin: User = Depends(require_admin))
     return result
 
 
+@router.post("/machines/env/backfill")
+async def backfill_machine_env(
+    request: Request,
+    dry_run: bool = True,
+    admin: User = Depends(require_admin),
+):
+    """Plan 029: push the gateway env block to any machine that is missing it.
+
+    Only touches machines whose LIVE env lacks the LUNA_GATEWAY_URL/TOKEN pair,
+    so healthy machines are skipped — no token rotation and no needless restart.
+    update_machine_env merges (never wipes) and restarts the machine in place.
+    dry_run=true (default) reports what WOULD change without touching anything.
+    """
+    if not os.environ.get("FLY_API_TOKEN"):
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "FLY_API_TOKEN not configured in this environment")
+    from cloud.api.gateway_env_delta import _agent_image_config
+    from cloud.gateway.provision_env import build_gateway_env
+    from cloud.runtime.fly_machines import FlyMachinesRuntime
+
+    fly = FlyMachinesRuntime()
+    sentinels = ("LUNA_GATEWAY_URL", "LUNA_GATEWAY_TOKEN")
+
+    async with get_db_session() as db:
+        agents = (await db.execute(
+            select(Agent).where(Agent.runtime_ref.is_not(None))
+        )).scalars().all()
+        targets = [(a.id, a.slug, a.name, a.runtime_ref, a.runtime_kind) for a in agents]
+
+    results: list[dict] = []
+    updated = skipped = errored = 0
+    for agent_id, slug, name, ref, kind in targets:
+        if kind not in ("fly", "fly-machines"):
+            continue
+        row: dict = {"slug": slug, "name": name, "machine_id": ref}
+        try:
+            rec = await fly.describe(ref)
+            if not rec:
+                row["status"] = "machine_gone"
+                errored += 1
+                results.append(row)
+                continue
+            live = (rec.get("config") or {}).get("env") or {}
+            missing = [k for k in sentinels if k not in live]
+            row["missing"] = missing
+            if not missing:
+                row["status"] = "up_to_date"
+                skipped += 1
+                results.append(row)
+                continue
+            if dry_run:
+                row["status"] = "would_update"
+                results.append(row)
+                continue
+            async with get_db_session() as db:
+                agent = (await db.execute(
+                    select(Agent).where(Agent.id == agent_id)
+                )).scalar_one()
+                image_config = await _agent_image_config(db, agent)
+                env = await build_gateway_env(
+                    db, agent.id, image_config=image_config,
+                    agent_overrides=agent.config_overrides,
+                )
+                await db.commit()
+            await fly.update_machine_env(ref, env)
+            row["status"] = "updated"
+            row["pushed_keys"] = sorted(env.keys())
+            updated += 1
+        except Exception as e:  # noqa: BLE001 — report per machine, never abort the run
+            log.error("env backfill failed for %s (%s): %s", slug, ref, e)
+            row["status"] = f"error: {type(e).__name__}: {e}"
+            errored += 1
+        results.append(row)
+
+    if not dry_run:
+        async with get_db_session() as db:
+            await _audit(db, action="machines.env_backfill", actor=admin,
+                         actor_ip=_client_ip(request), target="*",
+                         metadata={"updated": updated, "skipped": skipped, "errored": errored})
+            await db.commit()
+
+    return {
+        "dry_run": dry_run,
+        "total": len(results),
+        "updated": updated,
+        "skipped": skipped,
+        "errored": errored,
+        "machines": results,
+    }
+
+
 class MachineServicesConfigPatch(BaseModel):
     # Plan 016: when accounts_mode is None we CLEAR the override and revert to
     # the image default; otherwise set it to the provided value.
