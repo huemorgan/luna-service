@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Search, Trash2, Plus, Lock, Loader2 } from 'lucide-react';
+import { Search, Trash2, Plus, Lock, Loader2, ChevronDown, ChevronRight, ArrowUpCircle, Check } from 'lucide-react';
 import { KeyControls } from './pluginKeys';
 import type { CatalogEntry, ServiceLite } from './pluginKeys';
 
@@ -7,15 +7,6 @@ export interface PluginSetEntry {
   name: string;
   version: string;
   sha256: string;
-}
-
-/** Optional per-row key binding (Defaults page). When provided, each baked
- *  plugin row also shows a service picker so admins set its default key here. */
-export interface PluginKeying {
-  services: ServiceLite[];
-  catalogByName: Record<string, CatalogEntry>;
-  onBind: (pluginName: string, serviceSlug: string) => void;
-  onMode: (pluginName: string, mode: 'proxy' | 'env') => void;
 }
 
 export interface CatalogPlugin {
@@ -26,11 +17,20 @@ export interface CatalogPlugin {
   bakeable: boolean;
 }
 
+/** Optional per-row key binding (Defaults page). When provided, each baked
+ *  plugin card also shows a service picker so admins set its default key here. */
+export interface PluginKeying {
+  services: ServiceLite[];
+  catalogByName: Record<string, CatalogEntry>;
+  onBind: (pluginName: string, serviceSlug: string) => void;
+  onMode: (pluginName: string, mode: 'proxy' | 'env') => void;
+}
+
 /**
- * Shared editor for the image-baked plugin set (Plan 020). Shows the *included*
- * plugins with a remove control, plus a marketplace search to add more — instead
- * of listing the whole catalog with on/off toggles. Used by the per-image config
- * and the image Defaults page.
+ * Editor for the image-baked plugin set (Plan 020 + 026). Each included plugin
+ * is an expandable card: collapsed shows a minimal line (name + version +
+ * badges); expanded reveals the default-key binding and a version/upgrade row.
+ * A marketplace search adds more. Used by the image Defaults page.
  */
 export default function PluginSetEditor({
   value,
@@ -44,10 +44,27 @@ export default function PluginSetEditor({
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<CatalogPlugin[]>([]);
   const [searching, setSearching] = useState(false);
+  const [latest, setLatest] = useState<Record<string, CatalogPlugin>>({});
+  const [expanded, setExpanded] = useState<string | null>(null);
   const debounce = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const included = value || [];
   const includedNames = new Set(included.map(e => e.name));
+
+  // Full marketplace index (for per-plugin "update available" detection).
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/admin/marketplace/catalog');
+        if (res.ok) {
+          const data = await res.json();
+          const map: Record<string, CatalogPlugin> = {};
+          for (const p of data.plugins || []) map[p.name] = p;
+          setLatest(map);
+        }
+      } catch { /* marketplace down — no upgrade hints, list still works */ }
+    })();
+  }, []);
 
   useEffect(() => {
     clearTimeout(debounce.current);
@@ -83,53 +100,34 @@ export default function PluginSetEditor({
     onChange(included.filter(e => e.name !== name));
   };
 
+  const upgrade = (name: string) => {
+    const l = latest[name];
+    if (!l) return;
+    onChange(included.map(e => e.name === name ? { name, version: l.version, sha256: l.sha256 } : e));
+  };
+
   return (
     <div>
-      {/* Included list */}
+      {/* Included list — one grouped box of expandable plugin cards */}
       {included.length === 0 ? (
-        <div className="text-xs py-2 mb-1" style={{ color: 'var(--text-dim)' }}>
+        <div className="text-xs py-2 mb-3" style={{ color: 'var(--text-dim)' }}>
           No plugins baked in. The build falls back to the{' '}
           <span className="font-mono">plugin-set.toml</span> seed.
         </div>
       ) : (
-        <div className="mb-3">
+        <div className="rounded-xl border overflow-hidden mb-3" style={{ borderColor: 'var(--ink-lighter)' }}>
           {included.map((e, i) => (
-            <div
+            <PluginCard
               key={e.name}
-              className="flex items-center justify-between py-2.5"
-              style={{
-                borderBottom: i === included.length - 1 ? undefined : '1px solid var(--ink-lighter)',
-              }}
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{e.name}</span>
-                <span
-                  className="text-[10px] font-mono px-1.5 py-0.5 rounded"
-                  style={{ background: 'var(--ink-light)', color: 'var(--text-dim)' }}
-                >
-                  v{e.version}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                {keying && (
-                  <KeyControls
-                    pluginName={e.name}
-                    entry={keying.catalogByName[e.name] || null}
-                    services={keying.services}
-                    onBind={keying.onBind}
-                    onMode={keying.onMode}
-                  />
-                )}
-                <button
-                  onClick={() => remove(e.name)}
-                  className="p-1.5 rounded-lg transition-colors hover:opacity-80"
-                  style={{ color: '#ef4444' }}
-                  title={`Remove ${e.name}`}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            </div>
+              entry={e}
+              latest={latest[e.name]}
+              keying={keying}
+              expanded={expanded === e.name}
+              isLast={i === included.length - 1}
+              onToggle={() => setExpanded(expanded === e.name ? null : e.name)}
+              onRemove={() => remove(e.name)}
+              onUpgrade={() => upgrade(e.name)}
+            />
           ))}
         </div>
       )}
@@ -211,6 +209,110 @@ export default function PluginSetEditor({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function PluginCard({ entry, latest, keying, expanded, isLast, onToggle, onRemove, onUpgrade }: {
+  entry: PluginSetEntry;
+  latest?: CatalogPlugin;
+  keying?: PluginKeying;
+  expanded: boolean;
+  isLast: boolean;
+  onToggle: () => void;
+  onRemove: () => void;
+  onUpgrade: () => void;
+}) {
+  const catEntry = keying?.catalogByName[entry.name] || null;
+  const keyed = !!catEntry?.keyed;
+  const hasUpdate = !!latest && latest.version !== entry.version;
+
+  return (
+    <div style={{ borderBottom: isLast ? undefined : '1px solid var(--ink-lighter)' }}>
+      {/* Collapsed header (minimal line) */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onToggle}
+        className="flex items-center gap-2.5 px-3.5 py-2.5 cursor-pointer"
+        style={{ background: expanded ? 'var(--ink-light)' : 'transparent' }}
+      >
+        {expanded ? <ChevronDown size={15} style={{ color: 'var(--text-dim)' }} /> : <ChevronRight size={15} style={{ color: 'var(--text-dim)' }} />}
+        <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{entry.name}</span>
+        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded" style={{ background: 'var(--ink)', color: 'var(--text-dim)' }}>
+          v{entry.version}
+        </span>
+        <div className="flex-1" />
+        {hasUpdate && (
+          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px]" style={{ background: 'rgba(122,162,255,0.15)', color: '#7aa2ff' }} title={`Update available: v${entry.version} → v${latest!.version}`}>
+            <ArrowUpCircle size={11} /> update
+          </span>
+        )}
+        {keying && catEntry?.service_slug && (keyed ? (
+          <span className="px-2 py-0.5 rounded-full text-[10px]" style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}>keyed</span>
+        ) : (
+          <span className="px-2 py-0.5 rounded-full text-[10px]" style={{ background: 'rgba(255,107,107,0.12)', color: '#ff6b6b' }}>no key</span>
+        ))}
+      </div>
+
+      {/* Expanded details */}
+      {expanded && (
+        <div className="px-3.5 pb-3.5 pt-1 space-y-3" style={{ background: 'var(--ink-light)' }}>
+          {keying && (
+            <DetailRow label="Default key">
+              <KeyControls
+                pluginName={entry.name}
+                entry={catEntry}
+                services={keying.services}
+                onBind={keying.onBind}
+                onMode={keying.onMode}
+              />
+            </DetailRow>
+          )}
+
+          <DetailRow label="Version">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono" style={{ color: 'var(--text)' }}>v{entry.version}</span>
+              {hasUpdate ? (
+                <>
+                  <span className="text-xs" style={{ color: 'var(--text-dim)' }}>→</span>
+                  <span className="text-xs font-mono" style={{ color: '#7aa2ff' }}>v{latest!.version}</span>
+                  <button
+                    onClick={onUpgrade}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold"
+                    style={{ background: 'var(--moon)', color: 'var(--ink)' }}
+                  >
+                    <ArrowUpCircle size={12} /> Update
+                  </button>
+                </>
+              ) : (
+                <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-dim)' }}>
+                  <Check size={12} style={{ color: '#22c55e' }} /> up to date
+                </span>
+              )}
+            </div>
+          </DetailRow>
+
+          <div className="flex justify-end pt-1">
+            <button
+              onClick={onRemove}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium hover:opacity-80"
+              style={{ color: '#ff6b6b', border: '1px solid rgba(255,107,107,0.3)' }}
+            >
+              <Trash2 size={12} /> Remove from set
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 flex-wrap">
+      <span className="text-xs font-medium" style={{ color: 'var(--text-dim)' }}>{label}</span>
+      {children}
     </div>
   );
 }
