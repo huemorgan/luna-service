@@ -1,8 +1,10 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Server, Loader2, RefreshCw, ArrowUpCircle, ChevronDown, ChevronRight,
-  Settings, Webhook, Layers, Plus, Trash2, Check, Cable, Brain,
+  Settings, Webhook, Layers, Plus, Trash2, Check, Cable, Brain, ListTree, AlertTriangle,
 } from 'lucide-react';
+import EnvVarsTable, { EnvLegend } from '../../components/EnvVarsTable';
+import type { EnvEntry } from '../../components/EnvVarsTable';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -104,12 +106,13 @@ function fmtTime(iso: string | null): string {
   });
 }
 
-type TabKey = 'overview' | 'settings' | 'webhooks';
+type TabKey = 'overview' | 'settings' | 'webhooks' | 'env';
 
 const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: 'overview', label: 'Overview', icon: Layers },
   { key: 'settings', label: 'Settings', icon: Settings },
   { key: 'webhooks', label: 'Webhooks', icon: Webhook },
+  { key: 'env', label: 'Env vars', icon: ListTree },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -535,6 +538,61 @@ function WebhooksTab({
 }
 
 /* ------------------------------------------------------------------ */
+/*  Env vars tab                                                       */
+/* ------------------------------------------------------------------ */
+
+interface MachineEnv {
+  entries: EnvEntry[];
+  missing: string[];
+  fly_available: boolean;
+  fly_state: string | null;
+}
+
+function EnvTab({ machineId }: { machineId: string | null }) {
+  const [data, setData] = useState<MachineEnv | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!machineId) { setLoading(false); return; }
+    let alive = true;
+    setLoading(true);
+    fetch(`/api/admin/machines/${machineId}/env`)
+      .then(async r => (r.ok ? r.json() : Promise.reject(await r.text())))
+      .then(d => { if (alive) { setData(d); setError(null); } })
+      .catch(e => { if (alive) setError(String(e)); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [machineId]);
+
+  if (!machineId) return <p className="text-xs" style={{ color: 'var(--text-dim)' }}>No machine.</p>;
+  if (loading) return <Loader2 className="animate-spin" size={16} style={{ color: 'var(--moon)' }} />;
+  if (error) return <p className="text-xs" style={{ color: '#ef4444' }}>{error}</p>;
+  if (!data) return null;
+
+  return (
+    <div className="space-y-3">
+      {!data.fly_available && (
+        <div className="rounded-lg px-3 py-2 text-xs" style={{ background: 'rgba(122,162,255,0.1)', color: '#7aa2ff' }}>
+          Fly API not configured here — live machine env unavailable in this environment.
+        </div>
+      )}
+      {data.missing.length > 0 && (
+        <div className="rounded-lg px-3 py-2 text-xs flex items-start gap-2" style={{ background: 'rgba(239,68,68,0.1)', color: '#fca5a5' }}>
+          <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
+          <span>
+            Expected but missing on this machine (re-provision to inject):{' '}
+            {data.missing.map(m => <code key={m} className="font-mono mr-1.5">{m}</code>)}
+          </span>
+        </div>
+      )}
+      <EnvVarsTable entries={data.entries} />
+      <EnvLegend />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Machine card                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -664,6 +722,7 @@ function MachineCard({
                 onChange={onWebhooksChange}
               />
             )}
+            {activeTab === 'env' && <EnvTab machineId={machine.machine_id} />}
           </div>
         </div>
       )}

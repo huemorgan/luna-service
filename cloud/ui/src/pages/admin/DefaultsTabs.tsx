@@ -1,9 +1,10 @@
 import { NavLink } from 'react-router-dom';
-import { Boxes, Cpu } from 'lucide-react';
+import { Boxes, Cpu, ListTree } from 'lucide-react';
 
 const TABS = [
   { to: '/admin/defaults', label: 'Images', icon: Boxes, end: true },
   { to: '/admin/defaults/models', label: 'Models', icon: Cpu, end: false },
+  { to: '/admin/defaults/env', label: 'Env vars', icon: ListTree, end: false },
 ];
 
 /** Tab bar for the top-level Defaults area (Plan 020): image defaults + the

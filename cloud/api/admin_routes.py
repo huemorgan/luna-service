@@ -788,6 +788,22 @@ async def get_image_defaults(admin: User = Depends(require_admin)):
     return {"models": cfg.get("models", {}), "plugin_set": cfg.get("plugin_set", [])}
 
 
+@router.get("/defaults/env")
+async def get_default_env(admin: User = Depends(require_admin)):
+    """Plan 029: the env-var template every NEW machine receives. Dynamic
+    per-agent values are placeholders; nothing here is a real secret."""
+    from cloud.provisioning.env_manifest import default_env_manifest
+    from cloud.provisioning.model_catalog import resolve_default_heads, system_catalog
+
+    async with get_db_session() as db:
+        cfg = await _default_image_config(db)
+        catalog = await system_catalog(db)
+        heads = resolve_default_heads(catalog, cfg, None)
+        cfg = {**cfg, "models": {"primary": heads["primary"], "fast": heads["fast"]}}
+        entries = await default_env_manifest(db, cfg)
+    return {"entries": entries}
+
+
 @router.put("/defaults")
 async def update_image_defaults(
     body: ImageDefaultsUpdate, request: Request, admin: User = Depends(require_admin),
@@ -1218,6 +1234,55 @@ async def list_machines(admin: User = Depends(require_admin)):
             "primary_model_override": primary_override,
             "fast_model_override": fast_override,
         })
+    return result
+
+
+@router.get("/machines/{machine_id}/env")
+async def get_machine_env(machine_id: str, admin: User = Depends(require_admin)):
+    """Plan 029: the LIVE env on a machine (classified + secrets masked), plus
+    any expected-but-missing keys vs the provisioning template."""
+    from cloud.provisioning.env_manifest import default_env_manifest, live_machine_env
+    from cloud.provisioning.model_catalog import resolve_default_heads, system_catalog
+
+    async with get_db_session() as db:
+        agent = (await db.execute(
+            select(Agent).where(Agent.runtime_ref == machine_id)
+        )).scalar_one_or_none()
+        if not agent:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Machine not found")
+        img = None
+        if agent.image_version:
+            img = (await db.execute(
+                select(LunaImage).where(LunaImage.version == agent.image_version)
+            )).scalar_one_or_none()
+        cfg = {**(await _default_image_config(db)), **((img.image_config if img else None) or {})}
+        catalog = await system_catalog(db)
+        heads = resolve_default_heads(catalog, cfg, agent.config_overrides)
+        cfg = {**cfg, "models": {"primary": heads["primary"], "fast": heads["fast"]}}
+        expected = await default_env_manifest(db, cfg)
+    expected_names = {e["name"] for e in expected}
+
+    config_env: dict = {}
+    fly_state = None
+    fly_available = bool(os.environ.get("FLY_API_TOKEN"))
+    if fly_available and agent.runtime_ref:
+        try:
+            from cloud.runtime.fly_machines import FlyMachinesRuntime
+            fly = FlyMachinesRuntime()
+            rec = await fly.describe(agent.runtime_ref)
+            config_env = ((rec or {}).get("config") or {}).get("env") or {}
+            fly_state = (rec or {}).get("state")
+        except Exception as e:  # pragma: no cover - network
+            log.warning("env describe failed for %s: %s", machine_id, e)
+
+    result = live_machine_env(config_env, expected_names)
+    result.update({
+        "agent_slug": agent.slug,
+        "agent_name": agent.name,
+        "machine_id": machine_id,
+        "fly_state": fly_state,
+        "fly_available": fly_available,
+    })
     return result
 
 
