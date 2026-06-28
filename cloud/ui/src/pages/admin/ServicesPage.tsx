@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   KeyRound, Loader2, Plus, Trash2, ChevronDown, ChevronRight,
-  Snowflake, BarChart3, Pencil,
+  Snowflake, BarChart3, Pencil, Info,
 } from 'lucide-react';
 
 interface Service {
@@ -212,7 +212,7 @@ function ServiceRow({ svc, expanded, onToggleExpand, onToggleField, onError, onC
               </div>
               <div className="flex items-center gap-3 mb-4">
                 <OnOffPill label="Enabled" description="gateway accepts requests" value={svc.enabled} onChange={() => onToggleField(svc, 'enabled')} />
-                <OnOffPill label="Provision by default" description="auto-add key for new agents" value={svc.provision_by_default} onChange={() => onToggleField(svc, 'provision_by_default')} />
+                <OnOffPill label="Provision by default" description="auto-add key for new agents and auto discover through the gateway" value={svc.provision_by_default} onChange={() => onToggleField(svc, 'provision_by_default')} />
               </div>
             </>
           )}
@@ -343,7 +343,9 @@ function OnOffPill({ label, description, value, onChange }: {
       </span>
       <span style={{ color: value ? 'var(--text)' : 'var(--text-dim)' }}>{label}</span>
       {description && (
-        <span style={{ fontWeight: 400 }}>— {description}</span>
+        <span className="inline-flex items-center" title={description} aria-label={description}>
+          <Info size={13} style={{ color: 'var(--text-dim)' }} />
+        </span>
       )}
     </button>
   );
