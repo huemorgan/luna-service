@@ -5,7 +5,7 @@ import PluginSetEditor from '../../components/PluginSetEditor';
 import type { PluginSetEntry, PluginKeying } from '../../components/PluginSetEditor';
 import SupportedPluginsEditor from '../../components/SupportedPluginsEditor';
 import { CAT, GW } from '../../components/pluginKeys';
-import type { CatalogEntry, ServiceLite, AgentLight } from '../../components/pluginKeys';
+import type { CatalogEntry, ServiceLite } from '../../components/pluginKeys';
 
 interface ModelHead { provider?: string; model?: string }
 interface Defaults {
@@ -31,7 +31,6 @@ export default function DefaultsPage() {
   // Plan 026 — plugin↔key catalog, surfaced inline next to the baked set.
   const [keyCatalog, setKeyCatalog] = useState<CatalogEntry[]>([]);
   const [services, setServices] = useState<ServiceLite[]>([]);
-  const [agents, setAgents] = useState<AgentLight[]>([]);
   const [keyError, setKeyError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -51,10 +50,9 @@ export default function DefaultsPage() {
   }, []);
 
   const fetchKeys = useCallback(async () => {
-    const [c, s, a] = await Promise.all([fetch(CAT), fetch(`${GW}/services`), fetch(`${GW}/agents-light`)]);
+    const [c, s] = await Promise.all([fetch(CAT), fetch(`${GW}/services`)]);
     if (c.ok) setKeyCatalog(await c.json());
     if (s.ok) setServices(await s.json());
-    if (a.ok) setAgents(await a.json());
   }, []);
 
   useEffect(() => { fetchData(); fetchKeys(); }, [fetchData, fetchKeys]);
@@ -123,6 +121,12 @@ export default function DefaultsPage() {
     services,
     catalogByName,
     onBind: (name, slug) => bindKey(name, slug, 'default'),
+    onMode: setMode,
+  };
+  const supportedKeying: PluginKeying = {
+    services,
+    catalogByName,
+    onBind: (name, slug) => bindKey(name, slug, 'supported'),
     onMode: setMode,
   };
   const supported = keyCatalog.filter(e => e.tier === 'supported');
@@ -220,10 +224,7 @@ export default function DefaultsPage() {
             </p>
             <SupportedPluginsEditor
               entries={supported}
-              services={services}
-              agents={agents}
-              onBind={(name, slug) => bindKey(name, slug, 'supported')}
-              onMode={setMode}
+              keying={supportedKeying}
               onChanged={fetchKeys}
               onError={setKeyError}
             />

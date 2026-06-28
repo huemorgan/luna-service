@@ -183,6 +183,21 @@ async def test_create_from_marketplace_binds_existing_service(admin_client, db_s
     assert r.json()["service_slug"] == "monday"
 
 
+async def test_clear_binding_sets_null_not_empty(admin_client, db_session):
+    """Selecting 'No key' PATCHes service_slug="" — must store NULL, not "" (which
+    would violate the service_slug FK and 500). Caught in the 028 walkthrough."""
+    await _svc(db_session, "monday", auth_style="header:Authorization")
+    await db_session.commit()
+    r = await admin_client.post("/api/admin/plugin-catalog", json={
+        "plugin_name": "plugin-monday", "tier": "supported", "service_slug": "monday",
+    })
+    assert r.status_code == 201 and r.json()["service_slug"] == "monday"
+
+    r = await admin_client.patch("/api/admin/plugin-catalog/plugin-monday", json={"service_slug": ""})
+    assert r.status_code == 200, r.text
+    assert r.json()["service_slug"] is None
+
+
 async def test_catalog_requires_admin(regular_client):
     r = await regular_client.get("/api/admin/plugin-catalog")
     assert r.status_code in (401, 403)

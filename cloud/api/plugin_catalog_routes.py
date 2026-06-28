@@ -179,6 +179,10 @@ async def update_catalog(
             )).scalar_one_or_none()
             if not svc:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown service '{body.service_slug}'")
+        # Clearing the key ("No key") arrives as an empty string — store NULL so it
+        # doesn't violate the service_slug FK.
+        if changes.get("service_slug") == "":
+            changes["service_slug"] = None
         for field_name, value in changes.items():
             setattr(entry, field_name, value)
         _audit(db, actor=admin, action="plugin_catalog.updated", target=plugin_name, metadata=changes)

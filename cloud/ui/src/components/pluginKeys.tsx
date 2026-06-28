@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { Loader2, Download, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { ShieldCheck, ShieldAlert } from 'lucide-react';
 
 /** Shared plugin↔key catalog types + controls (plan 026).
  *  Used by the Default plugin set rows and the Supported plugins list on the
@@ -15,13 +14,22 @@ export interface CatalogEntry {
   tier: 'default' | 'supported';
   service_slug: string | null;
   key_mode: 'proxy' | 'env';
-  suggested: { needs_review?: boolean } | null;
+  suggested: { needs_review?: boolean; slug?: string } | null;
   enabled: boolean;
   keyed: boolean;
 }
 
 export interface ServiceLite { slug: string; display_name: string; key_count: number; enabled?: boolean }
 export interface AgentLight { id: string; slug: string; name: string }
+
+/** Per-row key binding wiring shared by the Default plugin set and the Supported
+ *  plugins list. `catalogByName` maps a plugin to its catalog entry (if any). */
+export interface PluginKeying {
+  services: ServiceLite[];
+  catalogByName: Record<string, CatalogEntry>;
+  onBind: (pluginName: string, serviceSlug: string) => void;
+  onMode: (pluginName: string, mode: 'proxy' | 'env') => void;
+}
 
 export const CAT = '/api/admin/plugin-catalog';
 export const GW = '/api/admin/gateway';
@@ -86,40 +94,6 @@ export function KeyControls({ pluginName, entry, services, onBind, onMode, allow
           <option value="env">env</option>
         </select>
       )}
-    </div>
-  );
-}
-
-/** "Install on…" agent picker + button (supported plugins only). */
-export function InstallControl({ plugin, agents, onError }: {
-  plugin: string; agents: AgentLight[]; onError: (m: string | null) => void;
-}) {
-  const [agentId, setAgentId] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const install = async () => {
-    if (!agentId) return;
-    setBusy(true); onError(null);
-    const r = await fetch(`${CAT}/install`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agent_id: agentId, plugin_name: plugin }),
-    });
-    setBusy(false);
-    if (!r.ok) onError((await r.json().catch(() => null))?.detail || `Install failed (${r.status})`);
-  };
-
-  return (
-    <div className="flex items-center gap-1">
-      <select value={agentId} onChange={e => setAgentId(e.target.value)}
-        className="px-2.5 py-1.5 rounded-lg text-xs outline-none cursor-pointer" style={inputStyle}>
-        <option value="">Install on…</option>
-        {agents.map(a => <option key={a.id} value={a.id}>{a.slug}</option>)}
-      </select>
-      <button onClick={install} disabled={!agentId || busy}
-        className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50"
-        style={{ background: 'var(--moon)', color: 'var(--ink)' }} title="Install this plugin on an agent and provision its key">
-        {busy ? <Loader2 className="animate-spin" size={12} /> : <Download size={12} />}
-      </button>
     </div>
   );
 }
