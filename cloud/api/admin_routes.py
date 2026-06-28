@@ -1318,7 +1318,7 @@ async def backfill_machine_env(
     results: list[dict] = []
     updated = skipped = errored = 0
     for agent_id, slug, name, ref, kind in targets:
-        if kind not in ("fly", "fly-machines"):
+        if not (kind or "").startswith("fly"):
             continue
         row: dict = {"slug": slug, "name": name, "machine_id": ref}
         try:
