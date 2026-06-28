@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   KeyRound, Loader2, Plus, Trash2, ChevronDown, ChevronRight,
-  Snowflake, BarChart3,
+  Snowflake, BarChart3, Pencil,
 } from 'lucide-react';
 
 interface Service {
@@ -155,6 +155,8 @@ function ServiceRow({ svc, expanded, onToggleExpand, onToggleField, onError, onC
   onError: (msg: string | null) => void;
   onChanged: () => void;
 }) {
+  const [editing, setEditing] = useState(false);
+
   return (
     <div className="rounded-xl border" style={{ background: 'var(--surface)', borderColor: 'var(--ink-lighter)' }}>
       <div
@@ -185,18 +187,128 @@ function ServiceRow({ svc, expanded, onToggleExpand, onToggleField, onError, onC
 
       {expanded && (
         <div className="px-5 pb-4 border-t pt-4" style={{ borderColor: 'var(--ink-lighter)' }}>
-          <div className="flex items-center gap-4 mb-4 text-xs" style={{ color: 'var(--text-dim)' }}>
-            <span>Env: <code>{svc.luna_env_key_var}</code> / <code>{svc.luna_env_base_url_var}</code></span>
-            <span>Vault: <code>{svc.luna_credential_name}</code></span>
-          </div>
-          <div className="flex items-center gap-3 mb-4">
-            <OnOffPill label="Enabled" description="gateway accepts requests" value={svc.enabled} onChange={() => onToggleField(svc, 'enabled')} />
-            <OnOffPill label="Provision by default" description="auto-add key for new agents" value={svc.provision_by_default} onChange={() => onToggleField(svc, 'provision_by_default')} />
-          </div>
+          {editing ? (
+            <EditServiceForm
+              svc={svc}
+              onDone={() => { setEditing(false); onChanged(); }}
+              onCancel={() => setEditing(false)}
+              onError={onError}
+            />
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div className="flex items-center gap-4 text-xs flex-wrap" style={{ color: 'var(--text-dim)' }}>
+                  <span>Env: <code>{svc.luna_env_key_var}</code> / <code>{svc.luna_env_base_url_var}</code></span>
+                  <span>Vault: <code>{svc.luna_credential_name}</code></span>
+                  <span>Auth: <code>{svc.auth_style}</code></span>
+                </div>
+                <button
+                  onClick={() => setEditing(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium shrink-0"
+                  style={{ background: 'var(--ink)', color: 'var(--moon)' }}
+                >
+                  <Pencil size={12} /> Edit
+                </button>
+              </div>
+              <div className="flex items-center gap-3 mb-4">
+                <OnOffPill label="Enabled" description="gateway accepts requests" value={svc.enabled} onChange={() => onToggleField(svc, 'enabled')} />
+                <OnOffPill label="Provision by default" description="auto-add key for new agents" value={svc.provision_by_default} onChange={() => onToggleField(svc, 'provision_by_default')} />
+              </div>
+            </>
+          )}
           <KeyPool slug={svc.slug} onError={onError} onChanged={onChanged} />
         </div>
       )}
     </div>
+  );
+}
+
+const AUTH_STYLES = [
+  'header:Authorization:Bearer',
+  'header:Authorization:Key',
+  'header:x-api-key',
+  'query:api_key',
+];
+
+/** Inline editor for a service's mutable details. Slug + derived env-var names
+ *  are immutable (slug is the proxy path + PK); everything else is PATCHable. */
+function EditServiceForm({ svc, onDone, onCancel, onError }: {
+  svc: Service;
+  onDone: () => void;
+  onCancel: () => void;
+  onError: (m: string | null) => void;
+}) {
+  const [displayName, setDisplayName] = useState(svc.display_name);
+  const [upstreamUrl, setUpstreamUrl] = useState(svc.upstream_url);
+  const [authStyle, setAuthStyle] = useState(svc.auth_style);
+  const [credName, setCredName] = useState(svc.luna_credential_name);
+  const [saving, setSaving] = useState(false);
+
+  const inputStyle = { background: 'var(--ink)', color: 'var(--text)', border: '1px solid var(--ink-lighter)' };
+  const authOptions = AUTH_STYLES.includes(authStyle) ? AUTH_STYLES : [authStyle, ...AUTH_STYLES];
+
+  const submit = async () => {
+    setSaving(true);
+    onError(null);
+    const res = await fetch(`${API}/services/${svc.slug}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        display_name: displayName,
+        upstream_url: upstreamUrl,
+        auth_style: authStyle,
+        luna_credential_name: credName,
+      }),
+    });
+    setSaving(false);
+    if (res.ok) onDone();
+    else onError(await apiError(res));
+  };
+
+  return (
+    <div className="rounded-lg p-3 mb-4 space-y-2" style={{ background: 'var(--ink)', border: '1px solid var(--moon)' }}>
+      <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text)' }}>
+        Edit service <code style={{ color: 'var(--text-dim)' }}>{svc.slug}</code>
+      </div>
+      <Field label="Display name">
+        <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)}
+          className="w-full px-2.5 py-1.5 rounded-lg text-xs outline-none" style={inputStyle} autoFocus />
+      </Field>
+      <Field label="Upstream URL">
+        <input type="text" value={upstreamUrl} onChange={e => setUpstreamUrl(e.target.value)}
+          placeholder="https://api.example.com"
+          className="w-full px-2.5 py-1.5 rounded-lg text-xs outline-none" style={inputStyle} />
+      </Field>
+      <Field label="Auth style">
+        <select value={authStyle} onChange={e => setAuthStyle(e.target.value)}
+          className="w-full px-2.5 py-1.5 rounded-lg text-xs outline-none" style={inputStyle}>
+          {authOptions.map(a => <option key={a} value={a}>{a}</option>)}
+        </select>
+      </Field>
+      <Field label="Vault credential">
+        <input type="text" value={credName} onChange={e => setCredName(e.target.value)}
+          className="w-full px-2.5 py-1.5 rounded-lg text-xs outline-none" style={inputStyle} />
+      </Field>
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <button onClick={onCancel} className="px-3 py-1.5 rounded-lg text-xs font-medium" style={{ color: 'var(--text-dim)' }}>
+          Cancel
+        </button>
+        <button onClick={submit} disabled={saving || !displayName || !upstreamUrl}
+          className="px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50"
+          style={{ background: 'var(--moon)', color: 'var(--ink)' }}>
+          {saving ? <Loader2 className="animate-spin" size={12} /> : 'Save'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="text-[11px] font-medium block mb-1" style={{ color: 'var(--text-dim)' }}>{label}</span>
+      {children}
+    </label>
   );
 }
 
