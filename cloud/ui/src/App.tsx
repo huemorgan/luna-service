@@ -11,7 +11,6 @@ import ImageConfigPage from './pages/admin/ImageConfigPage';
 import DefaultsPage from './pages/admin/DefaultsPage';
 import ModelsPage from './pages/admin/ModelsPage';
 import ServicesPage from './pages/admin/ServicesPage';
-import PluginKeysPage from './pages/admin/PluginKeysPage';
 import RelayPage from './pages/admin/RelayPage';
 
 // Marketing site (plan 021) — public, unauthenticated routes.
@@ -50,7 +49,6 @@ export default function App() {
           <Route path="defaults/models" element={<ModelsPage />} />
           <Route path="machines" element={<MachinesPage />} />
           <Route path="services" element={<ServicesPage />} />
-          <Route path="plugin-keys" element={<PluginKeysPage />} />
           <Route path="relay" element={<RelayPage />} />
           <Route path="changelog" element={<ChangelogPage />} />
         </Route>

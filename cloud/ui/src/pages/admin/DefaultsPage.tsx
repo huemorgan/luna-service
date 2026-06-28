@@ -1,8 +1,11 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Loader2, Brain, Boxes, Check } from 'lucide-react';
+import { Loader2, Brain, Boxes, Check, Plug } from 'lucide-react';
 import DefaultsTabs from './DefaultsTabs';
 import PluginSetEditor from '../../components/PluginSetEditor';
-import type { PluginSetEntry } from '../../components/PluginSetEditor';
+import type { PluginSetEntry, PluginKeying } from '../../components/PluginSetEditor';
+import SupportedPluginsEditor from '../../components/SupportedPluginsEditor';
+import { CAT, GW } from '../../components/pluginKeys';
+import type { CatalogEntry, ServiceLite, AgentLight } from '../../components/pluginKeys';
 
 interface ModelHead { provider?: string; model?: string }
 interface Defaults {
@@ -25,6 +28,12 @@ export default function DefaultsPage() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
+  // Plan 026 — plugin↔key catalog, surfaced inline next to the baked set.
+  const [keyCatalog, setKeyCatalog] = useState<CatalogEntry[]>([]);
+  const [services, setServices] = useState<ServiceLite[]>([]);
+  const [agents, setAgents] = useState<AgentLight[]>([]);
+  const [keyError, setKeyError] = useState<string | null>(null);
+
   const fetchData = useCallback(async () => {
     const [defRes, modelsRes] = await Promise.all([
       fetch('/api/admin/defaults'),
@@ -41,7 +50,45 @@ export default function DefaultsPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  const fetchKeys = useCallback(async () => {
+    const [c, s, a] = await Promise.all([fetch(CAT), fetch(`${GW}/services`), fetch(`${GW}/agents-light`)]);
+    if (c.ok) setKeyCatalog(await c.json());
+    if (s.ok) setServices(await s.json());
+    if (a.ok) setAgents(await a.json());
+  }, []);
+
+  useEffect(() => { fetchData(); fetchKeys(); }, [fetchData, fetchKeys]);
+
+  // Bind/clear a plugin's default key. Baked plugins may have no catalog row yet
+  // — picking a service creates a `default`-tier entry; clearing it PATCHes "".
+  const bindKey = useCallback(async (pluginName: string, serviceSlug: string, tier: 'default' | 'supported') => {
+    setKeyError(null);
+    const existing = keyCatalog.find(e => e.plugin_name === pluginName);
+    let r: Response;
+    if (existing) {
+      r = await fetch(`${CAT}/${pluginName}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ service_slug: serviceSlug }),
+      });
+    } else {
+      r = await fetch(CAT, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plugin_name: pluginName, tier, service_slug: serviceSlug || null }),
+      });
+    }
+    if (r.ok) fetchKeys();
+    else setKeyError((await r.json().catch(() => null))?.detail || `Failed (${r.status})`);
+  }, [keyCatalog, fetchKeys]);
+
+  const setMode = useCallback(async (pluginName: string, mode: 'proxy' | 'env') => {
+    setKeyError(null);
+    const r = await fetch(`${CAT}/${pluginName}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key_mode: mode }),
+    });
+    if (r.ok) fetchKeys();
+    else setKeyError((await r.json().catch(() => null))?.detail || `Failed (${r.status})`);
+  }, [fetchKeys]);
 
   const save = useCallback(async (patch: Partial<Defaults>) => {
     setSaveStatus('saving');
@@ -69,6 +116,16 @@ export default function DefaultsPage() {
     setDefaults({ ...defaults, plugin_set: next });
     save({ plugin_set: next });
   };
+
+  const catalogByName: Record<string, CatalogEntry> = {};
+  for (const e of keyCatalog) catalogByName[e.plugin_name] = e;
+  const keying: PluginKeying = {
+    services,
+    catalogByName,
+    onBind: (name, slug) => bindKey(name, slug, 'default'),
+    onMode: setMode,
+  };
+  const supported = keyCatalog.filter(e => e.tier === 'supported');
 
   if (loading || !defaults) {
     return (
@@ -135,14 +192,40 @@ export default function DefaultsPage() {
           </div>
         </SectionCard>
 
+        {keyError && (
+          <div className="rounded-xl px-4 py-3 text-sm" style={{ background: 'rgba(255,107,107,0.12)', color: '#ff6b6b' }}>
+            {keyError}
+          </div>
+        )}
+
         {/* Default plugin set */}
         <SectionCard icon={Boxes} title="Default plugin set">
           <div>
             <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
               Baked into new images by default. Each image can override this in its
-              own config. Connectors are not bakeable yet.
+              own config. Set a <b>default key</b> per plugin to bind a gateway pool
+              service — in <b>proxy</b> mode the real key never reaches the machine.
             </p>
-            <PluginSetEditor value={defaults.plugin_set} onChange={updatePluginSet} />
+            <PluginSetEditor value={defaults.plugin_set} onChange={updatePluginSet} keying={keying} />
+          </div>
+        </SectionCard>
+
+        {/* Supported plugins (List B) */}
+        <SectionCard icon={Plug} title="Supported plugins">
+          <div>
+            <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
+              Opt-in plugins we offer with a default key, even before a user installs
+              them. Bind a key here, then install onto an agent to provision it.
+            </p>
+            <SupportedPluginsEditor
+              entries={supported}
+              services={services}
+              agents={agents}
+              onBind={(name, slug) => bindKey(name, slug, 'supported')}
+              onMode={setMode}
+              onChanged={fetchKeys}
+              onError={setKeyError}
+            />
           </div>
         </SectionCard>
       </div>

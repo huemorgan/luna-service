@@ -1,10 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { Search, Trash2, Plus, Lock, Loader2 } from 'lucide-react';
+import { KeyControls } from './pluginKeys';
+import type { CatalogEntry, ServiceLite } from './pluginKeys';
 
 export interface PluginSetEntry {
   name: string;
   version: string;
   sha256: string;
+}
+
+/** Optional per-row key binding (Defaults page). When provided, each baked
+ *  plugin row also shows a service picker so admins set its default key here. */
+export interface PluginKeying {
+  services: ServiceLite[];
+  catalogByName: Record<string, CatalogEntry>;
+  onBind: (pluginName: string, serviceSlug: string) => void;
+  onMode: (pluginName: string, mode: 'proxy' | 'env') => void;
 }
 
 export interface CatalogPlugin {
@@ -24,9 +35,11 @@ export interface CatalogPlugin {
 export default function PluginSetEditor({
   value,
   onChange,
+  keying,
 }: {
   value: PluginSetEntry[];
   onChange: (next: PluginSetEntry[]) => void;
+  keying?: PluginKeying;
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<CatalogPlugin[]>([]);
@@ -97,14 +110,25 @@ export default function PluginSetEditor({
                   v{e.version}
                 </span>
               </div>
-              <button
-                onClick={() => remove(e.name)}
-                className="p-1.5 rounded-lg transition-colors hover:opacity-80"
-                style={{ color: '#ef4444' }}
-                title={`Remove ${e.name}`}
-              >
-                <Trash2 size={14} />
-              </button>
+              <div className="flex items-center gap-2">
+                {keying && (
+                  <KeyControls
+                    pluginName={e.name}
+                    entry={keying.catalogByName[e.name] || null}
+                    services={keying.services}
+                    onBind={keying.onBind}
+                    onMode={keying.onMode}
+                  />
+                )}
+                <button
+                  onClick={() => remove(e.name)}
+                  className="p-1.5 rounded-lg transition-colors hover:opacity-80"
+                  style={{ color: '#ef4444' }}
+                  title={`Remove ${e.name}`}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
             </div>
           ))}
         </div>
