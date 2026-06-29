@@ -20,10 +20,6 @@ from cloud.gateway.crypto import decrypt_key
 from cloud.gateway.keys import has_active_key, resolve_keys
 from cloud.gateway.registry import get_service
 from cloud.gateway.tokens import issue_token
-from cloud.provisioning.services_config import (
-    hosted_composio_key_provisioned,
-    resolve_composio_accounts_mode,
-)
 
 log = logging.getLogger(__name__)
 
@@ -51,11 +47,7 @@ async def build_gateway_env(
     image_config: dict | None = None,
     agent_overrides: dict | None = None,
 ) -> dict[str, str]:
-    """Env vars for a tenant machine: proxy URLs + tenant token + branding.
-
-    Plan 016: also emits per-service config (e.g. LUNA_CONNECTORS_ACCOUNTS_MODE),
-    resolved from image default + per-agent override.
-    """
+    """Env vars for a tenant machine: proxy URLs + tenant token + branding."""
     settings = get_settings()
     base = settings.base_url.rstrip("/")
 
@@ -110,18 +102,10 @@ async def build_gateway_env(
         if val:
             env[var] = val
 
-    # Plan 016 — Composio two-accounts mode env var.
-    hosted_provisioned = await hosted_composio_key_provisioned(db)
-    accounts_mode = resolve_composio_accounts_mode(
-        image_config, agent_overrides, hosted_key_provisioned=hosted_provisioned,
-    )
-    env["LUNA_CONNECTORS_ACCOUNTS_MODE"] = accounts_mode
-
     log.info(
-        "gateway env for agent %s: %s (+ %d legacy vars, connectors=%s)",
+        "gateway env for agent %s: %s (+ %d legacy vars)",
         agent_id,
         [s.slug for s in services],
         sum(1 for v in LEGACY_REAL_KEY_VARS if os.environ.get(v)),
-        accounts_mode,
     )
     return env

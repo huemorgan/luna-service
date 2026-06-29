@@ -473,10 +473,6 @@ DEFAULT_IMAGE_CONFIG = {
     # plugin-set.toml until an explicit selection is saved.
     "plugin_set": [],
     "env": {},
-    # Plan 016: per-service defaults (resolver in cloud/provisioning/services_config.py).
-    "services": {
-        "composio": {"accounts_mode": "both"},
-    },
 }
 
 
@@ -1164,10 +1160,6 @@ async def build_complete(
 
 @router.get("/machines")
 async def list_machines(admin: User = Depends(require_admin)):
-    from cloud.provisioning.services_config import (
-        hosted_composio_key_provisioned,
-        resolve_composio_accounts_mode,
-    )
     from cloud.provisioning.model_catalog import resolve_default_heads, system_catalog
 
     async with get_db_session() as db:
@@ -1185,7 +1177,6 @@ async def list_machines(admin: User = Depends(require_admin)):
             img.version: {**_default_cfg, **(img.image_config or {})}
             for img in images
         }
-        hosted_provisioned = await hosted_composio_key_provisioned(db)
         catalog = await system_catalog(db)
 
     fly_machines: list[dict] = []
@@ -1204,10 +1195,6 @@ async def list_machines(admin: User = Depends(require_admin)):
         fly_info = machines_by_id.get(agent.runtime_ref, {})
         config = fly_info.get("config") or {}
         image_cfg = image_config_by_version.get(agent.image_version or "")
-        override = (agent.config_overrides or {}).get("services", {}).get("composio", {}).get("accounts_mode")
-        resolved = resolve_composio_accounts_mode(
-            image_cfg, agent.config_overrides, hosted_key_provisioned=hosted_provisioned,
-        )
 
         # Plan 018: catalog-validated default heads + per-role override.
         models_resolved = resolve_default_heads(catalog, image_cfg, agent.config_overrides)
@@ -1227,8 +1214,6 @@ async def list_machines(admin: User = Depends(require_admin)):
             "fly_region": fly_info.get("region"),
             "fly_image": config.get("image"),
             "fly_created_at": fly_info.get("created_at"),
-            "composio_accounts_mode": resolved,
-            "composio_accounts_mode_override": override,
             "primary_model": models_resolved["primary"],
             "fast_model": models_resolved["fast"],
             "primary_model_override": primary_override,
@@ -1374,95 +1359,6 @@ async def backfill_machine_env(
         "skipped": skipped,
         "errored": errored,
         "machines": results,
-    }
-
-
-class MachineServicesConfigPatch(BaseModel):
-    # Plan 016: when accounts_mode is None we CLEAR the override and revert to
-    # the image default; otherwise set it to the provided value.
-    accounts_mode: str | None = None
-
-
-@router.patch("/machines/{machine_id}/services/composio")
-async def patch_machine_composio_config(
-    machine_id: str,
-    body: MachineServicesConfigPatch,
-    request: Request,
-    admin: User = Depends(require_admin),
-):
-    """Set or clear the per-agent Composio accounts-mode override, then push
-    LUNA_CONNECTORS_ACCOUNTS_MODE to the live machine (no full re-provision)."""
-    from cloud.provisioning.services_config import (
-        hosted_composio_key_provisioned,
-        resolve_composio_accounts_mode,
-    )
-
-    if body.accounts_mode is not None and body.accounts_mode not in ("hosted", "user", "both"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST,
-                            "accounts_mode must be one of hosted/user/both or null")
-
-    ip = _client_ip(request)
-    async with get_db_session() as db:
-        agent = (await db.execute(
-            select(Agent).where(Agent.runtime_ref == machine_id)
-        )).scalar_one_or_none()
-        if not agent:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "No agent found for this machine")
-
-        before = agent.config_overrides
-        overrides = dict(agent.config_overrides or {})
-        services = dict(overrides.get("services") or {})
-        composio = dict(services.get("composio") or {})
-
-        if body.accounts_mode is None:
-            composio.pop("accounts_mode", None)
-        else:
-            composio["accounts_mode"] = body.accounts_mode
-
-        if composio:
-            services["composio"] = composio
-        else:
-            services.pop("composio", None)
-
-        if services:
-            overrides["services"] = services
-        else:
-            overrides.pop("services", None)
-
-        agent.config_overrides = overrides or None
-
-        img = (await db.execute(
-            select(LunaImage).where(LunaImage.version == (agent.image_version or ""))
-        )).scalar_one_or_none()
-        image_cfg = {**(await _default_image_config(db)), **(img.image_config or {} if img else {})}
-        hosted_provisioned = await hosted_composio_key_provisioned(db)
-        resolved = resolve_composio_accounts_mode(
-            image_cfg, agent.config_overrides, hosted_key_provisioned=hosted_provisioned,
-        )
-
-        await _audit(db, action="machine.services_config_updated", actor=admin, actor_ip=ip,
-                     target=machine_id,
-                     metadata={"service": "composio", "agent": agent.slug, "resolved": resolved},
-                     before_state={"config_overrides": before},
-                     after_state={"config_overrides": agent.config_overrides, "resolved_accounts_mode": resolved})
-        await db.commit()
-
-    if os.environ.get("FLY_API_TOKEN") and agent.runtime_kind in ("fly", "fly-machines"):
-        from cloud.runtime.fly_machines import FlyMachinesRuntime
-        fly = FlyMachinesRuntime()
-        try:
-            await fly.update_machine_env(
-                machine_id, {"LUNA_CONNECTORS_ACCOUNTS_MODE": resolved},
-            )
-        except Exception as e:
-            log.error("Failed to push connectors mode to machine %s: %s", machine_id, e)
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY,
-                                f"Saved override but failed to push env: {e}")
-
-    return {
-        "ok": True,
-        "config_overrides": agent.config_overrides,
-        "resolved_accounts_mode": resolved,
     }
 
 

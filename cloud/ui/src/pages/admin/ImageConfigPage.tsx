@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Loader2, Package, Cpu, Brain, Plug, Variable,
-  Star, Check, Plus, Trash2, Lock, DollarSign, ArrowRight, Cable, Boxes,
+  Star, Check, Plus, Trash2, Lock, DollarSign, ArrowRight, Boxes,
 } from 'lucide-react';
 import PluginSetEditor from '../../components/PluginSetEditor';
 
@@ -34,9 +34,6 @@ interface ImageConfig {
   plugins: Record<string, boolean>;
   plugin_set?: PluginSetEntry[];
   env: Record<string, string>;
-  services?: {
-    composio?: { accounts_mode?: 'hosted' | 'user' | 'both' };
-  };
 }
 
 interface PluginSetEntry {
@@ -54,12 +51,6 @@ interface CatalogModel {
   recommended_default: boolean;
   deprecated: boolean;
 }
-
-const COMPOSIO_MODE_OPTIONS = [
-  { value: 'both', label: 'Both — hosted tab + user can bring their own key' },
-  { value: 'hosted', label: 'Hosted only — included with Luna Cloud' },
-  { value: 'user', label: 'User only — user brings their own Composio key' },
-];
 
 interface PluginMeta {
   key: string;
@@ -351,14 +342,6 @@ export default function ImageConfigPage() {
     save({ env: entries });
   };
 
-  const updateComposioMode = (mode: 'hosted' | 'user' | 'both') => {
-    if (!config) return;
-    const services = { ...(config.services || {}), composio: { accounts_mode: mode } };
-    const next = { ...config, services };
-    setConfig(next);
-    save({ services });
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -566,23 +549,6 @@ export default function ImageConfigPage() {
               value={config.plugin_set || []}
               onChange={updatePluginSet}
             />
-          </div>
-        </SectionCard>
-
-        {/* ---- Services (plan 016) ---- */}
-        <SectionCard icon={Cable} title="Services">
-          <div>
-            <FieldRow label="Composio · Connectors mode" noBorder>
-              <Select
-                value={config.services?.composio?.accounts_mode || 'both'}
-                options={COMPOSIO_MODE_OPTIONS}
-                onChange={v => updateComposioMode(v as 'hosted' | 'user' | 'both')}
-              />
-            </FieldRow>
-            <p className="text-xs mt-2" style={{ color: 'var(--text-dim)' }}>
-              Default for new machines built from this image. Each machine can override
-              this on the Machines page.
-            </p>
           </div>
         </SectionCard>
 

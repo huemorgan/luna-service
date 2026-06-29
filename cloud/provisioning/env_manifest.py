@@ -20,10 +20,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cloud.config import get_settings
 from cloud.db.models import GatewayService
 from cloud.gateway.provision_env import HOST_NAME, LEGACY_REAL_KEY_VARS
-from cloud.provisioning.services_config import (
-    hosted_composio_key_provisioned,
-    resolve_composio_accounts_mode,
-)
 from cloud.runtime.fly_machines import files_env
 
 # Vars whose value is per-agent / derived at provision time. In the defaults
@@ -142,10 +138,6 @@ async def default_env_manifest(db: AsyncSession, image_config: dict) -> list[dic
     entries.append(_entry("LUNA_GATEWAY_TOKEN",
                           placeholder=_PLACEHOLDERS["LUNA_GATEWAY_TOKEN"], source="gateway"))
 
-    accounts_mode = resolve_composio_accounts_mode(
-        image_config, None, hosted_key_provisioned=await hosted_composio_key_provisioned(db),
-    )
-    entries.append(_entry("LUNA_CONNECTORS_ACCOUNTS_MODE", value=accounts_mode, source="gateway"))
     entries.append(_entry("LUNA_COMPOSIO_WEBHOOK_SECRET",
                           placeholder=_PLACEHOLDERS["LUNA_COMPOSIO_WEBHOOK_SECRET"], source="gateway"))
 

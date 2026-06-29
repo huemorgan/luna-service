@@ -500,8 +500,6 @@ async def test_build_gateway_env(db_session, sample_agent, monkeypatch):
     assert env["ANTHROPIC_BASE_URL"] == env["LUNA_ANTHROPIC_BASE_URL"]
     assert env["ANTHROPIC_API_KEY"] == env["LUNA_ANTHROPIC_API_KEY"]
     assert env["OPENAI_BASE_URL"] == env["LUNA_OPENAI_BASE_URL"]
-    # Plan 016: connectors accounts mode lands in env.
-    assert env["LUNA_CONNECTORS_ACCOUNTS_MODE"] in ("hosted", "user", "both")
     assert env["OPENAI_API_KEY"] == env["LUNA_OPENAI_API_KEY"]
     # Legacy exception until Luna 007.001
     assert env["LUNA_TAVILY_API_KEY"] == "tvly-real-key"
