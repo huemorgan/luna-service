@@ -1049,6 +1049,7 @@ async def build_image(
     admin: User = Depends(require_admin),
     version: str | None = None,
     branch: str = "main",
+    force: bool = False,
 ):
     ip = _client_ip(request)
     settings = get_settings()
@@ -1088,7 +1089,18 @@ async def build_image(
         existing = (await db.execute(
             select(LunaImage).where(LunaImage.version == version)
         )).scalar_one_or_none()
-        if existing and existing.build_status in ("built", "building"):
+        # Plan 032: `force` rebakes an already-built version in place (same tag),
+        # e.g. to re-bake main with updated defaults without bumping Luna. The
+        # existing record is replaced below; we carry its `is_main` forward so a
+        # rebaked main stays main. A `building` image is never force-replaced
+        # (a build is already in flight).
+        was_main = bool(existing.is_main) if existing else False
+        if existing and existing.build_status == "building":
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"Image {version} is already building",
+            )
+        if existing and existing.build_status == "built" and not force:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
                 f"Image {version} already exists (status: {existing.build_status})",
@@ -1120,6 +1132,7 @@ async def build_image(
             sdk_min_major=sdk_min_major,
             release_notes=release_notes,
             image_config={"plugin_set": baked_plugin_set},
+            is_main=was_main,
         )
         if existing:
             await db.delete(existing)

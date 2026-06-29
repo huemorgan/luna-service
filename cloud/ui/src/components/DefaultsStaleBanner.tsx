@@ -35,7 +35,9 @@ export default function DefaultsStaleBanner({ refreshKey }: { refreshKey?: unkno
   const rebuild = async () => {
     setBuilding(true);
     try {
-      const res = await fetch('/api/admin/images/build', { method: 'POST' });
+      // force=true rebakes the current main version in place (same Luna version,
+      // updated defaults) instead of 409-ing on the already-built version.
+      const res = await fetch('/api/admin/images/build?force=true', { method: 'POST' });
       if (res.ok) {
         navigate('/admin/images');
       } else {

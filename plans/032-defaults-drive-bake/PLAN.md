@@ -56,7 +56,14 @@ Two more gaps the user called out:
    - Empty defaults → snapshot `[]` → `get_image_plugin_set` still falls back to
      the seed (preserves today's behavior when no defaults are set).
    - Non-empty defaults → they win, and the bake is now reproducible/frozen.
-2. **Stale-status endpoint.** `GET /admin/images/defaults-status`:
+1b. **Force rebake.** `POST /images/build?force=true` rebuilds an already-built
+   version in place (same Luna version + registry tag) instead of 409-ing — this
+   is what "rebake main when defaults change" needs, since the Luna version
+   usually hasn't moved. The existing record is replaced and its `is_main` is
+   carried forward, so a rebaked main stays main and just needs Migrate All once
+   the build completes. A `building` image is never force-replaced.
+
+2. **Stale-status endpoint.** `GET /admin/defaults/stale`:
    - current = current defaults' plugin_set (normalized name+version set).
    - baked = the **main built** image's `image_config.plugin_set`, or the seed
      when that image predates the snapshot (empty image_config).
