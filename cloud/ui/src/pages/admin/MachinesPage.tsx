@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Server, Loader2, RefreshCw, ArrowUpCircle, ChevronDown, ChevronRight,
-  Settings, Webhook, Layers, Plus, Trash2, Check, Cable, Brain, ListTree, AlertTriangle,
+  Settings, Webhook, Layers, Plus, Trash2, Check, Brain, ListTree, AlertTriangle,
 } from 'lucide-react';
 import EnvVarsTable, { EnvLegend } from '../../components/EnvVarsTable';
 import type { EnvEntry } from '../../components/EnvVarsTable';
+import RelayPage from './RelayPage';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -27,8 +28,6 @@ interface Machine {
   fly_region: string | null;
   fly_image: string | null;
   fly_created_at: string | null;
-  composio_accounts_mode: 'hosted' | 'user' | 'both';
-  composio_accounts_mode_override: 'hosted' | 'user' | 'both' | null;
   // Plan 017.1 — per-machine model override
   primary_model: ModelEntry;
   fast_model: ModelEntry;
@@ -118,111 +117,6 @@ const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
 /* ------------------------------------------------------------------ */
 /*  Connectors plugin section (Settings tab)                          */
 /* ------------------------------------------------------------------ */
-
-interface ModeOption {
-  value: 'inherit' | 'hosted' | 'user' | 'both';
-  label: string;
-  description: string;
-}
-
-function ConnectorsPluginSection({
-  machine, busy, onChange,
-}: {
-  machine: Machine;
-  busy: boolean;
-  onChange: (value: 'inherit' | 'hosted' | 'user' | 'both') => void;
-}) {
-  const current: ModeOption['value'] =
-    machine.composio_accounts_mode_override ?? 'inherit';
-
-  const options: ModeOption[] = [
-    {
-      value: 'inherit',
-      label: `Inherit image default (${machine.composio_accounts_mode})`,
-      description:
-        'Use whatever the image config says. This is the safest default — change the image config to roll it out to every machine at once.',
-    },
-    {
-      value: 'hosted',
-      label: 'Hosted only',
-      description:
-        "The user sees one Composio tab labeled 'Included with Luna Cloud' and uses our shared key. They cannot enter their own.",
-    },
-    {
-      value: 'user',
-      label: 'User-provided only',
-      description:
-        'The user must paste their own Composio API key. No hosted tab is shown. Useful for BYO-account customers.',
-    },
-    {
-      value: 'both',
-      label: 'Both',
-      description:
-        'Both tabs are visible. The user can pick the hosted Luna key or paste their own.',
-    },
-  ];
-
-  return (
-    <div
-      className="rounded-xl border overflow-hidden"
-      style={{ background: 'var(--ink)', borderColor: 'var(--ink-lighter)' }}
-    >
-      <div
-        className="flex items-center gap-2 px-4 py-3 border-b"
-        style={{ borderColor: 'var(--ink-lighter)' }}
-      >
-        <Cable size={14} style={{ color: 'var(--moon)' }} />
-        <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
-          Connectors plugin (Composio)
-        </span>
-      </div>
-      <div className="px-4 py-3">
-        <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
-          Controls how the connectors plugin lets this Luna talk to Composio.
-          The plugin renders one tab per allowed account source in the agent's
-          Settings → Connectors page.
-        </p>
-        <div
-          className="rounded-lg overflow-hidden"
-          style={{ border: '1px solid var(--ink-lighter)', opacity: busy ? 0.6 : 1 }}
-        >
-          {options.map((opt, i) => {
-            const selected = current === opt.value;
-            return (
-              <label
-                key={opt.value}
-                className="flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-colors"
-                style={{
-                  background: selected ? 'rgba(201,184,255,0.08)' : 'transparent',
-                  borderTop: i === 0 ? 'none' : '1px solid var(--ink-lighter)',
-                }}
-              >
-                <input
-                  type="radio"
-                  name={`mode-${machine.agent_id}`}
-                  value={opt.value}
-                  checked={selected}
-                  disabled={busy}
-                  onChange={() => onChange(opt.value)}
-                  className="mt-0.5"
-                  style={{ accentColor: 'var(--moon)' }}
-                />
-                <div className="min-w-0">
-                  <div className="text-sm font-medium" style={{ color: 'var(--text)' }}>
-                    {opt.label}
-                  </div>
-                  <div className="text-xs mt-0.5" style={{ color: 'var(--text-dim)' }}>
-                    {opt.description}
-                  </div>
-                </div>
-              </label>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /*  Models section (Settings tab)                                      */
@@ -597,7 +491,7 @@ function EnvTab({ machineId }: { machineId: string | null }) {
 /* ------------------------------------------------------------------ */
 
 function MachineCard({
-  machine, links, deliveries, busy, catalog, images, onUpdateImage, onSetMode, onSetModel, onWebhooksChange,
+  machine, links, deliveries, busy, catalog, images, onUpdateImage, onSetModel, onWebhooksChange,
 }: {
   machine: Machine;
   links: AccountLink[];
@@ -606,15 +500,13 @@ function MachineCard({
   catalog: CatalogModel[];
   images: ImageOption[];
   onUpdateImage: (imageId: string) => void;
-  onSetMode: (value: 'inherit' | 'hosted' | 'user' | 'both') => void;
   onSetModel: (role: 'primary' | 'fast', value: string) => void;
   onWebhooksChange: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const hasOverride =
-    !!machine.composio_accounts_mode_override
-    || !!machine.primary_model_override
+    !!machine.primary_model_override
     || !!machine.fast_model_override;
 
   return (
@@ -711,7 +603,6 @@ function MachineCard({
             {activeTab === 'settings' && (
               <div className="space-y-4">
                 <ModelsSection machine={machine} busy={busy} catalog={catalog} onChange={onSetModel} />
-                <ConnectorsPluginSection machine={machine} busy={busy} onChange={onSetMode} />
               </div>
             )}
             {activeTab === 'webhooks' && (
@@ -836,6 +727,7 @@ export default function MachinesPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [migratingAll, setMigratingAll] = useState(false);
   const [migrateResult, setMigrateResult] = useState<{ updated: number; errors: { machine_id: string; agent: string; error: string }[] } | null>(null);
+  const [view, setView] = useState<'machines' | 'relay'>('machines');
 
   const fetchAll = useCallback(async () => {
     const [mRes, lRes, dRes, cRes, iRes] = await Promise.all([
@@ -890,18 +782,6 @@ export default function MachinesPage() {
     setBusy(null);
   };
 
-  const handleSetMode = async (machineId: string, value: 'inherit' | 'hosted' | 'user' | 'both') => {
-    setBusy(machineId);
-    const accounts_mode = value === 'inherit' ? null : value;
-    await fetch(`/api/admin/machines/${machineId}/services/composio`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accounts_mode }),
-    });
-    await fetchAll();
-    setBusy(null);
-  };
-
   const handleSetModel = async (machineId: string, role: 'primary' | 'fast', value: string) => {
     setBusy(machineId);
     const body: Record<string, unknown> = {};
@@ -942,30 +822,87 @@ export default function MachinesPage() {
 
   return (
     <div className="w-full max-w-5xl">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-bold flex items-center gap-2" style={{ color: 'var(--text)' }}>
-          <Server size={20} style={{ color: 'var(--moon)' }} />
-          Machines
-          <span className="text-sm font-normal" style={{ color: 'var(--text-dim)' }}>({machines.length})</span>
-        </h2>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={fetchAll}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all hover:scale-105"
-            style={{ border: '1px solid var(--ink-lighter)', color: 'var(--text-dim)' }}
-          >
-            <RefreshCw size={14} />
-          </button>
-          <button
-            onClick={handleMigrateAll}
-            disabled={migratingAll}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all hover:scale-105 disabled:opacity-50"
-            style={{ background: 'var(--moon)', color: 'var(--ink)' }}
-          >
-            {migratingAll ? <Loader2 className="animate-spin" size={14} /> : <ArrowUpCircle size={14} />}
-            Update All to Main
-          </button>
-        </div>
+      <div className="flex items-center gap-1 mb-6 border-b" style={{ borderColor: 'var(--ink-lighter)' }}>
+        {([
+          { key: 'machines', label: `Machines (${machines.length})`, icon: Server },
+          { key: 'relay', label: 'Webhook Relay', icon: Webhook },
+        ] as const).map(t => {
+          const active = view === t.key;
+          return (
+            <button
+              key={t.key}
+              onClick={() => setView(t.key)}
+              className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold transition-colors -mb-px border-b-2"
+              style={{
+                color: active ? 'var(--text)' : 'var(--text-dim)',
+                borderColor: active ? 'var(--moon)' : 'transparent',
+              }}
+            >
+              <t.icon size={16} style={{ color: active ? 'var(--moon)' : 'var(--text-dim)' }} />
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {view === 'relay' ? (
+        <RelayPage embedded />
+      ) : (
+        <MachinesView
+          machines={machines}
+          linksByAgent={linksByAgent}
+          deliveriesByAgent={deliveriesByAgent}
+          busy={busy}
+          catalog={catalog}
+          images={images}
+          migratingAll={migratingAll}
+          migrateResult={migrateResult}
+          onRefresh={fetchAll}
+          onMigrateAll={handleMigrateAll}
+          onUpdateImage={handleUpdateImage}
+          onSetModel={handleSetModel}
+        />
+      )}
+    </div>
+  );
+}
+
+function MachinesView({
+  machines, linksByAgent, deliveriesByAgent, busy, catalog, images,
+  migratingAll, migrateResult, onRefresh, onMigrateAll, onUpdateImage, onSetModel,
+}: {
+  machines: Machine[];
+  linksByAgent: Record<string, AccountLink[]>;
+  deliveriesByAgent: Record<string, Delivery[]>;
+  busy: string | null;
+  catalog: CatalogModel[];
+  images: ImageOption[];
+  migratingAll: boolean;
+  migrateResult: { updated: number; errors: { machine_id: string; agent: string; error: string }[] } | null;
+  onRefresh: () => void;
+  onMigrateAll: () => void;
+  onUpdateImage: (machineId: string, imageId?: string) => void;
+  onSetModel: (machineId: string, role: 'primary' | 'fast', value: string) => void;
+}) {
+  return (
+    <>
+      <div className="flex items-center justify-end gap-2 mb-6">
+        <button
+          onClick={onRefresh}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all hover:scale-105"
+          style={{ border: '1px solid var(--ink-lighter)', color: 'var(--text-dim)' }}
+        >
+          <RefreshCw size={14} />
+        </button>
+        <button
+          onClick={onMigrateAll}
+          disabled={migratingAll}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all hover:scale-105 disabled:opacity-50"
+          style={{ background: 'var(--moon)', color: 'var(--ink)' }}
+        >
+          {migratingAll ? <Loader2 className="animate-spin" size={14} /> : <ArrowUpCircle size={14} />}
+          Update All to Main
+        </button>
       </div>
 
       {migrateResult && (
@@ -1009,14 +946,13 @@ export default function MachinesPage() {
               busy={busy === m.machine_id}
               catalog={catalog}
               images={images}
-              onUpdateImage={(imageId) => m.machine_id && handleUpdateImage(m.machine_id, imageId)}
-              onSetMode={(v) => m.machine_id && handleSetMode(m.machine_id, v)}
-              onSetModel={(r, v) => m.machine_id && handleSetModel(m.machine_id, r, v)}
-              onWebhooksChange={fetchAll}
+              onUpdateImage={(imageId) => m.machine_id && onUpdateImage(m.machine_id, imageId)}
+              onSetModel={(r, v) => m.machine_id && onSetModel(m.machine_id, r, v)}
+              onWebhooksChange={onRefresh}
             />
           ))}
         </div>
       )}
-    </div>
+    </>
   );
 }

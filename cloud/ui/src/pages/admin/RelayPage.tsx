@@ -41,7 +41,7 @@ function fmtTime(iso: string | null): string {
   });
 }
 
-export default function RelayPage() {
+export default function RelayPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [links, setLinks] = useState<AccountLink[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,20 +101,32 @@ export default function RelayPage() {
   }
 
   return (
-    <div className="max-w-5xl">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-bold flex items-center gap-2" style={{ color: 'var(--text)' }}>
-          <Webhook size={20} style={{ color: 'var(--moon)' }} />
-          Webhook Relay
-        </h2>
-        <button
-          onClick={fetchAll}
-          className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all hover:scale-105"
-          style={{ border: '1px solid var(--ink-lighter)', color: 'var(--text-dim)' }}
-        >
-          <RefreshCw size={14} />
-        </button>
-      </div>
+    <div className={embedded ? '' : 'max-w-5xl'}>
+      {embedded ? (
+        <div className="flex justify-end mb-4">
+          <button
+            onClick={fetchAll}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all hover:scale-105"
+            style={{ border: '1px solid var(--ink-lighter)', color: 'var(--text-dim)' }}
+          >
+            <RefreshCw size={14} />
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-bold flex items-center gap-2" style={{ color: 'var(--text)' }}>
+            <Webhook size={20} style={{ color: 'var(--moon)' }} />
+            Webhook Relay
+          </h2>
+          <button
+            onClick={fetchAll}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all hover:scale-105"
+            style={{ border: '1px solid var(--ink-lighter)', color: 'var(--text-dim)' }}
+          >
+            <RefreshCw size={14} />
+          </button>
+        </div>
+      )}
 
       {/* ── Deliveries ── */}
       <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--text)' }}>
@@ -185,6 +197,14 @@ export default function RelayPage() {
           Add Link
         </button>
       </div>
+
+      <p className="text-xs mb-3 max-w-3xl leading-relaxed" style={{ color: 'var(--text-dim)' }}>
+        Maps a Composio connected account (<span className="font-mono">ca_…</span>) to the Luna
+        agent that owns it, so inbound webhooks from that account get relayed to the right
+        machine. Links are created automatically when a user connects an account, or added
+        manually here for backfill. <span className="font-mono">App</span> is the Composio
+        toolkit (e.g. gmail) and is optional.
+      </p>
 
       {showAddLink && (
         <div className="rounded-xl border p-4 mb-4 flex flex-wrap items-end gap-3" style={{ background: 'var(--surface)', borderColor: 'var(--ink-lighter)' }}>
