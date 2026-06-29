@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Package, Loader2, Star, Hammer, RefreshCw, ExternalLink, ChevronDown, ChevronRight, AlertCircle, Trash2, RotateCcw, ArrowUpCircle, Settings, Play, GitBranch } from 'lucide-react';
+import DefaultsStaleBanner from '../../components/DefaultsStaleBanner';
 
 interface LunaImage {
   id: string;
@@ -431,6 +432,8 @@ export default function ImagesPage() {
           </button>
         </div>
       </div>
+
+      <DefaultsStaleBanner refreshKey={images} />
 
       {/* Build from a Luna branch (experimental builds on production) */}
       <div

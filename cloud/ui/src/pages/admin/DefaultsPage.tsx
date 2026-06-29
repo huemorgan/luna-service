@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Loader2, Brain, Boxes, Check, Plug } from 'lucide-react';
 import DefaultsTabs from './DefaultsTabs';
+import DefaultsStaleBanner from '../../components/DefaultsStaleBanner';
 import PluginSetEditor from '../../components/PluginSetEditor';
 import type { PluginSetEntry, PluginKeying } from '../../components/PluginSetEditor';
 import SupportedPluginsEditor from '../../components/SupportedPluginsEditor';
@@ -145,6 +146,8 @@ export default function DefaultsPage() {
   return (
     <div>
       <DefaultsTabs />
+
+      <DefaultsStaleBanner refreshKey={saveStatus} />
 
       <div className="flex items-center justify-between mb-6">
         <div>

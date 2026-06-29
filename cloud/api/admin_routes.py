@@ -823,6 +823,58 @@ async def update_image_defaults(
     return {"models": cfg.get("models", {}), "plugin_set": cfg.get("plugin_set", [])}
 
 
+def _normalize_plugin_set(entries: list[dict] | None) -> set[tuple[str, str]]:
+    """A plugin set as an order-insensitive {(name, version)} set for comparison.
+    Hyphen/underscore agnostic on the name so `plugin-files` == `plugin_files`."""
+    out: set[tuple[str, str]] = set()
+    for e in entries or []:
+        name = _norm_plugin_name(e.get("name", ""))
+        version = (e.get("version") or "").strip()
+        if name:
+            out.add((name, version))
+    return out
+
+
+@router.get("/defaults/stale")
+async def defaults_stale(admin: User = Depends(require_admin)):
+    """Plan 032: is the current Defaults plugin_set baked into the main image?
+
+    `stale` is true when the current defaults' plugin_set differs from what the
+    main built image actually baked (its `image_config.plugin_set`, or the
+    plugin-set.toml seed for images built before Plan 032 snapshotting). A stale
+    state means a rebake of main is required for plugin-set changes to land.
+    """
+    async with get_db_session() as db:
+        cfg = await _default_image_config(db)
+        current = cfg.get("plugin_set", []) or []
+
+        main_img = (await db.execute(
+            select(LunaImage).where(
+                LunaImage.is_main == True,  # noqa: E712
+                LunaImage.build_status == "built",
+            )
+        )).scalar_one_or_none()
+
+    if main_img is None:
+        # No built main yet — nothing to be stale against.
+        return {"stale": False, "main_version": None, "main_image_id": None,
+                "current_count": len(current), "baked_count": 0}
+
+    baked = (main_img.image_config or {}).get("plugin_set") or []
+    if not baked:
+        # Pre-032 image (empty config) baked the seed.
+        baked = _read_plugin_set_seed()
+
+    stale = _normalize_plugin_set(current) != _normalize_plugin_set(baked)
+    return {
+        "stale": stale,
+        "main_version": main_img.version,
+        "main_image_id": str(main_img.id),
+        "current_count": len(current),
+        "baked_count": len(baked),
+    }
+
+
 def _read_plugin_set_seed() -> list[dict]:
     """Read plugin-set.toml at repo root → [{name, version, sha256}] (or [])."""
     import tomllib
@@ -1050,6 +1102,13 @@ async def build_image(
         )).scalar_one_or_none()
         release_notes = await _fetch_release_notes(branch, prev_main.git_sha if prev_main else None)
 
+        # Plan 032: snapshot the resolved defaults' plugin_set into THIS image's
+        # config so the build bakes the admin Defaults (not the seed) and the
+        # image permanently records what it baked. Empty defaults → [] → the
+        # plugin-set endpoint still falls back to the plugin-set.toml seed.
+        default_cfg = await _default_image_config(db)
+        baked_plugin_set = default_cfg.get("plugin_set", []) or []
+
         img = LunaImage(
             version=version,
             registry_tag=registry_tag,
@@ -1060,6 +1119,7 @@ async def build_image(
             sdk_major=sdk_major,
             sdk_min_major=sdk_min_major,
             release_notes=release_notes,
+            image_config={"plugin_set": baked_plugin_set},
         )
         if existing:
             await db.delete(existing)
