@@ -76,7 +76,44 @@ const MEMORY_OPTIONS = [
   { value: 1024, label: '1 GB' },
   { value: 2048, label: '2 GB' },
   { value: 4096, label: '4 GB' },
+  { value: 8192, label: '8 GB' },
+  { value: 16384, label: '16 GB' },
+  { value: 32768, label: '32 GB' },
+  { value: 65536, label: '64 GB' },
 ];
+
+// Fly guest RAM limits per vCPU, by CPU kind. Dedicated ("performance") CPUs
+// require ≥2048 MiB each (so 4 vCPU → 8192 MiB min); shared allow ≥256 MiB.
+// Fly also caps RAM per CPU. An invalid pair (e.g. performance/4/1 GB) is what
+// triggers Fly's `invalid config.guest.memory_mb, minimum required …` 400.
+const MEM_PER_CPU: Record<'shared' | 'performance', { min: number; max: number }> = {
+  shared: { min: 256, max: 2048 },
+  performance: { min: 2048, max: 16384 },
+};
+
+function memBounds(cpuKind: string, cpus: number): { min: number; max: number } {
+  const r = MEM_PER_CPU[cpuKind as 'shared' | 'performance'] ?? MEM_PER_CPU.shared;
+  return { min: r.min * cpus, max: r.max * cpus };
+}
+
+function validMemoryOptions(cpuKind: string, cpus: number) {
+  const { min, max } = memBounds(cpuKind, cpus);
+  return MEMORY_OPTIONS.filter(o => o.value >= min && o.value <= max);
+}
+
+// Snap a memory value into the allowed range for the chosen CPU kind + count.
+function clampMemory(cpuKind: string, cpus: number, mem: number): number {
+  const opts = validMemoryOptions(cpuKind, cpus).map(o => o.value);
+  if (opts.length === 0) return memBounds(cpuKind, cpus).min;
+  if (opts.includes(mem)) return mem;
+  if (mem < opts[0]) return opts[0];
+  if (mem > opts[opts.length - 1]) return opts[opts.length - 1];
+  return opts.find(o => o >= mem) ?? opts[opts.length - 1];
+}
+
+function fmtMem(mb: number): string {
+  return mb >= 1024 ? `${mb / 1024} GB` : `${mb} MB`;
+}
 
 const REGIONS = [
   { value: 'sjc', label: 'San Jose (sjc)' },
@@ -253,7 +290,10 @@ export default function ImageConfigPage() {
     if (cfgRes.ok) {
       const cfg = await cfgRes.json();
       setConfig(cfg);
-      setMachineDraft(cfg.machine);
+      setMachineDraft({
+        ...cfg.machine,
+        memory_mb: clampMemory(cfg.machine.cpu_kind, cfg.machine.cpus, cfg.machine.memory_mb),
+      });
     }
     if (plugRes.ok) setPlugins(await plugRes.json());
     if (modelsRes.ok) setCatalog((await modelsRes.json()).filter((m: CatalogModel) => m.enabled));
@@ -295,9 +335,23 @@ export default function ImageConfigPage() {
     return estimateMonthlyCost(machineDraft.cpu_kind, machineDraft.cpus, machineDraft.memory_mb, machineDraft.region);
   }, [machineDraft]);
 
+  // Final guard so an out-of-range memory can never be applied (and turned into
+  // a Fly 400 at agent-create time).
+  const memValid = useMemo(() => {
+    if (!machineDraft) return true;
+    const { min, max } = memBounds(machineDraft.cpu_kind, machineDraft.cpus);
+    return machineDraft.memory_mb >= min && machineDraft.memory_mb <= max;
+  }, [machineDraft]);
+
   const updateMachineDraft = (field: string, value: string | number) => {
     if (!machineDraft) return;
-    setMachineDraft({ ...machineDraft, [field]: value });
+    const next = { ...machineDraft, [field]: value };
+    // Guard: changing CPU kind or count can invalidate the current memory
+    // (Fly's per-vCPU floor/ceiling). Snap memory back into the valid range.
+    if (field === 'cpu_kind' || field === 'cpus') {
+      next.memory_mb = clampMemory(next.cpu_kind, next.cpus, next.memory_mb);
+    }
+    setMachineDraft(next);
   };
 
   const applyMachine = async () => {
@@ -416,7 +470,18 @@ export default function ImageConfigPage() {
               <Select value={machineDraft.cpus} options={CPU_COUNTS.map(c => ({ value: c, label: `${c} vCPU` }))} onChange={v => updateMachineDraft('cpus', parseInt(v))} />
             </FieldRow>
             <FieldRow label="Memory">
-              <Select value={machineDraft.memory_mb} options={MEMORY_OPTIONS} onChange={v => updateMachineDraft('memory_mb', parseInt(v))} />
+              <div className="flex flex-col items-end gap-1">
+                <Select
+                  value={machineDraft.memory_mb}
+                  options={validMemoryOptions(machineDraft.cpu_kind, machineDraft.cpus)}
+                  onChange={v => updateMachineDraft('memory_mb', parseInt(v))}
+                />
+                <span className="text-[10px]" style={{ color: 'var(--text-dim)' }}>
+                  {machineDraft.cpu_kind === 'performance' ? 'Dedicated' : 'Shared'} {machineDraft.cpus}× vCPU
+                  {' '}allows {fmtMem(memBounds(machineDraft.cpu_kind, machineDraft.cpus).min)}–
+                  {fmtMem(memBounds(machineDraft.cpu_kind, machineDraft.cpus).max)}
+                </span>
+              </div>
             </FieldRow>
             <FieldRow label="Region" noBorder>
               <Select value={machineDraft.region} options={REGIONS} onChange={v => updateMachineDraft('region', v)} />
@@ -456,11 +521,11 @@ export default function ImageConfigPage() {
               </div>
               <button
                 onClick={applyMachine}
-                disabled={!machineChanged || applyingMachine}
+                disabled={!machineChanged || applyingMachine || !memValid}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all hover:scale-105 disabled:opacity-30 disabled:hover:scale-100"
                 style={{
-                  background: machineChanged ? 'var(--moon)' : 'var(--ink-lighter)',
-                  color: machineChanged ? 'var(--ink)' : 'var(--text-dim)',
+                  background: machineChanged && memValid ? 'var(--moon)' : 'var(--ink-lighter)',
+                  color: machineChanged && memValid ? 'var(--ink)' : 'var(--text-dim)',
                 }}
               >
                 {applyingMachine ? <Loader2 className="animate-spin" size={14} /> : <Check size={14} />}
