@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import type { ReactNode } from 'react';
-import { AlertTriangle, Hammer, Loader2, CheckCircle2, ArrowUpCircle } from 'lucide-react';
+import { AlertTriangle, Hammer, Loader2 } from 'lucide-react';
 
 type RebakeState = 'none' | 'building' | 'ready';
 
@@ -16,11 +16,11 @@ interface StaleStatus {
 }
 
 /**
- * Plan 033 — two-step rebake banner. Walks the admin through:
+ * Plan 033 — rebake banner. Walks the admin through:
  *   stale  → "Bake new image with current defaults"  (POST /images/rebake)
  *   building → "Baking v… — a few minutes" (self-polls)
- *   ready  → "Promote v… to Main" (POST /images/{id}/promote-main): migrates
- *            agents and deletes the old main image.
+ * Once the rebake is ready the banner hides — promotion to Main is done from the
+ * per-image "Promote to Main" button in the images list, not from here.
  * The current main is never mutated in place. `refreshKey` lets the host page
  * force a re-check after edits.
  */
@@ -69,55 +69,11 @@ export default function DefaultsStaleBanner({ refreshKey }: { refreshKey?: unkno
     setBusy(false);
   };
 
-  const promote = async () => {
-    if (!status?.rebake_image_id) return;
-    const oldMain = status.main_version ? ` and remove old main v${status.main_version}` : '';
-    if (!window.confirm(
-      `Promote v${status.rebake_version} to Main?\n\nThis migrates all agents to it${oldMain}.`,
-    )) return;
-    setBusy(true);
-    try {
-      const res = await fetch(`/api/admin/images/${status.rebake_image_id}/promote-main`, { method: 'POST' });
-      const data = await res.json().catch(() => null);
-      if (res.ok && data) {
-        const removed = data.deleted_old ? ` Removed old main v${data.deleted_old}.` : '';
-        const failed = data.errors?.length ? ` ${data.errors.length} agent(s) failed to migrate — old main kept.` : '';
-        alert(`v${data.promoted} is now Main. Migrated ${data.migrated} agent(s).${removed}${failed}`);
-        await check();
-      } else {
-        alert(`Promote failed: ${data?.detail || res.statusText}`);
-      }
-    } catch (e: unknown) {
-      alert(`Promote error: ${e instanceof Error ? e.message : e}`);
-    }
-    setBusy(false);
-  };
-
   if (!status) return null;
-  const visible = status.stale || status.rebake_state !== 'none';
+  // Once a rebake is ready, hide the banner — promotion to Main happens from the
+  // per-image button in the images list, not from a nagging banner.
+  const visible = status.stale || status.rebake_state === 'building';
   if (!visible) return null;
-
-  // ── ready: green promote step ──────────────────────────────────────────────
-  if (status.rebake_state === 'ready') {
-    return (
-      <Shell
-        tone="green"
-        icon={<CheckCircle2 size={16} style={{ color: '#22c55e' }} />}
-        left={
-          <Text
-            title={`New image v${status.rebake_version} is baked with the current defaults`}
-            sub={`Promote it to Main — migrates all agents${status.main_version ? ` and removes the old main v${status.main_version}` : ''}.`}
-          />
-        }
-        right={
-          <Btn onClick={promote} disabled={busy} bg="#22c55e"
-            icon={busy ? <Loader2 className="animate-spin" size={14} /> : <ArrowUpCircle size={14} />}>
-            Promote to Main
-          </Btn>
-        }
-      />
-    );
-  }
 
   // ── building: amber spinner, no action ─────────────────────────────────────
   if (status.rebake_state === 'building') {
