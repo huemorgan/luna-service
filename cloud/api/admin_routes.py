@@ -15,7 +15,7 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cloud.auth.deps import require_admin
@@ -570,10 +570,13 @@ async def check_update(admin: User = Depends(require_admin)):
         )).scalar_one_or_none()
 
     latest_built = latest_image.version if latest_image else None
+    # 033: a rebake sibling is tagged `{base}-r{n}` — strip the suffix so it
+    # doesn't read as a newer Luna version than the submodule.
+    latest_base = re.sub(r"-r\d+$", "", latest_built) if latest_built else None
     return {
         "submodule_version": submodule_version,
         "latest_built": latest_built,
-        "update_available": submodule_version is not None and submodule_version != latest_built,
+        "update_available": submodule_version is not None and submodule_version != latest_base,
         "source": source,
     }
 
@@ -847,6 +850,7 @@ async def defaults_stale(admin: User = Depends(require_admin)):
     async with get_db_session() as db:
         cfg = await _default_image_config(db)
         current = cfg.get("plugin_set", []) or []
+        current_norm = _normalize_plugin_set(current)
 
         main_img = (await db.execute(
             select(LunaImage).where(
@@ -855,23 +859,49 @@ async def defaults_stale(admin: User = Depends(require_admin)):
             )
         )).scalar_one_or_none()
 
+        # Plan 033: find a rebake sibling (non-main, main-branch) whose baked
+        # plugin_set matches the current defaults — newest first. Surfaces the
+        # two-step flow: building → ready (promote).
+        siblings = (await db.execute(
+            select(LunaImage).where(
+                LunaImage.is_main == False,  # noqa: E712
+                LunaImage.git_branch == "main",
+                LunaImage.build_status.in_(("built", "building")),
+            ).order_by(LunaImage.created_at.desc())
+        )).scalars().all()
+
+    rebake_state, rebake_version, rebake_image_id = "none", None, None
+    building = next((s for s in siblings if s.build_status == "building"
+                     and _normalize_plugin_set((s.image_config or {}).get("plugin_set") or []) == current_norm), None)
+    ready = next((s for s in siblings if s.build_status == "built"
+                  and _normalize_plugin_set((s.image_config or {}).get("plugin_set") or []) == current_norm), None)
+    if building is not None:
+        rebake_state, rebake_version, rebake_image_id = "building", building.version, str(building.id)
+    elif ready is not None:
+        rebake_state, rebake_version, rebake_image_id = "ready", ready.version, str(ready.id)
+
     if main_img is None:
         # No built main yet — nothing to be stale against.
         return {"stale": False, "main_version": None, "main_image_id": None,
-                "current_count": len(current), "baked_count": 0}
+                "current_count": len(current), "baked_count": 0,
+                "rebake_state": rebake_state, "rebake_version": rebake_version,
+                "rebake_image_id": rebake_image_id}
 
     baked = (main_img.image_config or {}).get("plugin_set") or []
     if not baked:
         # Pre-032 image (empty config) baked the seed.
         baked = _read_plugin_set_seed()
 
-    stale = _normalize_plugin_set(current) != _normalize_plugin_set(baked)
+    stale = current_norm != _normalize_plugin_set(baked)
     return {
         "stale": stale,
         "main_version": main_img.version,
         "main_image_id": str(main_img.id),
         "current_count": len(current),
         "baked_count": len(baked),
+        "rebake_state": rebake_state,
+        "rebake_version": rebake_version,
+        "rebake_image_id": rebake_image_id,
     }
 
 
@@ -1049,7 +1079,6 @@ async def build_image(
     admin: User = Depends(require_admin),
     version: str | None = None,
     branch: str = "main",
-    force: bool = False,
 ):
     ip = _client_ip(request)
     settings = get_settings()
@@ -1089,18 +1118,10 @@ async def build_image(
         existing = (await db.execute(
             select(LunaImage).where(LunaImage.version == version)
         )).scalar_one_or_none()
-        # Plan 032: `force` rebakes an already-built version in place (same tag),
-        # e.g. to re-bake main with updated defaults without bumping Luna. The
-        # existing record is replaced below; we carry its `is_main` forward so a
-        # rebaked main stays main. A `building` image is never force-replaced
-        # (a build is already in flight).
-        was_main = bool(existing.is_main) if existing else False
-        if existing and existing.build_status == "building":
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                f"Image {version} is already building",
-            )
-        if existing and existing.build_status == "built" and not force:
+        if existing and existing.build_status in ("built", "building"):
+            # Same version already built/building. Rebaking the same Luna version
+            # with new defaults goes through POST /images/rebake (a non-main
+            # sibling), never an in-place replace of the live record.
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
                 f"Image {version} already exists (status: {existing.build_status})",
@@ -1132,7 +1153,6 @@ async def build_image(
             sdk_min_major=sdk_min_major,
             release_notes=release_notes,
             image_config={"plugin_set": baked_plugin_set},
-            is_main=was_main,
         )
         if existing:
             await db.delete(existing)
@@ -1148,41 +1168,187 @@ async def build_image(
                      after_state={"version": version, "build_status": "building", "branch": branch})
         await db.commit()
 
-    if settings.github_pat:
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(
-                    f"https://api.github.com/repos/{settings.github_repo}/actions/workflows/build-luna-image.yml/dispatches",
-                    headers={
-                        "Authorization": f"Bearer {settings.github_pat}",
-                        "Accept": "application/vnd.github.v3+json",
-                    },
-                    json={
-                        "ref": "main",
-                        "inputs": {
-                            "version": version,
-                            "image_id": image_id,
-                            "branch": branch,
-                            "base_version": base_version,
-                        },
-                    },
-                    timeout=15,
-                )
-                resp.raise_for_status()
-        except Exception as e:
-            log.error("Failed to trigger GitHub Actions build: %s", e)
-            async with get_db_session() as db:
-                img = (await db.execute(
-                    select(LunaImage).where(LunaImage.id == uuid.UUID(image_id))
-                )).scalar_one()
-                img.build_status = "failed"
-                img.build_error = f"Failed to trigger build: {e}"
-                await db.commit()
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Failed to trigger build: {e}")
-    else:
-        log.warning("CLOUD_GITHUB_PAT not set — image record created but no build triggered")
-
+    await _trigger_github_build(image_id, version, branch, base_version)
     return _image_dict(img)
+
+
+async def _trigger_github_build(
+    image_id: str, version: str, branch: str, base_version: str
+) -> None:
+    """Dispatch the build-luna-image workflow for an already-created image record.
+    On dispatch failure, marks the record failed and raises 502. Shared by the
+    normal build and the rebake (033) paths."""
+    settings = get_settings()
+    if not settings.github_pat:
+        log.warning("CLOUD_GITHUB_PAT not set — image record created but no build triggered")
+        return
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"https://api.github.com/repos/{settings.github_repo}/actions/workflows/build-luna-image.yml/dispatches",
+                headers={
+                    "Authorization": f"Bearer {settings.github_pat}",
+                    "Accept": "application/vnd.github.v3+json",
+                },
+                json={
+                    "ref": "main",
+                    "inputs": {
+                        "version": version,
+                        "image_id": image_id,
+                        "branch": branch,
+                        "base_version": base_version,
+                    },
+                },
+                timeout=15,
+            )
+            resp.raise_for_status()
+    except Exception as e:
+        log.error("Failed to trigger GitHub Actions build: %s", e)
+        async with get_db_session() as db:
+            img = (await db.execute(
+                select(LunaImage).where(LunaImage.id == uuid.UUID(image_id))
+            )).scalar_one()
+            img.build_status = "failed"
+            img.build_error = f"Failed to trigger build: {e}"
+            await db.commit()
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Failed to trigger build: {e}")
+
+
+@router.post("/images/rebake")
+async def rebake_image(request: Request, admin: User = Depends(require_admin)):
+    """Plan 033 step 1 — bake a NON-main sibling image from the current Luna
+    version with the current admin defaults. The live main is never touched. If
+    the base version already has a built/building image, the sibling is tagged
+    `{base}-r{n}` so two images of the same Luna version can coexist."""
+    ip = _client_ip(request)
+
+    base_version = (await _fetch_luna_version_from_github())[0]
+    if not base_version:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot determine Luna version")
+    _, git_sha = await _fetch_luna_ref_info("main")
+    sdk_major, sdk_min_major = await _fetch_luna_sdk_contract("main")
+    fly_app = os.environ.get("FLY_APP", "luna-agents")
+
+    async with get_db_session() as db:
+        taken = set((await db.execute(
+            select(LunaImage.version).where(
+                or_(
+                    LunaImage.version == base_version,
+                    LunaImage.version.like(f"{base_version}-r%"),
+                )
+            )
+        )).scalars().all())
+        if base_version not in taken:
+            version = base_version
+        else:
+            n = 1
+            while f"{base_version}-r{n}" in taken:
+                n += 1
+            version = f"{base_version}-r{n}"
+        registry_tag = f"registry.fly.io/{fly_app}:{version}"
+
+        prev_main = (await db.execute(
+            select(LunaImage).where(
+                LunaImage.is_main == True,  # noqa: E712
+                LunaImage.build_status == "built",
+            )
+        )).scalar_one_or_none()
+        release_notes = await _fetch_release_notes("main", prev_main.git_sha if prev_main else None)
+
+        default_cfg = await _default_image_config(db)
+        baked_plugin_set = default_cfg.get("plugin_set", []) or []
+
+        img = LunaImage(
+            version=version,
+            registry_tag=registry_tag,
+            build_status="building",
+            created_by=admin.id,
+            git_branch="main",
+            git_sha=git_sha,
+            sdk_major=sdk_major,
+            sdk_min_major=sdk_min_major,
+            release_notes=release_notes,
+            image_config={"plugin_set": baked_plugin_set},
+            is_main=False,
+        )
+        db.add(img)
+        await db.commit()
+        await db.refresh(img)
+        image_id = str(img.id)
+        result = _image_dict(img, 0, default_cfg)
+
+        await _audit(db, action="image.rebake_triggered", actor=admin, actor_ip=ip,
+                     target=image_id, metadata={"version": version, "registry_tag": registry_tag,
+                                                 "base_version": base_version},
+                     after_state={"version": version, "build_status": "building"})
+        await db.commit()
+
+    await _trigger_github_build(image_id, version, "main", base_version)
+    return result
+
+
+@router.post("/images/{image_id}/promote-main")
+async def promote_main(image_id: str, request: Request, admin: User = Depends(require_admin)):
+    """Plan 033 step 2 — promote a built sibling to Main, migrate all agents to
+    it, then delete the previous main image (only if every agent migrated). Warms
+    the new image. Returns counts so the UI can tell the admin what happened."""
+    ip = _client_ip(request)
+
+    async with get_db_session() as db:
+        img = (await db.execute(
+            select(LunaImage).where(LunaImage.id == uuid.UUID(image_id))
+        )).scalar_one_or_none()
+        if not img:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
+        if img.build_status != "built":
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only built images can be promoted")
+
+        old_main = (await db.execute(
+            select(LunaImage).where(LunaImage.is_main == True)  # noqa: E712
+        )).scalar_one_or_none()
+        old_main_id = str(old_main.id) if old_main and old_main.id != img.id else None
+        old_main_version = old_main.version if old_main and old_main.id != img.id else None
+
+        await db.execute(LunaImage.__table__.update().values(is_main=False))
+        img.is_main = True
+        await _audit(db, action="image.promoted_to_main", actor=admin, actor_ip=ip,
+                     target=str(img.id), metadata={"version": img.version},
+                     before_state={"previous_main": old_main_version},
+                     after_state={"new_main": img.version})
+        await db.commit()
+
+        promoted_version = img.version
+        registry_tag = img.registry_tag
+        image_config = {**(await _default_image_config(db)), **(img.image_config or {})}
+
+    migrated = await _migrate_all_agents(promoted_version, registry_tag, admin, ip)
+
+    deleted_old = None
+    if old_main_id and not migrated["errors"]:
+        async with get_db_session() as db:
+            om = (await db.execute(
+                select(LunaImage).where(LunaImage.id == uuid.UUID(old_main_id))
+            )).scalar_one_or_none()
+            if om and not om.is_main:
+                before = {"version": om.version, "registry_tag": om.registry_tag}
+                await db.delete(om)
+                await _audit(db, action="image.deleted", actor=admin, actor_ip=ip,
+                             target=old_main_id, metadata={"version": om.version,
+                                                           "reason": "replaced by promoted main"},
+                             before_state=before)
+                await db.commit()
+                deleted_old = old_main_version
+
+    import asyncio
+    asyncio.create_task(_warm_image_background(image_id, registry_tag, image_config))
+
+    return {
+        "ok": True,
+        "promoted": promoted_version,
+        "migrated": migrated["updated"],
+        "errors": migrated["errors"],
+        "deleted_old": deleted_old,
+    }
 
 
 # ── Build webhook (called by GitHub Actions) ─────────────────────────────────
@@ -1591,6 +1757,56 @@ async def update_machine_image(machine_id: str, request: Request, admin: User = 
     return {"ok": True, "version": target_version}
 
 
+async def _migrate_all_agents(
+    main_version: str, registry_tag: str, admin: User, ip: str | None
+) -> dict:
+    """Update every machine not already on `main_version` to `registry_tag` and
+    record the new image_version. Returns {updated, errors}. Shared by the
+    migrate-all endpoint and promote-main (033)."""
+    async with get_db_session() as db:
+        agents = (await db.execute(
+            select(Agent).where(
+                Agent.runtime_ref.isnot(None),
+                Agent.image_version != main_version,
+            )
+        )).scalars().all()
+
+    if not agents:
+        return {"updated": 0, "errors": []}
+
+    if not os.environ.get("FLY_API_TOKEN"):
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Fly API not configured")
+
+    from cloud.runtime.fly_machines import FlyMachinesRuntime
+    fly = FlyMachinesRuntime()
+
+    before_versions = {a.slug: a.image_version for a in agents}
+    updated = 0
+    errors: list[dict] = []
+    for agent in agents:
+        try:
+            await fly.update_machine_image(agent.runtime_ref, registry_tag)
+            async with get_db_session() as db:
+                a = (await db.execute(
+                    select(Agent).where(Agent.id == agent.id)
+                )).scalar_one()
+                a.image_version = main_version
+                await db.commit()
+            updated += 1
+        except Exception as e:
+            log.error("Failed to update machine %s: %s", agent.runtime_ref, e)
+            errors.append({"machine_id": agent.runtime_ref, "agent": agent.slug, "error": str(e)})
+
+    async with get_db_session() as db:
+        await _audit(db, action="machine.migrate_all", actor=admin, actor_ip=ip,
+                     metadata={"version": main_version, "updated": updated, "errors": len(errors)},
+                     before_state={"agent_versions": before_versions},
+                     after_state={"version": main_version, "updated_count": updated})
+        await db.commit()
+
+    return {"updated": updated, "errors": errors}
+
+
 @router.post("/machines/migrate-all")
 async def migrate_all_machines(request: Request, admin: User = Depends(require_admin)):
     """Update all machines to the current main image."""
@@ -1601,48 +1817,11 @@ async def migrate_all_machines(request: Request, admin: User = Depends(require_a
         )).scalar_one_or_none()
         if not main_image:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "No main image set")
+        main_version = main_image.version
+        registry_tag = main_image.registry_tag
 
-        agents = (await db.execute(
-            select(Agent).where(
-                Agent.runtime_ref.isnot(None),
-                Agent.image_version != main_image.version,
-            )
-        )).scalars().all()
-
-    if not agents:
-        return {"ok": True, "updated": 0, "version": main_image.version}
-
-    if not os.environ.get("FLY_API_TOKEN"):
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Fly API not configured")
-
-    from cloud.runtime.fly_machines import FlyMachinesRuntime
-    fly = FlyMachinesRuntime()
-
-    before_versions = {a.slug: a.image_version for a in agents}
-    updated = 0
-    errors = []
-    for agent in agents:
-        try:
-            await fly.update_machine_image(agent.runtime_ref, main_image.registry_tag)
-            async with get_db_session() as db:
-                a = (await db.execute(
-                    select(Agent).where(Agent.id == agent.id)
-                )).scalar_one()
-                a.image_version = main_image.version
-                await db.commit()
-            updated += 1
-        except Exception as e:
-            log.error("Failed to update machine %s: %s", agent.runtime_ref, e)
-            errors.append({"machine_id": agent.runtime_ref, "agent": agent.slug, "error": str(e)})
-
-    async with get_db_session() as db:
-        await _audit(db, action="machine.migrate_all", actor=admin, actor_ip=ip,
-                     metadata={"version": main_image.version, "updated": updated, "errors": len(errors)},
-                     before_state={"agent_versions": before_versions},
-                     after_state={"version": main_image.version, "updated_count": updated})
-        await db.commit()
-
-    return {"ok": True, "updated": updated, "errors": errors, "version": main_image.version}
+    result = await _migrate_all_agents(main_version, registry_tag, admin, ip)
+    return {"ok": True, "updated": result["updated"], "errors": result["errors"], "version": main_version}
 
 
 # ── Plan 025.5: persistent files — backfill Fly volumes onto existing machines ──
