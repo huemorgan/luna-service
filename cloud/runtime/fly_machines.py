@@ -514,3 +514,26 @@ class FlyMachinesRuntime:
             log.warning("Fly describe %s returned %s", machine_id, resp.status_code)
             return None
         return resp.json()
+
+    async def volume_usage(self, machine_id: str, path: str = WORKSPACE_MOUNT) -> dict | None:
+        """Return {used_bytes, max_bytes} for a mounted path via `df`, or None.
+
+        Uses the Machines API exec endpoint (no SSH tunnel). Best-effort: returns
+        None on any error so the detail page never breaks on it.
+        """
+        client = self._get_client()
+        try:
+            resp = await client.post(
+                f"/machines/{machine_id}/exec",
+                json={"command": ["/bin/sh", "-c", f"df -B1 {path} | tail -1"], "timeout": 15},
+            )
+            if resp.status_code != 200:
+                return None
+            out = (resp.json() or {}).get("stdout", "").strip()
+            # Filesystem  1B-blocks  Used  Available  Use%  Mounted
+            parts = out.split()
+            if len(parts) >= 4 and parts[1].isdigit() and parts[2].isdigit():
+                return {"max_bytes": int(parts[1]), "used_bytes": int(parts[2])}
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Fly volume_usage failed for %s: %s", machine_id, exc)
+        return None

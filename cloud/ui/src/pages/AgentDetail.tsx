@@ -274,17 +274,35 @@ export default function AgentDetail() {
     : <span>{storage.r2.prefix} <span style={{ color: 'var(--text-dim)' }} className="text-xs">· {fmtBytes(storage.r2.size_bytes)} · {storage.r2.object_count} object{storage.r2.object_count === 1 ? '' : 's'}</span></span>;
 
   const vol = storage.volume;
+  const usedBytes = vol.files?.used_bytes ?? null;
+  const maxBytes = vol.files?.max_bytes ?? (vol.size_gb ? vol.size_gb * 1_000_000_000 : null);
+  const pct = usedBytes != null && maxBytes ? Math.min(100, Math.round((usedBytes / maxBytes) * 100)) : null;
+  const barColor = pct == null ? '#22c55e' : pct >= 95 ? '#ef4444' : pct >= 80 ? '#eab308' : '#22c55e';
   const volumeDisplay = vol.durable ? (
-    <span>
-      {vol.mount}
-      <span style={{ color: 'var(--text-dim)' }} className="text-xs">
-        {' '}· {vol.size_gb ?? '?'} GB · persistent (Fly volume){vol.region ? ` · ${vol.region}` : ''}
-        {vol.files?.used_bytes != null ? ` · ${fmtBytes(vol.files.used_bytes)} used` : ''}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 220 }}>
+      <span>
+        <span style={{ color: '#22c55e' }}>● </span>
+        <span style={{ color: 'var(--text)' }}>Persistent</span>
+        <span style={{ color: 'var(--text-dim)' }} className="text-xs">
+          {' '}· {vol.mount} · {vol.size_gb ?? '?'} GB{vol.region ? ` · ${vol.region}` : ''}
+        </span>
       </span>
-    </span>
+      {usedBytes != null && maxBytes ? (
+        <>
+          <div style={{ height: 6, borderRadius: 3, background: 'var(--border, #2a2a2a)', overflow: 'hidden' }}>
+            <div style={{ width: `${Math.max(2, pct ?? 0)}%`, height: '100%', background: barColor }} />
+          </div>
+          <span style={{ color: 'var(--text-dim)' }} className="text-xs">
+            {fmtBytes(usedBytes)} / {fmtBytes(maxBytes)} used ({pct}%)
+          </span>
+        </>
+      ) : (
+        <span style={{ color: 'var(--text-dim)' }} className="text-xs">capacity — usage unavailable</span>
+      )}
+    </div>
   ) : (
     <span>
-      {vol.mount}
+      <span style={{ color: '#eab308' }}>● </span>{vol.mount}
       <span style={{ color: '#eab308' }} className="text-xs"> · ephemeral (no volume — not persistent)</span>
     </span>
   );

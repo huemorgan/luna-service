@@ -567,6 +567,7 @@ async def _refresh_metrics(agent: Agent) -> dict:
     """Pull live Fly + R2 stats. Always returns a dict; never raises."""
     compute: dict = {"kind": agent.runtime_kind, "machine_id": agent.runtime_ref}
     storage_r2: dict = {"prefix": f"tenant/{agent.slug}/" if agent.slug else None}
+    storage_files: dict | None = None
 
     # Fly machine describe — always construct a Fly client directly so we get
     # live data even when the deployment uses docker-local for *provisioning*
@@ -595,6 +596,17 @@ async def _refresh_metrics(agent: Agent) -> dict:
                     "created_at": machine.get("created_at"),
                     "last_started_at": _fly_event_ts(machine.get("events") or [], "start"),
                 })
+                # Plan 025.5: live persistent-volume usage (durable files health).
+                mounts = cfg.get("mounts") or []
+                workspace = next((m for m in mounts if m.get("path") == "/workspace"), None)
+                if workspace and machine.get("state") == "started":
+                    usage = await fly.volume_usage(agent.runtime_ref)
+                    storage_files = {
+                        "backend": "fly",
+                        "durable": True,
+                        "location": "/workspace/files",
+                        **(usage or {}),
+                    }
         except Exception as exc:
             log.warning("Fly describe error for agent %s: %s", agent.id, exc)
             compute["state"] = "error"
@@ -611,7 +623,7 @@ async def _refresh_metrics(agent: Agent) -> dict:
     else:
         storage_r2.update({"object_count": 0, "size_bytes": 0, "configured": r2_configured()})
 
-    return {"compute": compute, "storage_r2": storage_r2}
+    return {"compute": compute, "storage_r2": storage_r2, "storage_files": storage_files}
 
 
 @router.get("/{agent_id}/details")
