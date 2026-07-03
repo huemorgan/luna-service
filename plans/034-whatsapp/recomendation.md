@@ -1,5 +1,17 @@
 # 034 — WhatsApp Gateway Monitoring Page
 
+> **Status (2026-07-03): the gateway is LIVE.** Everything this page needs is
+> already deployed and verified:
+> - Gateway: **https://luna-wa-gateway.onrender.com** (Render service
+>   `luna-wa-gateway`, srv-d93stc8js32c73d4bg3g, same workspace as
+>   luna-service; Postgres `luna-wa-db`). Auto-deploys from
+>   https://github.com/huemorgan/luna-whatsapp on push to main.
+> - `GET /stats` is deployed and answering (shape below, verified in prod).
+> - `GATEWAY_ADMIN_KEY` is in that service's env on Render (dashboard →
+>   luna-wa-gateway → Environment) — copy it into luna-service's env as
+>   `WHATSAPP_GATEWAY_ADMIN_KEY`. Don't regenerate it; the QR page and the
+>   Luna plugin use the same key.
+
 ## What we want
 
 A **WhatsApp** item in the admin left pane (`NAV_ITEMS` in
@@ -81,10 +93,10 @@ The admin key must **never reach the browser** — proxy server-side, like the
 existing gateway proxies (`cloud/api/gateway_proxy.py` pattern):
 
 1. Config (`cloud/config.py` + Render env):
-   - `WHATSAPP_GATEWAY_URL` — the gateway's Render URL
-   - `WHATSAPP_GATEWAY_ADMIN_KEY` — its `GATEWAY_ADMIN_KEY`
-   (values are in the `luna-wa-gateway` service's env on Render; ask Roy if
-   missing. Unset ⇒ the page shows a "not configured" empty state, no crash.)
+   - `WHATSAPP_GATEWAY_URL` = `https://luna-wa-gateway.onrender.com`
+   - `WHATSAPP_GATEWAY_ADMIN_KEY` — copy `GATEWAY_ADMIN_KEY` from the
+     `luna-wa-gateway` service's env (same Render workspace).
+   (Unset ⇒ the page shows a "not configured" empty state, no crash.)
 2. New router `cloud/api/whatsapp_routes.py`:
    `GET /api/admin/whatsapp/stats` (admin-authed like other admin routes) →
    fetches `{url}/stats` with the `x-admin-key` header, ~5 s timeout,
@@ -103,6 +115,12 @@ existing gateway proxies (`cloud/api/gateway_proxy.py` pattern):
 
 ## Source of truth
 
-Gateway repo: `luna-whatsapp` (`gateway/` — Express + Baileys + Postgres,
-deployed on Render as `luna-wa-gateway`, blueprint in its `render.yaml`).
+Gateway repo: https://github.com/huemorgan/luna-whatsapp (`gateway/` —
+Express + Baileys + Postgres, deployed on Render as `luna-wa-gateway`;
+`/stats` lives in `gateway/src/index.js` + `gateway/src/stats.js`).
 Its plan for this feature: `plans/001-whatsapp-monitoring/PLAN.md` there.
+
+Related, not this plan's job: the WhatsApp *plugin* (`plugin-whatsapp`,
+published on marketplaces.com.ai, currently v0.5.0) runs inside each Luna and
+talks to the same gateway. The monitoring page reads the gateway directly —
+it works even when no Luna has the plugin installed.
