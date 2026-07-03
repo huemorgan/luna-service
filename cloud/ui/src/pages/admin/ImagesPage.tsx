@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, Loader2, Star, Hammer, RefreshCw, ExternalLink, ChevronDown, ChevronRight, AlertCircle, Trash2, RotateCcw, ArrowUpCircle, Settings, Play, GitBranch } from 'lucide-react';
-import DefaultsStaleBanner from '../../components/DefaultsStaleBanner';
+import { Package, Loader2, Star, Hammer, RefreshCw, ExternalLink, ChevronDown, ChevronRight, AlertCircle, Trash2, RotateCcw, ArrowUpCircle, Settings, Play, GitBranch, AlertTriangle } from 'lucide-react';
 
 interface LunaImage {
   id: string;
@@ -48,7 +47,18 @@ function formatDate(iso: string | null): string {
   });
 }
 
-function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure, onTestAgent, testingAgent, onWarmCache, warmingCache }: {
+interface StaleStatus {
+  stale: boolean;
+  main_version: string | null;
+  main_image_id: string | null;
+  current_count: number;
+  baked_count: number;
+  rebake_state: 'none' | 'building' | 'ready';
+  rebake_version: string | null;
+  rebake_image_id: string | null;
+}
+
+function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure, onTestAgent, testingAgent, onWarmCache, warmingCache, staleStatus, onRebake, rebaking }: {
   img: LunaImage;
   settingMain: string | null;
   onSetMain: (id: string) => void;
@@ -59,6 +69,9 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure
   testingAgent: string | null;
   onWarmCache: (id: string) => void;
   warmingCache: string | null;
+  staleStatus: StaleStatus | null;
+  onRebake: () => void;
+  rebaking: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   return (
@@ -123,6 +136,20 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure
                 )
               )}
             </div>
+            {/* Inline: rebaking indicator on the building image */}
+            {img.build_status === 'building' && staleStatus?.rebake_state === 'building' && staleStatus?.rebake_version === img.version && (
+              <div className="flex items-center gap-1.5 mt-1.5 text-xs" style={{ color: '#facc15' }}>
+                <Loader2 className="animate-spin" size={11} />
+                Baking with current defaults… ready to promote when done.
+              </div>
+            )}
+            {/* Inline: stale defaults warning on the main image */}
+            {img.is_main && img.build_status === 'built' && staleStatus?.stale && staleStatus?.rebake_state === 'none' && (
+              <div className="flex items-center gap-1.5 mt-1.5 text-xs" style={{ color: '#facc15' }}>
+                <AlertTriangle size={11} />
+                Defaults changed since this image was built.
+              </div>
+            )}
           </div>
         </div>
 
@@ -221,6 +248,17 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure
                 Set as Main
               </button>
             )}
+            {img.is_main && img.build_status === 'built' && staleStatus?.stale && staleStatus?.rebake_state === 'none' && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onRebake(); }}
+                disabled={rebaking}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-[rgba(250,204,21,0.08)] disabled:opacity-50"
+                style={{ border: '1px solid rgba(250,204,21,0.3)', color: '#facc15' }}
+              >
+                {rebaking ? <Loader2 className="animate-spin" size={12} /> : <Hammer size={12} />}
+                Bake new image
+              </button>
+            )}
             {img.build_status === 'failed' && (
               <button
                 onClick={(e) => { e.stopPropagation(); onRetry(); }}
@@ -261,6 +299,8 @@ export default function ImagesPage() {
   const [branches, setBranches] = useState<LunaBranch[]>([]);
   const [selectedBranch, setSelectedBranch] = useState('main');
   const [branchesLoading, setBranchesLoading] = useState(false);
+  const [staleStatus, setStaleStatus] = useState<StaleStatus | null>(null);
+  const [rebaking, setRebaking] = useState(false);
 
   const fetchImages = useCallback(async () => {
     const res = await fetch('/api/admin/images');
@@ -275,15 +315,22 @@ export default function ImagesPage() {
     setBranchesLoading(false);
   }, []);
 
-  useEffect(() => { fetchImages(); fetchBranches(); }, [fetchImages, fetchBranches]);
+  const fetchStaleStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/defaults/stale');
+      if (res.ok) setStaleStatus(await res.json());
+    } catch { /* best-effort */ }
+  }, []);
+
+  useEffect(() => { fetchImages(); fetchBranches(); fetchStaleStatus(); }, [fetchImages, fetchBranches, fetchStaleStatus]);
 
   // Poll while any image is building
   useEffect(() => {
     const hasBuilding = images.some(i => i.build_status === 'building');
     if (!hasBuilding) return;
-    const interval = setInterval(fetchImages, 5000);
+    const interval = setInterval(() => { fetchImages(); fetchStaleStatus(); }, 5000);
     return () => clearInterval(interval);
-  }, [images, fetchImages]);
+  }, [images, fetchImages, fetchStaleStatus]);
 
   const handleCheckUpdate = async () => {
     setChecking(true);
@@ -405,6 +452,23 @@ export default function ImagesPage() {
     setWarmingCache(null);
   };
 
+  const handleRebake = async () => {
+    setRebaking(true);
+    try {
+      const res = await fetch('/api/admin/images/rebake', { method: 'POST' });
+      if (res.ok) {
+        await fetchImages();
+        await fetchStaleStatus();
+      } else {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        alert(`Bake failed: ${err.detail || JSON.stringify(err)}`);
+      }
+    } catch (e: unknown) {
+      alert(`Bake error: ${e instanceof Error ? e.message : e}`);
+    }
+    setRebaking(false);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -432,8 +496,6 @@ export default function ImagesPage() {
           </button>
         </div>
       </div>
-
-      <DefaultsStaleBanner refreshKey={images} />
 
       {/* Build from a Luna branch (experimental builds on production) */}
       <div
@@ -555,6 +617,9 @@ export default function ImagesPage() {
               testingAgent={testingAgent}
               onWarmCache={handleWarmCache}
               warmingCache={warmingCache}
+              staleStatus={staleStatus}
+              onRebake={handleRebake}
+              rebaking={rebaking}
             />
           ))}
         </div>
