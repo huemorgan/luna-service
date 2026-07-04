@@ -121,3 +121,18 @@
 - Render one-off jobs CAN run the connect flow in-env
   (`python -c "import base64; exec(...)"` to dodge quoting) — used to connect
   an agent server-side; verified by the account appearing on the gateway.
+
+## 034.1 executed — connect moved into the plugin (2026-07-05, merged `fc423e6`)
+
+- Agent-facing self-service shipped: `cloud/api/whatsapp_agent_routes.py`
+  (`POST/DELETE /api/agent/whatsapp/connect`, `GET /qr`, `GET /status`),
+  authed by the machine's `lsv1-` device token; account id server-forced to
+  the token's agent slug. Deleted: admin connect/QR/backfill routes, the
+  connect UI (page is monitoring-only), the baked
+  `LUNA_WHATSAPP_GATEWAY_URL` env, `provision.connect_agent`.
+- Live-dojo discovery: the gateway returns the SAME secret on idempotent
+  `POST /accounts` re-connects (no rotation) — plugin re-connect self-heals
+  a lost vault entry. `plugin-ask.md` updated to match.
+- Gateway wiped to zero accounts (dojo + admin-flow experiments deleted).
+- Next: luna-whatsapp ships plugin v0.7.0 per
+  `plans/034.1-whatsapp-fix/plugin-ask.md`; end-to-end dojo then.
