@@ -3,6 +3,10 @@
 **Status:** PLAN (not yet executed)
 **Supersedes:** the admin-side connect UX from 034 Phase 2 (the machinery
 stays; the admin UI actions and admin-only trigger die).
+**Compatibility:** NONE required — no users. Delete freely, no staged
+rollout, no deprecation.
+**Companion:** `plugin-ask.md` (this folder) — the file to hand the
+luna-whatsapp project for plugin v0.7.0.
 
 ## The problem (verified by a real user flow)
 
@@ -50,8 +54,7 @@ path).
   (status/connected/self_jid/has_qr/sent_today/daily_cap).
 - `DELETE /api/agent/whatsapp/connect` → gateway `DELETE /accounts/{slug}`.
 
-### 2. Plugin v0.7.0 (luna-whatsapp repo — file the ask as
-`plans/034.1-whatsapp-fix/plugin-ask.md` there, or hand this section over)
+### 2. Plugin v0.7.0 (luna-whatsapp repo — full spec in `plugin-ask.md`)
 
 - **Auto-provision on first need**: when config is absent (no vault
   `plugin_whatsapp.shared_secret`), and `LUNA_GATEWAY_URL` +
@@ -82,8 +85,9 @@ path).
   `GET /instances/{id}/qr`; `cloud/whatsapp/provision.py` stays (the
   agent-facing routes call it). The inbound relay (034) is untouched — it is
   transport, not UX.
-- Keep `POST /env/backfill` until v0.7.0 (vault-first gateway_url) is the
-  fleet floor, then delete it and the baked env var.
+- Delete `POST /env/backfill` and the baked `LUNA_WHATSAPP_GATEWAY_URL` env
+  (v0.7.0 gets the gateway URL from the connect response — env dependency
+  gone).
 
 ## Security notes
 
@@ -94,12 +98,9 @@ path).
   same trust level as the vault write in 034, one less hop.
 - Gateway admin key: control plane only, unchanged.
 
-## Migration / cleanup
+## Cleanup (no migration — nothing to preserve)
 
-- Accounts already created via the admin flow keep working (same account_id
-  convention, same vault keys).
-- Remove from 034: admin connect UI + routes (above). Update
-  `tests/034-whatsapp-phase2/SCENARIOS.md` note pointing here.
+- Delete stale gateway accounts left by admin-flow experiments (keep none).
 - New dojo scenarios (`tests/034.1-whatsapp-fix/`): install plugin inside a
   Luna → settings tab shows QR with zero other steps; scan → linked; admin
   page shows the row appear (read-only); OSS Luna without token still shows
@@ -107,11 +108,10 @@ path).
 
 ## Order of work
 
-1. Control plane agent-facing routes + tests (can ship immediately; harmless
-   while no plugin calls them).
-2. Plugin ask to luna-whatsapp → v0.7.0 published.
-3. Delete admin connect UI/routes once v0.7.0 is confirmed installing clean.
-4. Execution summary per devprocess §7.
+1. Control plane: agent-facing routes + tests; delete admin connect
+   UI/routes, backfill, and baked env in the same slice.
+2. Hand `plugin-ask.md` to luna-whatsapp → v0.7.0 published.
+3. Dojo end-to-end with v0.7.0; execution summary per devprocess §7.
 
 ## Acceptance
 
