@@ -102,3 +102,22 @@
 - Account `default` (Roy's number → luna-kp8e) still needs its QR scan.
 - The gateway's Render service does NOT auto-deploy on push (no GitHub app
   webhook) — they deploy via Render API. Ours does auto-deploy.
+
+## Fleet backfill run + in-Luna install gap (2026-07-05)
+
+- Ran the LUNA_WHATSAPP_GATEWAY_URL backfill against production: all 20 Fly
+  machines updated (in-place restart each), 0 failures. Executed directly via
+  the Fly Machines API after two dead ends: Render Postgres blocks external
+  connections (allowlist), and a Render one-off job ran but its stdout is not
+  retrievable via the logs API in any obvious way — for future prod ops,
+  encode job results in the exit status (assert) or push env via Fly directly.
+- **Product gap surfaced by a real user flow**: installing plugin-whatsapp
+  from INSIDE a Luna (its marketplace tab) provisions nothing — no gateway
+  account, no vault secret; the plugin settings tab shows "Not configured".
+  The sanctioned path is the admin WhatsApp page's Connect (or the picker).
+  Future fix: notify the control plane on tenant-side plugin install (or add
+  plugin-whatsapp to the Supported Plugins catalog so install goes through
+  the hook) and auto-run the connect flow.
+- Render one-off jobs CAN run the connect flow in-env
+  (`python -c "import base64; exec(...)"` to dodge quoting) — used to connect
+  an agent server-side; verified by the account appearing on the gateway.
