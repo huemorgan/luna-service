@@ -189,7 +189,27 @@ Your deliverable: the published plugin version + a test report (markdown with
 screenshots) + the updated workspace bundle.
 ```
 
-### 2.5 Dojo Testing on the Forge
+### 2.5 How the Dev→Test Loop Actually Runs
+
+There is no mid-job prompting: the orchestrator launches Claude Code **once**, headless,
+with the entire job as a single task (scaffold → implement → install into test Luna →
+chat-test → screenshot → report → package). Install-and-test is part of the agent's
+instructions, not a separate phase someone triggers:
+
+1. **Install:** the agent (has bash) symlinks the plugin into the test Luna's plugins
+   dir and restarts it (`luna serve` on localhost:3000).
+2. **Chat-test:** it calls the test Luna's HTTP chat API directly (curl) — sends the
+   trigger messages, then verifies in the response/logs that the tool was invoked with
+   the right args and returned sensible output.
+3. **UI test:** drives Playwright against localhost:3000, screenshots.
+
+The orchestrator is a dumb supervisor with **acceptance gates**: when the agent reports
+done, it verifies the deliverables exist and are non-trivial (zip present, test report
+present and shows scenarios that ran, regression scenarios re-run on iterate jobs). If a
+gate fails, it re-prompts the agent once with what's missing ("continue — report shows no
+negative test"), then fails the job. No evidence, no publish (§1.1 principle 3).
+
+### 2.6 Dojo Testing on the Forge
 
 The forge replicates how Luna plugins are tested in the real dojo:
 
@@ -231,15 +251,27 @@ The forge does NOT deliver artifacts directly to the user's Luna. It **publishes
 user's private marketplace** on luna-marketplaces, and the user's Luna consumes it through
 the existing `plugin_marketplace` plugin. No bespoke delivery channel exists.
 
-### 3.1 Per-User Private Marketplace
+### 3.1 Per-User Private Marketplace — Setup Is a Prerequisite, Not a Side Effect
 
-- On a user's first forge job, the control plane auto-provisions a **private marketplace**
-  for them on the luna-marketplaces service (org per user already maps to the existing
-  accounts/orgs model; marketplace slug e.g. `{user}-forge`).
-- The user's Luna already gets a `marketplace_url` injected via the gateway env
-  (`cloud/api/plugin_catalog_routes.py` / `gateway_env_delta`) — the private marketplace
-  is added as a source the same way.
-- Private marketplace access uses the marketplace service's existing token auth.
+The forge does NOT lazily provision a marketplace on the first job — that couples a slow,
+failure-prone setup step to a user request ("build me X" should never fail because org
+creation hiccuped). Instead:
+
+- **Setup happens before the first request**, as an explicit action: the user provisions
+  a **private marketplace** on the luna-marketplaces service (org per user maps to the
+  existing accounts/orgs model; slug e.g. `{user}-forge`) — via the luna-service
+  dashboard, or driven by their Luna as a guided setup step. Pointing the forge at an
+  existing marketplace the user already operates is equally valid.
+- The marketplace is added to the user's Luna as a source through the existing
+  `marketplace_url` gateway-env plumbing (`cloud/api/plugin_catalog_routes.py` /
+  `gateway_env_delta`), and access uses the marketplace service's existing token auth.
+- **Until then, the forge is "not set up."** `forge_develop`/`forge_iterate` return a
+  clear state — *"Plugin Forge isn't set up yet: no target marketplace is configured.
+  Set one up in the dashboard (or ask me to walk you through it)."* — and the job API
+  rejects creation with `412 Precondition Failed`.
+
+Setup is one-time, verifiable in isolation (marketplace reachable, token valid, source
+wired into the Luna), and every subsequent job starts from a known-good state.
 
 ### 3.2 What the Marketplace Gives Us For Free
 
@@ -328,7 +360,7 @@ choice), and doubles as human-readable provenance the user can inspect.
 
 ```
 1. User: "make the weather plugin also show wind speed"
-2. Luna: calls forge_iterate_plugin(name="weather", change="also show wind speed")
+2. Luna: calls forge_iterate(name="weather", change="also show wind speed")
    → POST /api/forge/jobs  {kind: "iterate", base_plugin: "weather",
                             base_version: "<installed version>"}
 3. Control plane: provisions forge machine; job spec includes a download URL for the
@@ -403,6 +435,9 @@ No `callback_url` in the request — accepting a caller-supplied URL the platfor
 POSTs to is an SSRF vector. The requesting agent is identified from the bearer token;
 delivery is via the marketplace (§3).
 
+Returns `412 Precondition Failed` if the requester has no target marketplace configured
+(§3.1) — the forge must be set up before the first job.
+
 Response:
 ```json
 {
@@ -454,7 +489,24 @@ GET  /job/report   — returns the test report markdown
 
 A thin plugin installed on the user's Luna that provides the "develop a plugin" capability.
 
-### 6.1 Manifest
+### 6.0 Where It Lives
+
+Source is developed and versioned **in this repo**, under a new top-level `plugins/`
+folder for plugins that luna-service itself ships:
+
+```
+luna-service/
+├── cloud/          # control plane
+├── plugins/        # ← plugins WE develop for the platform
+│   └── plugin-forge/
+└── ...
+```
+
+Distribution to user Lunas follows the same channel as everything else — published to a
+marketplace (the platform/official one, not the per-user forge marketplaces) and
+preinstalled/installed via the existing plugin catalog plumbing. `plugins/` is the source
+of truth; the marketplace is the delivery mechanism. Future platform plugins land in the
+same folder.
 
 ```toml
 name = "plugin-forge"
@@ -468,25 +520,25 @@ tags = ["meta", "development"]
 tools = 4
 
 [[tools]]
-name = "forge_develop_plugin"
+name = "forge_develop"
 description = "Request development of a new Luna plugin."
 policy = "ask"
 risk_level = "medium"
 
 [[tools]]
-name = "forge_iterate_plugin"
+name = "forge_iterate"
 description = "Request a change to a forge-built plugin (new version)."
 policy = "ask"
 risk_level = "medium"
 
 [[tools]]
-name = "forge_job_status"
+name = "forge_status"
 description = "Check the status of a plugin development job."
 policy = "auto_approve"
 risk_level = "low"
 
 [[tools]]
-name = "forge_plugin_history"
+name = "forge_history"
 description = "Show version history + decision log for a forge-built plugin."
 policy = "auto_approve"
 risk_level = "low"
@@ -494,16 +546,20 @@ risk_level = "low"
 
 ### 6.2 Tools
 
-**`forge_develop_plugin`** — The agent calls this when the user asks for a new capability
+All job-creating tools check setup state first (§3.1): if no target marketplace is
+configured, they don't attempt the job — they tell the user the forge isn't set up and
+offer the setup flow.
+
+**`forge_develop`** — The agent calls this when the user asks for a new capability
 that doesn't exist as a plugin yet. Takes the natural-language description, posts to the
 forge API, returns a job ID.
 
-**`forge_iterate_plugin`** — "Change/improve plugin X." Posts an iterate job with the
+**`forge_iterate`** — "Change/improve plugin X." Posts an iterate job with the
 currently-installed version as the base (§4.3).
 
-**`forge_job_status`** — Check progress of an active forge job.
+**`forge_status`** — Check progress of an active forge job.
 
-**`forge_plugin_history`** — Surfaces the marketplace version history + FORGE.md entries
+**`forge_history`** — Surfaces the marketplace version history + FORGE.md entries
 so the user can ask "what changed in 0.2.0?" or "why does it convert to km/h?".
 
 Install/upgrade/rollback themselves are NOT this plugin's job — they belong to
@@ -512,7 +568,7 @@ Install/upgrade/rollback themselves are NOT this plugin's job — they belong to
 ### 6.3 Delivery Watch (poll + nudge)
 
 ```python
-# background task started by forge_develop_plugin / forge_iterate_plugin
+# background task started by forge_develop / forge_iterate
 async def watch_job(job_id: str):
     # Poll GET /api/forge/jobs/{job_id} until done/failed (backoff, respect timeout)
     # On done: the new version is already in the user's private marketplace
@@ -525,6 +581,24 @@ async def watch_job(job_id: str):
 
 The user-approval step is the actual trust boundary (§1.1 principle 7) — same consent
 model as installing any marketplace plugin.
+
+### 6.4 Keeping the Requesting Luna Alive
+
+The watcher lives inside the user's Luna — if that machine sleeps or restarts mid-job,
+the nudge never arrives. Three layers:
+
+1. **Keep-alive pin (primary):** while an agent has an active forge job, the control
+   plane pins its machine awake — any stop/suspend path (cost-saving sleep, dashboard
+   stop) checks for active `forge_jobs` and defers. Agent machines already run with
+   `autostop: "off"`, so Fly itself won't idle-kill them; the pin covers our own
+   lifecycle actions.
+2. **Wake on completion (fallback):** when a job finishes and the requesting agent's
+   machine is `stopped`/`suspended` anyway (crash, manual stop), the control plane
+   starts it via the existing runtime `start()` — the watcher resumes and delivers the
+   nudge.
+3. **Watcher survives restarts:** active job IDs are persisted in the plugin's state, and
+   `on_load` re-spawns watchers for any still-active jobs — a Luna reboot mid-job picks
+   up where it left off.
 
 ---
 
@@ -572,13 +646,16 @@ model as installing any marketplace plugin.
 ### New plugin
 
 ```
+0. Prerequisite (one-time): forge is set up — private marketplace provisioned,
+   wired into the Luna as a source, publish access verified (§3.1).
+   If not: Luna answers "the forge isn't set up yet" and offers the setup flow.
 1. User: "I wish I could check the weather in our chat"
 2. Luna (agent): "I don't have a weather tool, but I can build one for you.
    Shall I develop a weather plugin?"
 3. User: "Yes"
-4. Luna: calls forge_develop_plugin(description="...", requirements=[...])
+4. Luna: calls forge_develop(description="...", requirements=[...])
    → POST /api/forge/jobs
-5. Control plane: (first job) auto-provisions the user's private marketplace;
+5. Control plane: verifies the target marketplace is configured (412 otherwise);
    issues job-scoped gateway + publish tokens; provisions a Forge Fly machine
 6. Forge machine boots:
    a. Starts Luna test instance (localhost:3000)
@@ -601,7 +678,7 @@ model as installing any marketplace plugin.
 
 ```
 1. User: "great — can it also show wind speed?"
-2. Luna: forge_iterate_plugin("weather", "also show wind speed")
+2. Luna: forge_iterate("weather", "also show wind speed")
 3. Forge job seeds from the 0.1.0 bundle, reads FORGE.md, makes the change,
    re-runs old dojo tests + new ones, publishes 0.2.0, uploads new bundle
 4. Luna: "weather 0.2.0 ready (wind speed added, 3/3 tests green). Upgrade?"
@@ -645,8 +722,13 @@ All compute cost is on the forge machine.
       + job detail with logs
 
 ### Phase C: Marketplace Delivery
-- [ ] Auto-provision a private marketplace per user on luna-marketplaces (org mapping,
-      slug scheme, token auth)
+- [ ] Explicit forge-setup flow (pre-first-job): provision a private marketplace per user
+      on luna-marketplaces (org mapping, slug scheme, token auth) — dashboard action
+      and/or Luna-guided; support linking an existing marketplace instead
+- [ ] Setup verification: marketplace reachable, publish token valid, source wired into
+      the agent's `marketplace_url`
+- [ ] "Not set up" state: 412 from `POST /api/forge/jobs`; plugin-forge surfaces the
+      setup path in chat instead of failing mid-request
 - [ ] Job-scoped publish tokens (issue at job start, revoke at end; scoped to the one
       marketplace)
 - [ ] Forge orchestrator publishes via the marketplace API; handle publish-side
@@ -657,9 +739,13 @@ All compute cost is on the forge machine.
       user's Luna through `plugin_marketplace` with the sha256 gate
 
 ### Phase D: Luna Plugin (user-side)
-- [ ] Write `plugin-forge` (develop / iterate / status / history tools + job watcher)
+- [ ] Create `plugins/` top-level folder in luna-service (home for platform-shipped plugins)
+- [ ] Write `plugin-forge` there (develop / iterate / status / history tools + job watcher)
+- [ ] Publish/preinstall path for platform plugins (official marketplace + catalog plumbing)
 - [ ] Install/upgrade nudge flow handing off to `plugin_marketplace` (approval-gated)
 - [ ] Record `previous_version` on upgrade (rollback bookkeeping)
+- [ ] Requesting-Luna liveness (§6.4): keep-alive pin during active jobs, wake-on-complete
+      fallback, watcher re-spawn in `on_load` from persisted job IDs
 - [ ] **Luna CR: `plugin_marketplace` install-specific-version / rollback tool** (§4.5)
 
 ### Phase E: Iteration & Memory
