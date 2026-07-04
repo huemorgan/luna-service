@@ -236,8 +236,8 @@ async def test_backfill_dry_run_reports_missing(admin_client, sample_agent, monk
     assert body["dry_run"] is True
     assert body["machines"][0]["status"] == "would_update"
     fly.update_machine_env.assert_not_called()
-    # default + matching slug excluded; ghost reported
-    assert body["orphan_accounts"] == ["ghost-agent"]
+    # matching slug excluded; ghost + legacy default both reported as orphans
+    assert body["orphan_accounts"] == ["ghost-agent", "default"]
 
 
 @pytest.mark.asyncio

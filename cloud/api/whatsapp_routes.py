@@ -79,30 +79,8 @@ async def gateway_stats(admin=Depends(require_admin)):
         return _stats_cache[1]
 
     payload = await _fetch_stats(url, admin_key)
-    # QR is served through our own authed proxy — the admin key never
-    # appears in a browser-visible URL.
-    payload["qr_url"] = (
-        "/api/admin/whatsapp/qr" if payload.get("stats", {}).get("has_qr") else None
-    )
     _stats_cache = (now + STATS_CACHE_TTL_S, payload)
     return payload
-
-
-@router.get("/qr")
-async def gateway_qr(admin=Depends(require_admin)):
-    """Server-side proxy of the gateway's QR page (it self-refreshes, so
-    each refresh comes back through this authed route)."""
-    from fastapi.responses import HTMLResponse
-
-    url, admin_key = _gateway_config()
-    if not url:
-        return HTMLResponse("<p>WhatsApp gateway not configured.</p>", status_code=503)
-    try:
-        async with httpx.AsyncClient(timeout=STATS_TIMEOUT_S) as client:
-            resp = await client.get(f"{url}/qr", params={"key": admin_key})
-    except Exception:
-        return HTMLResponse("<p>Gateway unreachable.</p>", status_code=502)
-    return HTMLResponse(resp.text, status_code=resp.status_code)
 
 
 async def _accounts_by_id() -> dict[str, dict]:
@@ -218,8 +196,7 @@ async def whatsapp_env_backfill(dry_run: bool = True, admin: User = Depends(requ
     if not url:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "WhatsApp gateway not configured")
 
-    # Drift: gateway accounts that match no agent slug (account `default` is
-    # the legacy pre-multiluna number and is expected to be unmatched).
+    # Drift: gateway accounts that match no agent slug.
     orphans: list[str] = []
     try:
         resp = await provision._gateway("GET", "/accounts")
@@ -236,8 +213,7 @@ async def whatsapp_env_backfill(dry_run: bool = True, admin: User = Depends(requ
         targets = [(a.slug, a.runtime_ref, a.runtime_kind) for a in agents]
     if accounts is not None:
         orphans = [a["account_id"] for a in accounts
-                   if a.get("account_id") not in slugs and a.get("account_id") != "default"
-                   and a.get("status") != "disabled"]
+                   if a.get("account_id") not in slugs and a.get("status") != "disabled"]
 
     results: list[dict] = []
     updated = skipped = errored = 0

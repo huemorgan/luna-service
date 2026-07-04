@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { MessageCircle, RefreshCw, Loader2, QrCode, Database, Users, MessagesSquare, HardDrive, Send } from 'lucide-react';
+import { MessageCircle, RefreshCw, Loader2, Database, Users, MessagesSquare, HardDrive, Send } from 'lucide-react';
 
 interface WindowStats {
   messages_in: number;
@@ -33,7 +33,6 @@ interface StatsEnvelope {
   reachable?: boolean;
   authorized?: boolean;
   stats?: GatewayStats;
-  qr_url?: string | null;
 }
 
 interface InstanceAccount {
@@ -58,12 +57,10 @@ interface InstanceRow {
 
 type Pill = { label: string; color: string };
 
+// Gateway-process health only — per-number link state lives on each Luna's row.
 function pillFor(env: StatsEnvelope | null): Pill {
   if (!env || !env.reachable || env.authorized === false) return { label: 'Offline', color: '#ef4444' };
-  const s = env.stats;
-  if (s?.connected) return { label: 'Online', color: '#22c55e' };
-  if (s && ['connecting', 'starting', 'linking'].includes(s.status)) return { label: 'Connecting', color: '#eab308' };
-  return { label: 'Offline', color: '#ef4444' };
+  return { label: 'Online', color: '#22c55e' };
 }
 
 function fmtUptime(s: number): string {
@@ -209,13 +206,11 @@ export default function WhatsAppPage() {
     <div className="max-w-5xl">
       <Header onRefresh={fetchAll} />
 
-      {/* ── Vitals strip ── */}
+      {/* ── Gateway health strip (numbers live per-Luna below) ── */}
       <div className="rounded-2xl border p-4 mb-4 flex flex-wrap items-center gap-x-6 gap-y-2" style={cardStyle}>
         <span className="text-xs px-2.5 py-1 rounded-full font-semibold" style={{ color: pill.color, background: `${pill.color}22` }}>
-          ● {pill.label}
+          ● Gateway {pill.label}
         </span>
-        <span className="text-xs font-mono" style={dimText}>{s?.status || (unauthorized ? 'unauthorized' : 'unreachable')}</span>
-        <span className="text-sm" style={{ color: 'var(--text)' }}>{s?.self_jid || 'no number linked'}</span>
         <span className="text-xs" style={dimText}>uptime {s ? fmtUptime(s.uptime_s) : '—'}</span>
         <span className="text-xs" style={dimText}>last activity {fmtAgo(s?.last_activity_at ?? null)}</span>
         <span className="text-xs" style={dimText}>{s ? `${s.rss_mb} MB` : '—'}</span>
@@ -225,16 +220,6 @@ export default function WhatsAppPage() {
       {unauthorized && (
         <div className="rounded-xl border px-4 py-3 mb-4 text-sm" style={{ borderColor: '#ef4444', color: '#ef4444', background: '#ef444411' }}>
           Gateway rejected the admin key — check <span className="font-mono">CLOUD_WHATSAPP_GATEWAY_ADMIN_KEY</span>.
-        </div>
-      )}
-
-      {s?.has_qr && (
-        <div className="rounded-xl border px-4 py-3 mb-4 flex items-center gap-3 text-sm" style={{ borderColor: '#eab308', color: '#eab308', background: '#eab30811' }}>
-          <QrCode size={16} />
-          <span>WhatsApp needs a QR re-link — the number is not connected.</span>
-          <a href={env?.qr_url || '/api/admin/whatsapp/qr'} target="_blank" rel="noreferrer" className="underline font-semibold">
-            Open QR page
-          </a>
         </div>
       )}
 

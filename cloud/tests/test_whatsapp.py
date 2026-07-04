@@ -92,19 +92,11 @@ async def test_stats_ok(admin_client):
     assert res.status_code == 200
     assert body["configured"] and body["reachable"] and body["authorized"]
     assert body["stats"]["connected"] is True
-    assert body["qr_url"] is None  # has_qr false
     # admin key sent upstream as header, never echoed back
     _, kwargs = client.get.call_args
     assert kwargs["headers"]["x-admin-key"] == "test-key"
     assert "test-key" not in res.text
 
-
-@pytest.mark.asyncio
-async def test_stats_qr_url_when_relink_needed(admin_client):
-    patcher, _ = _mock_gateway(json_body={**GATEWAY_STATS, "has_qr": True, "connected": False, "status": "linking"})
-    with patcher:
-        body = (await admin_client.get("/api/admin/whatsapp/stats")).json()
-    assert body["qr_url"] == "/api/admin/whatsapp/qr"
 
 
 @pytest.mark.asyncio
@@ -112,7 +104,7 @@ async def test_stats_unauthorized_upstream(admin_client):
     patcher, _ = _mock_gateway(status_code=401)
     with patcher:
         body = (await admin_client.get("/api/admin/whatsapp/stats")).json()
-    assert body == {"configured": True, "reachable": True, "authorized": False, "qr_url": None}
+    assert body == {"configured": True, "reachable": True, "authorized": False}
 
 
 @pytest.mark.asyncio
@@ -121,7 +113,7 @@ async def test_stats_unreachable_is_200(admin_client):
     with patcher:
         res = await admin_client.get("/api/admin/whatsapp/stats")
     assert res.status_code == 200
-    assert res.json() == {"configured": True, "reachable": False, "qr_url": None}
+    assert res.json() == {"configured": True, "reachable": False}
 
 
 @pytest.mark.asyncio
@@ -136,20 +128,6 @@ async def test_stats_cached_within_ttl(admin_client):
 
 # ── QR proxy ─────────────────────────────────────────────────────────────────
 
-@pytest.mark.asyncio
-async def test_qr_proxied_server_side(admin_client):
-    patcher, client = _mock_gateway()
-    with patcher:
-        res = await admin_client.get("/api/admin/whatsapp/qr")
-    assert res.status_code == 200
-    assert "qr" in res.text
-    _, kwargs = client.get.call_args
-    assert kwargs["params"]["key"] == "test-key"
-
-
-@pytest.mark.asyncio
-async def test_qr_requires_admin(regular_client):
-    assert (await regular_client.get("/api/admin/whatsapp/qr")).status_code == 403
 
 
 # ── instances ────────────────────────────────────────────────────────────────
