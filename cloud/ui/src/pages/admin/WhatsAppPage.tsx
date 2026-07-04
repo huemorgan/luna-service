@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { MessageCircle, RefreshCw, Loader2, Database, Users, MessagesSquare, HardDrive, Send } from 'lucide-react';
+import { MessageCircle, RefreshCw, Loader2, Database, Users, MessagesSquare, HardDrive } from 'lucide-react';
 
 interface WindowStats {
   messages_in: number;
@@ -113,6 +113,7 @@ export default function WhatsAppPage() {
   const [busySlug, setBusySlug] = useState<string | null>(null);
   const [qrAgent, setQrAgent] = useState<InstanceRow | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [connectSlug, setConnectSlug] = useState('');
 
   const fetchAll = useCallback(async () => {
     try {
@@ -198,9 +199,11 @@ export default function WhatsAppPage() {
   const pill = fetchFailed ? { label: 'Offline', color: '#ef4444' } : pillFor(env);
   const s = env?.stats;
   const unauthorized = env?.reachable && env?.authorized === false;
-  const budgetPct = s && s.send_daily_cap > 0 ? Math.min(100, Math.round((s.sent_today / s.send_daily_cap) * 100)) : 0;
-  const budgetColor = budgetPct >= 100 ? '#ef4444' : budgetPct >= 80 ? '#eab308' : '#22c55e';
   const maxHourly = Math.max(1, ...(s?.hourly || []).map(h => Math.max(h.in, h.out)));
+  // Only WhatsApp-relevant Lunas make the table: a live account or the plugin.
+  const hasLiveAccount = (a: InstanceRow) => !!a.account && a.account.status !== 'disabled';
+  const visible = instances.filter(a => hasLiveAccount(a) || a.plugin_installed);
+  const connectable = instances.filter(a => !hasLiveAccount(a) && !a.plugin_installed);
 
   return (
     <div className="max-w-5xl">
@@ -237,14 +240,6 @@ export default function WhatsAppPage() {
           <StatRow label="Chats 1 h / 24 h" value={s ? `${s.last_hour.active_chats} / ${s.last_24h.active_chats}` : '—'} />
           <StatRow label="Total users" value={s?.totals.users ?? '—'} />
           <StatRow label="Total chats" value={s?.totals.chats ?? '—'} />
-        </MetricCard>
-
-        <MetricCard title="Send budget" icon={Send}>
-          <StatRow label="Sent today" value={s ? `${s.sent_today} / ${s.send_daily_cap}` : '—'} />
-          <div className="mt-2 h-2 rounded-full overflow-hidden" style={{ background: 'var(--ink)' }}>
-            <div className="h-full rounded-full transition-all" style={{ width: `${budgetPct}%`, background: budgetColor }} />
-          </div>
-          <p className="text-xs mt-2" style={dimText}>daily cap guards against ban risk</p>
         </MetricCard>
 
         <MetricCard title="Media (24 h)" icon={HardDrive}>
@@ -295,24 +290,25 @@ export default function WhatsAppPage() {
         Instances <span className="font-normal" style={dimText}>({instances.length})</span>
       </h3>
       <p className="text-xs mb-3 max-w-3xl" style={dimText}>
-        Each Luna gets its own WhatsApp number: Connect creates the gateway account and
-        wires the plugin (no restart); scan that Luna's QR to link its number.
+        Lunas on WhatsApp — each with its own number, QR, and daily send cap.
       </p>
       <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--ink-lighter)' }}>
         <table className="w-full">
           <thead>
             <tr style={{ background: 'var(--surface)', borderBottom: '1px solid var(--ink-lighter)' }}>
-              {['Agent', 'Machine', 'Plugin', 'WhatsApp', '24h msgs', ''].map((h, i) => (
+              {['Agent', 'Machine', 'Status', '24h msgs', 'Sent today', ''].map((h, i) => (
                 <th key={i} className="text-left text-xs font-medium px-4 py-3" style={dimText}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {instances.length === 0 ? (
+            {visible.length === 0 ? (
               <tr style={{ background: 'var(--surface)' }}>
-                <td colSpan={6} className="px-4 py-6 text-center text-sm" style={dimText}>No agents provisioned.</td>
+                <td colSpan={6} className="px-4 py-6 text-center text-sm" style={dimText}>
+                  No Luna is on WhatsApp yet — pick one below and Connect.
+                </td>
               </tr>
-            ) : instances.map(a => (
+            ) : visible.map(a => (
               <InstanceTr key={a.agent_id} row={a} busy={busySlug === a.slug}
                 onConnect={() => handleConnect(a)} onDisconnect={() => handleDisconnect(a)}
                 onShowQr={() => setQrAgent(a)} />
@@ -320,6 +316,33 @@ export default function WhatsAppPage() {
           </tbody>
         </table>
       </div>
+
+      {connectable.length > 0 && (
+        <div className="flex items-center gap-2 mt-3">
+          <select
+            value={connectSlug}
+            onChange={e => setConnectSlug(e.target.value)}
+            className="px-3 py-2 rounded-lg text-sm outline-none"
+            style={{ background: 'var(--ink)', border: '1px solid var(--ink-lighter)', color: 'var(--text)' }}
+          >
+            <option value="">Connect another Luna…</option>
+            {connectable.map(a => (
+              <option key={a.agent_id} value={a.slug}>{a.name} ({a.slug})</option>
+            ))}
+          </select>
+          <button
+            disabled={!connectSlug || busySlug !== null}
+            onClick={() => {
+              const a = connectable.find(x => x.slug === connectSlug);
+              if (a) { setConnectSlug(''); handleConnect(a); }
+            }}
+            className="px-3 py-2 rounded-xl text-xs font-semibold transition-all hover:scale-105 disabled:opacity-50"
+            style={{ background: 'var(--moon)', color: 'var(--ink)' }}
+          >
+            {busySlug ? 'Connecting…' : 'Connect'}
+          </button>
+        </div>
+      )}
 
       {actionError && (
         <p className="text-xs mt-2" style={{ color: '#ef4444' }}>{actionError}</p>
@@ -350,11 +373,13 @@ export default function WhatsAppPage() {
   );
 }
 
-function waPill(acct: InstanceAccount): { label: string; color: string } {
-  if (acct.connected) return { label: acct.self_jid ? acct.self_jid.split('@')[0] : 'Online', color: '#22c55e' };
-  if (acct.has_qr) return { label: 'needs QR', color: '#eab308' };
-  if (acct.status) return { label: acct.status, color: '#eab308' };
-  return { label: 'unknown', color: 'var(--text-dim)' };
+// Lifecycle: plugin installed → setup phone (scan QR) → linked (own number).
+function lifecyclePill(a: InstanceRow, acct: InstanceAccount | null): { label: string; color: string } {
+  if (acct?.connected) return { label: acct.self_jid ? acct.self_jid.split('@')[0] : 'linked', color: '#22c55e' };
+  if (acct?.has_qr) return { label: 'setup phone', color: '#eab308' };
+  if (acct?.status) return { label: acct.status, color: '#eab308' };
+  if (a.plugin_installed) return { label: 'plugin installed', color: 'var(--moon)' };
+  return { label: '—', color: 'var(--text-dim)' };
 }
 
 function InstanceTr({ row: a, busy, onConnect, onDisconnect, onShowQr }: {
@@ -363,6 +388,11 @@ function InstanceTr({ row: a, busy, onConnect, onDisconnect, onShowQr }: {
 }) {
   // A disabled account is a disconnected one — offer Connect again.
   const acct = a.account && a.account.status !== 'disabled' ? a.account : null;
+  const pill = lifecyclePill(a, acct);
+  const sent = acct?.sent_today ?? 0;
+  const cap = acct?.daily_cap ?? 0;
+  const capPct = cap > 0 ? Math.min(100, Math.round((sent / cap) * 100)) : 0;
+  const capColor = capPct >= 100 ? '#ef4444' : capPct >= 80 ? '#eab308' : '#22c55e';
   return (
     <tr className="border-t" style={{ borderColor: 'var(--ink-lighter)', background: 'var(--surface)' }}>
       <td className="px-4 py-3 text-sm" style={{ color: 'var(--text)' }}>
@@ -370,18 +400,23 @@ function InstanceTr({ row: a, busy, onConnect, onDisconnect, onShowQr }: {
       </td>
       <td className="px-4 py-3 text-xs" style={dimText}>{a.status}</td>
       <td className="px-4 py-3 text-sm">
-        {a.plugin_installed ? <span style={{ color: '#22c55e' }}>✓</span> : <span style={dimText}>—</span>}
-      </td>
-      <td className="px-4 py-3 text-sm">
-        {acct ? (
-          <span className="text-xs px-2 py-0.5 rounded-full font-medium"
-            style={{ color: waPill(acct).color, background: `${waPill(acct).color}22` }}>
-            {waPill(acct).label}
-          </span>
-        ) : <span style={dimText}>—</span>}
+        <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+          style={{ color: pill.color, background: `${pill.color}22` }}>
+          {pill.label}
+        </span>
       </td>
       <td className="px-4 py-3 text-xs" style={dimText}>
         {acct ? `${acct.messages_24h_in ?? 0} in / ${acct.messages_24h_out ?? 0} out` : '—'}
+      </td>
+      <td className="px-4 py-3 text-xs" style={dimText}>
+        {acct ? (
+          <div className="min-w-[90px]" title="daily cap guards against ban risk">
+            {sent} / {cap || '∞'}
+            <div className="mt-1 h-1 rounded-full overflow-hidden" style={{ background: 'var(--ink)' }}>
+              <div className="h-full rounded-full" style={{ width: `${capPct}%`, background: capColor }} />
+            </div>
+          </div>
+        ) : '—'}
       </td>
       <td className="px-4 py-3 text-right whitespace-nowrap">
         {!acct ? (
