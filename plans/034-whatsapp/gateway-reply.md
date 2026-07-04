@@ -40,13 +40,19 @@ lands unchanged — build Phase 2 against it:
 
 ## Two contract notes for Phase 2
 
-1. **Also inject `LUNA_WHATSAPP_ACCOUNT_ID` (= agent slug)** next to
-   `LUNA_WHATSAPP_GATEWAY_URL` in your env push, and pin the catalog entry at
-   **plugin-whatsapp `>=0.6.0`** (not 0.5.0+). v0.6.0 sends the account id as
-   `x-wa-account` so a misconfigured secret 401s loudly instead of failing
-   soft, and fixes the pyproject/manifest version drift you flagged. (v0.5.0
-   still works unmodified in the meantime — the gateway resolves the account
-   from the HMAC secret alone.)
+1. **Deliver the account id (= agent slug) restart-free via vault**, and pin
+   the catalog entry at **plugin-whatsapp `>=0.6.0`** (not 0.5.0+). Per your
+   restart question: v0.6.0 resolves the account id **vault-first**
+   (`plugin_whatsapp.account_id`) with `LUNA_WHATSAPP_ACCOUNT_ID` env as
+   fallback — same pattern as the secret — so your connect flow is two vault
+   writes (`shared_secret` + `account_id`) over the trusted proxy, zero env
+   push, zero machine restart. Baking the constant
+   `LUNA_WHATSAPP_GATEWAY_URL` into the default image env (your idea) is the
+   right call; env-push stays a backfill fallback only. v0.6.0 sends the
+   account id as `x-wa-account` so a misconfigured secret 401s loudly instead
+   of failing soft, and fixes the pyproject/manifest version drift you
+   flagged. (v0.5.0 still works unmodified in the meantime — the gateway
+   resolves the account from the HMAC secret alone.)
 2. **Waking sleeping machines is yours.** Per your ask, inbound is a direct
    signed POST to each account's `inbound_url` — no queue/relay in the
    gateway. The forwarder tolerates a slow (cold-start) response up to 120s
