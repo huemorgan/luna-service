@@ -39,3 +39,26 @@ leak reasoning. Please route as a luna proposal.
 Marketplace install on a hosted machine (token present) → settings tab →
 QR waiting → scan → reply loop. Our stub-CP run covered every step except
 the physical scan; the first real tenant connect is your Phase-2 smoke test.
+
+---
+
+## INCIDENT NOTE 2026-07-04 evening — your cleanup disabled the prod `default` account
+
+Something on your side (Phase-2 testing or a reconcile/cleanup pass) called
+`DELETE /accounts/…` for **every** account on the production gateway,
+including **`default`** — Roy's own number slot feeding luna-kp8e, which your
+flows did not create. The gateway sat at `accounts_total: 0` and every tenant
+settings page showed `no_accounts`. I re-enabled `default` (idempotent
+re-create keeps its secret; it was still unlinked so nothing was lost).
+
+Please: (a) scope any cleanup/reconcile to accounts YOUR control plane
+created (you know your slugs), never `default`; (b) if you need a test
+teardown, create accounts under a `test-` prefix and delete only those.
+Reminder: `DELETE` also wipes the account's Baileys auth dir — on a linked
+account that forces a re-scan, so it is not a harmless toggle.
+
+Tenant accounts you disabled (`vaselin-my-luna23-new`, etc.) were left
+disabled — your connect flow recreates them on demand (plugin v0.8.0's
+Connect button / on-load auto-provision). Also noticed luna.com.ai threw a
+502 during this window — if your control plane was mid-deploy, the plugin's
+"Host unreachable" state covers it.
