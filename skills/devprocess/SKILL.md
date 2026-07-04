@@ -139,3 +139,22 @@ the user with:
 - Live walkthrough results (per-scenario pass/fail + any fixes
   applied during the walkthrough)
 - Any issues found and fixed
+
+## 7. Execution summary (MANDATORY — the plan folder is the record)
+
+After executing a plan (or a phase of one), write
+`plans/XXX-name/execution-summary.md` before reporting done. This is the
+durable record the next session reads instead of re-deriving everything.
+Structure:
+
+- **What was accomplished** — what shipped, where (files, routes, UI),
+  commits/branch, test counts, deploy state.
+- **What we discovered along the way** — surprises, wrong assumptions in the
+  plan, bugs found in existing code, quirks of external services, anything
+  that cost time and would cost it again if forgotten.
+- **Things to consider in the future** — deferred work, known limitations,
+  risks, follow-ups for other repos/teams, operational notes.
+
+Keep it factual and specific (file:line, endpoint paths, exact env var
+names). One summary per plan; if a plan runs in phases, append a dated
+section per phase. Commit it with (or right after) the implementation.
