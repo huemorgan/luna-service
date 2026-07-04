@@ -110,10 +110,6 @@ export default function WhatsAppPage() {
   const [instances, setInstances] = useState<InstanceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchFailed, setFetchFailed] = useState(false);
-  const [busySlug, setBusySlug] = useState<string | null>(null);
-  const [qrAgent, setQrAgent] = useState<InstanceRow | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [connectSlug, setConnectSlug] = useState('');
 
   const fetchAll = useCallback(async () => {
     try {
@@ -135,42 +131,6 @@ export default function WhatsAppPage() {
     const interval = setInterval(fetchAll, 15000);
     return () => clearInterval(interval);
   }, [fetchAll]);
-
-  const handleConnect = async (a: InstanceRow) => {
-    setActionError(null);
-    setBusySlug(a.slug);
-    try {
-      const res = await fetch(`/api/admin/whatsapp/instances/${a.agent_id}/connect`, { method: 'POST' });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        setActionError(body?.detail || `Connect failed (${res.status})`);
-      } else {
-        await fetchAll();
-        setQrAgent(a);
-      }
-    } catch {
-      setActionError('Connect failed (network)');
-    }
-    setBusySlug(null);
-  };
-
-  const handleDisconnect = async (a: InstanceRow) => {
-    if (!window.confirm(`Disconnect WhatsApp for ${a.slug}? Its number unlinks and inbound stops.`)) return;
-    setActionError(null);
-    setBusySlug(a.slug);
-    try {
-      const res = await fetch(`/api/admin/whatsapp/instances/${a.agent_id}/connect`, { method: 'DELETE' });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        setActionError(body?.detail || `Disconnect failed (${res.status})`);
-      } else {
-        await fetchAll();
-      }
-    } catch {
-      setActionError('Disconnect failed (network)');
-    }
-    setBusySlug(null);
-  };
 
   if (loading) {
     return (
@@ -200,10 +160,10 @@ export default function WhatsAppPage() {
   const s = env?.stats;
   const unauthorized = env?.reachable && env?.authorized === false;
   const maxHourly = Math.max(1, ...(s?.hourly || []).map(h => Math.max(h.in, h.out)));
-  // Only WhatsApp-relevant Lunas make the table: a live account or the plugin.
+  // Read-only: Lunas with a live account or the plugin. Connecting happens
+  // inside each Luna (plugin-whatsapp >= 0.7.0), not here.
   const hasLiveAccount = (a: InstanceRow) => !!a.account && a.account.status !== 'disabled';
   const visible = instances.filter(a => hasLiveAccount(a) || a.plugin_installed);
-  const connectable = instances.filter(a => !hasLiveAccount(a) && !a.plugin_installed);
 
   return (
     <div className="max-w-5xl">
@@ -290,13 +250,15 @@ export default function WhatsAppPage() {
         Instances <span className="font-normal" style={dimText}>({instances.length})</span>
       </h3>
       <p className="text-xs mb-3 max-w-3xl" style={dimText}>
-        Lunas on WhatsApp — each with its own number, QR, and daily send cap.
+        Lunas on WhatsApp — each with its own number and daily send cap. Connecting
+        happens inside each Luna: install the WhatsApp plugin and scan the QR in its
+        settings tab.
       </p>
       <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--ink-lighter)' }}>
         <table className="w-full">
           <thead>
             <tr style={{ background: 'var(--surface)', borderBottom: '1px solid var(--ink-lighter)' }}>
-              {['Agent', 'Machine', 'Status', '24h msgs', 'Sent today', ''].map((h, i) => (
+              {['Agent', 'Machine', 'Status', '24h msgs', 'Sent today'].map((h, i) => (
                 <th key={i} className="text-left text-xs font-medium px-4 py-3" style={dimText}>{h}</th>
               ))}
             </tr>
@@ -304,71 +266,17 @@ export default function WhatsAppPage() {
           <tbody>
             {visible.length === 0 ? (
               <tr style={{ background: 'var(--surface)' }}>
-                <td colSpan={6} className="px-4 py-6 text-center text-sm" style={dimText}>
-                  No Luna is on WhatsApp yet — pick one below and Connect.
+                <td colSpan={5} className="px-4 py-6 text-center text-sm" style={dimText}>
+                  No Luna is on WhatsApp yet — install the WhatsApp plugin inside a Luna to connect it.
                 </td>
               </tr>
             ) : visible.map(a => (
-              <InstanceTr key={a.agent_id} row={a} busy={busySlug === a.slug}
-                onConnect={() => handleConnect(a)} onDisconnect={() => handleDisconnect(a)}
-                onShowQr={() => setQrAgent(a)} />
+              <InstanceTr key={a.agent_id} row={a} />
             ))}
           </tbody>
         </table>
       </div>
 
-      {connectable.length > 0 && (
-        <div className="flex items-center gap-2 mt-3">
-          <select
-            value={connectSlug}
-            onChange={e => setConnectSlug(e.target.value)}
-            className="px-3 py-2 rounded-lg text-sm outline-none"
-            style={{ background: 'var(--ink)', border: '1px solid var(--ink-lighter)', color: 'var(--text)' }}
-          >
-            <option value="">Connect another Luna…</option>
-            {connectable.map(a => (
-              <option key={a.agent_id} value={a.slug}>{a.name} ({a.slug})</option>
-            ))}
-          </select>
-          <button
-            disabled={!connectSlug || busySlug !== null}
-            onClick={() => {
-              const a = connectable.find(x => x.slug === connectSlug);
-              if (a) { setConnectSlug(''); handleConnect(a); }
-            }}
-            className="px-3 py-2 rounded-xl text-xs font-semibold transition-all hover:scale-105 disabled:opacity-50"
-            style={{ background: 'var(--moon)', color: 'var(--ink)' }}
-          >
-            {busySlug ? 'Connecting…' : 'Connect'}
-          </button>
-        </div>
-      )}
-
-      {actionError && (
-        <p className="text-xs mt-2" style={{ color: '#ef4444' }}>{actionError}</p>
-      )}
-
-      {qrAgent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={() => setQrAgent(null)}>
-          <div className="rounded-2xl border p-4 w-[420px]" style={cardStyle} onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
-                Link WhatsApp — <span className="font-mono">{qrAgent.slug}</span>
-              </span>
-              <button onClick={() => setQrAgent(null)} className="text-sm px-2" style={dimText}>✕</button>
-            </div>
-            <iframe
-              title="whatsapp-qr"
-              src={`/api/admin/whatsapp/instances/${qrAgent.agent_id}/qr`}
-              className="w-full rounded-lg"
-              style={{ height: 420, border: '1px solid var(--ink-lighter)', background: '#fff' }}
-            />
-            <p className="text-xs mt-2" style={dimText}>
-              Scan with the WhatsApp phone for this Luna. The page refreshes itself until linked.
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -382,10 +290,7 @@ function lifecyclePill(a: InstanceRow, acct: InstanceAccount | null): { label: s
   return { label: '—', color: 'var(--text-dim)' };
 }
 
-function InstanceTr({ row: a, busy, onConnect, onDisconnect, onShowQr }: {
-  row: InstanceRow; busy: boolean;
-  onConnect: () => void; onDisconnect: () => void; onShowQr: () => void;
-}) {
+function InstanceTr({ row: a }: { row: InstanceRow }) {
   // A disabled account is a disconnected one — offer Connect again.
   const acct = a.account && a.account.status !== 'disabled' ? a.account : null;
   const pill = lifecyclePill(a, acct);
@@ -417,31 +322,6 @@ function InstanceTr({ row: a, busy, onConnect, onDisconnect, onShowQr }: {
             </div>
           </div>
         ) : '—'}
-      </td>
-      <td className="px-4 py-3 text-right whitespace-nowrap">
-        {!acct ? (
-          <button onClick={onConnect} disabled={busy}
-            className="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all hover:scale-105 disabled:opacity-50"
-            style={{ background: 'var(--moon)', color: 'var(--ink)' }}>
-            {busy ? 'Connecting…' : 'Connect'}
-          </button>
-        ) : (
-          <>
-            {acct.has_qr && (
-              <button onClick={onShowQr}
-                className="px-3 py-1.5 rounded-xl text-xs font-semibold mr-2 transition-all hover:scale-105"
-                style={{ background: '#eab308', color: 'var(--ink)' }}>
-                Show QR
-              </button>
-            )}
-            <button onClick={onDisconnect} disabled={busy}
-              className="px-2 py-1.5 rounded-xl text-xs transition-all hover:scale-105 disabled:opacity-50"
-              style={{ border: '1px solid var(--ink-lighter)', color: 'var(--text-dim)' }}
-              title="Disconnect this Luna's WhatsApp account">
-              {busy ? '…' : 'Disconnect'}
-            </button>
-          </>
-        )}
       </td>
     </tr>
   );
