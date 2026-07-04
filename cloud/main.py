@@ -241,6 +241,12 @@ def create_app() -> FastAPI:
     app.include_router(relay_router)
     app.include_router(whatsapp_router)
     app.include_router(whatsapp_agent_router)
+    # Machines carry LUNA_GATEWAY_URL = "<host>/proxy" (credential-proxy
+    # convention). Agent-API callers are supposed to strip the suffix
+    # (plugin_vault/gateway.py does); plugin-whatsapp 0.8.0 doesn't — serve
+    # the same routes under /proxy too so either base works. Registered
+    # before gateway_proxy_router, so the specific path wins its catch-all.
+    app.include_router(whatsapp_agent_router, prefix="/proxy")
     app.include_router(whatsapp_relay_router)
     app.include_router(gateway_proxy_router)
     app.include_router(proxy_router)

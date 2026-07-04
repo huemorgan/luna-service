@@ -146,3 +146,16 @@ async def test_admin_connect_routes_are_gone(admin_client, sample_agent):
         f"/api/admin/whatsapp/instances/{sample_agent.id}/qr")).status_code == 404
     assert (await admin_client.post(
         "/api/admin/whatsapp/env/backfill")).status_code in (404, 405)
+
+
+@pytest.mark.asyncio
+async def test_connect_reachable_under_proxy_prefix(anon_client, db_session, sample_agent):
+    """LUNA_GATEWAY_URL is '<host>/proxy'; plugin 0.8.0 appends the agent path
+    without stripping the suffix — the /proxy alias must answer identically."""
+    tok = await _token(db_session, sample_agent)
+    with patch.object(prov, "_gateway", AsyncMock(return_value=_gw_response(
+            201, {"account_id": sample_agent.slug, "status": "linking"}))):
+        res = await anon_client.post("/proxy/api/agent/whatsapp/connect",
+                                     headers={"Authorization": f"Bearer {tok}"})
+    assert res.status_code == 200
+    assert res.json()["account_id"] == sample_agent.slug
