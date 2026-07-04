@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     # server-side; the UI only ever sees proxied stats.
     whatsapp_gateway_url: str = ""
     whatsapp_gateway_admin_key: str = ""
+    # Marketplace serving plugin-whatsapp (>=0.6.0) for the connect flow.
+    whatsapp_plugin_marketplace_url: str = "https://luna-marketplaces.onrender.com/mp/official/"
 
     model_config = {"env_prefix": "CLOUD_"}
 

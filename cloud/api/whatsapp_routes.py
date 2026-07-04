@@ -10,15 +10,18 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 
 import httpx
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 
 from cloud import config
 from cloud.auth.deps import require_admin
-from cloud.db.models import Agent
+from cloud.db.models import Agent, User
 from cloud.db.session import get_session as get_db_session
+from cloud.whatsapp import provision
 
 log = logging.getLogger(__name__)
 
@@ -102,24 +105,170 @@ async def gateway_qr(admin=Depends(require_admin)):
     return HTMLResponse(resp.text, status_code=resp.status_code)
 
 
+async def _accounts_by_id() -> dict[str, dict]:
+    """Per-account state from the gateway's /stats (multi-account), keyed by
+    account_id. Empty when unconfigured/unreachable — the table degrades to
+    readiness-only."""
+    url, admin_key = provision.gateway_config()
+    if not url:
+        return {}
+    payload = await _fetch_stats(url, admin_key)
+    accounts = (payload.get("stats") or {}).get("accounts") or []
+    return {a.get("account_id"): a for a in accounts if a.get("account_id")}
+
+
 @router.get("/instances")
 async def whatsapp_instances(admin=Depends(require_admin)):
-    """Control-plane view of WhatsApp readiness per agent.
-
-    v1 reports plugin membership from ``config_overrides.installed_plugins``.
-    Per-account link status joins in once the multi-account gateway ships
-    (`multi-luna-gateway-ask.md`).
-    """
+    """Per-Luna WhatsApp state: plugin membership + the agent's own gateway
+    account (account_id == agent.slug)."""
+    accounts = await _accounts_by_id()
     async with get_db_session() as db:
         agents = (await db.execute(select(Agent).order_by(Agent.created_at))).scalars().all()
-        return [
-            {
+        rows = []
+        for a in agents:
+            acct = accounts.get(a.slug)
+            rows.append({
                 "agent_id": str(a.id),
                 "name": a.name,
                 "slug": a.slug,
                 "status": a.status,
                 "plugin_installed": "plugin-whatsapp"
                 in ((a.config_overrides or {}).get("installed_plugins") or []),
-            }
-            for a in agents
-        ]
+                "account": {
+                    "status": acct.get("status"),
+                    "connected": acct.get("connected"),
+                    "self_jid": acct.get("self_jid"),
+                    "has_qr": acct.get("has_qr"),
+                    "messages_24h_in": acct.get("messages_24h_in"),
+                    "messages_24h_out": acct.get("messages_24h_out"),
+                    "sent_today": acct.get("sent_today"),
+                    "daily_cap": acct.get("daily_cap"),
+                } if acct else None,
+            })
+        return rows
+
+
+async def _get_agent(agent_id: str) -> Agent:
+    try:
+        aid = uuid.UUID(agent_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
+    async with get_db_session() as db:
+        agent = (await db.execute(select(Agent).where(Agent.id == aid))).scalar_one_or_none()
+        if not agent:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
+        return agent
+
+
+@router.post("/instances/{agent_id}/connect")
+async def connect_instance(agent_id: str, admin: User = Depends(require_admin)):
+    """Give this Luna its own WhatsApp account: gateway account + vault secret
+    + plugin install. Restart-free; idempotent."""
+    global _stats_cache
+    agent = await _get_agent(agent_id)
+    url, _ = provision.gateway_config()
+    if not url:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "WhatsApp gateway not configured")
+    try:
+        result = await provision.connect_agent(agent, admin_email=admin.email)
+    except Exception as exc:
+        log.error("whatsapp.connect failed agent=%s err=%s", agent.slug, exc)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Gateway connect failed: {exc}")
+    _stats_cache = None  # the new account should appear on the next poll
+    return {"ok": True, **result, "qr_path": f"/api/admin/whatsapp/instances/{agent_id}/qr"}
+
+
+@router.delete("/instances/{agent_id}/connect")
+async def disconnect_instance(agent_id: str, admin: User = Depends(require_admin)):
+    global _stats_cache
+    agent = await _get_agent(agent_id)
+    try:
+        result = await provision.disconnect_agent(agent)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Gateway disconnect failed: {exc}")
+    _stats_cache = None
+    return {"ok": True, **result}
+
+
+@router.get("/instances/{agent_id}/qr")
+async def instance_qr(agent_id: str, admin=Depends(require_admin)):
+    """This Luna's own QR, proxied server-side (admin key stays here)."""
+    agent = await _get_agent(agent_id)
+    try:
+        resp = await provision.fetch_account_qr(agent.slug, fmt="html")
+    except Exception:
+        return HTMLResponse("<p>Gateway unreachable.</p>", status_code=502)
+    return HTMLResponse(resp.text, status_code=resp.status_code)
+
+
+# ── Public inbound relay ─────────────────────────────────────────────────────
+# The gateway POSTs each account's inbound envelope here (this URL is what
+# connect registers as the account's inbound_url). We forward the RAW bytes +
+# HMAC headers to the tenant machine — Fly routing header, wake-on-sleep —
+# and the plugin verifies the signature itself. No session auth by design:
+# a forged request without the account secret dies at the plugin's HMAC check.
+
+RELAY_TIMEOUT_S = 120.0  # gateway tolerates slow (cold-start) turns up to 120s
+
+
+relay_router = APIRouter(tags=["whatsapp-relay"])
+
+
+@relay_router.post("/api/webhooks/whatsapp/{agent_slug}/inbound")
+async def whatsapp_inbound_relay(agent_slug: str, request: Request):
+    import os
+
+    from cloud.api.proxy import _try_wake_agent
+    from cloud.runtime.proxy_secret import derive_proxy_secret
+
+    async with get_db_session() as db:
+        agent = (await db.execute(
+            select(Agent).where(Agent.slug == agent_slug)
+        )).scalar_one_or_none()
+        if not agent:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown agent")
+        owner = (await db.execute(
+            select(User).where(User.id == agent.creator_id)
+        )).scalar_one_or_none()
+
+    if not (agent.internal_url or "").startswith(("http://", "https://")):
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Agent has no machine")
+
+    raw = await request.body()
+    root_secret = os.environ.get("CLOUD_TRUSTED_PROXY_SECRET", "dev-proxy-secret")
+    headers = {
+        "content-type": request.headers.get("content-type", "application/json"),
+        "x-wa-timestamp": request.headers.get("x-wa-timestamp", ""),
+        "x-wa-signature": request.headers.get("x-wa-signature", ""),
+        "x-luna-proxy-secret": derive_proxy_secret(root_secret, str(agent.id)),
+        "x-luna-user": (owner.email if owner else "") or "",
+    }
+    if agent.runtime_ref:
+        headers["fly-force-instance-id"] = agent.runtime_ref
+    target = f"{(agent.internal_url or '').rstrip('/')}/api/p/plugin-whatsapp/inbound"
+
+    async def _send():
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(RELAY_TIMEOUT_S, connect=10)
+        ) as client:
+            return await client.post(target, content=raw, headers=headers)
+
+    try:
+        resp = await _send()
+    except httpx.ReadTimeout:
+        # NOT retried — the turn may still be running; a retry risks a double reply.
+        raise HTTPException(status.HTTP_504_GATEWAY_TIMEOUT, "Agent turn timed out")
+    except httpx.HTTPError:
+        # Machine asleep/unreachable — wake it and retry once.
+        if not await _try_wake_agent(agent):
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Agent unreachable")
+        try:
+            resp = await _send()
+        except Exception:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Agent unreachable after wake")
+
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        media_type=resp.headers.get("content-type", "application/json"),
+    )
