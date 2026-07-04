@@ -2,7 +2,7 @@
 
 The hosted multi-tenant platform for [Luna](https://github.com/huemorgan/luna). One signed-in user, one dedicated Luna instance, your data isolated from everyone else's.
 
-**Status:** MVP planning phase. Implementation hasn't started yet.
+**Status:** MVP shipped and live — under active development. The plans in `plans/` (001–034 and counting) track the work; each folder is an executed or in-flight phase.
 
 ## What This Repo Is
 
@@ -11,90 +11,79 @@ This repo is the **control plane and operations layer** that wraps the OSS Luna 
 | Layer | Where |
 |-------|-------|
 | **The agent (OSS)** | `luna/` submodule, pulled from `huemorgan/luna` |
-| **Control plane** | `cloud/` (to be built in plan 002) — FastAPI app, Google OAuth, account management, runtime provisioning, routing |
-| **Vision + plans + tests** | `vision/`, `plans/`, `tests/`, `dojo-vision/` (this) |
+| **Control plane** | `cloud/` — FastAPI app: Google OAuth, tenant provisioning on Fly.io machines, image baking/promotion, admin fleet dashboard, credential gateway + vault, model catalog, metering, Composio trigger relay |
+| **Plugin marketplace** | `luna-marketplaces/` submodule — the marketplace service behind `marketplaces.com.ai` |
+| **Marketing site** | `website/` — static site (index, features, pricing, security, open-source, for-providers, blog) |
+| **Vision + plans + tests** | `vision/`, `plans/`, `tests/`, `dojo-vision/` |
 
-## Where To Start
-
-- **Product vision:** `vision/vision.md`
-- **Filesystem architecture:** `vision/filesystem-architecture.md`
-- **MVP plan overview:** `plans/README.md`
-- **Implementation phases:** `plans/001-*/PLAN.md` through `plans/004-*/PLAN.md`
-- **Test philosophy:** `dojo-vision/vision.md`
-- **Dev process to follow:** `skills/devprocess/SKILL.md`
-
-## The MVP, In One Sentence
+## How It Works, In One Sentence
 
 A user visits `luna.com.ai`, signs in with Google, waits up to a minute, and then has their own private Luna at `luna.com.ai/<their-slug>` that remembers them, can't see anyone else's data, and keeps working tomorrow.
+
+Under the hood: the control plane runs on Render, each tenant gets a dedicated Fly.io machine baked from a versioned image (`docker/luna-hosted.Dockerfile`), tenant state lives in Postgres + R2, and plugin credentials are provisioned through the gateway/vault rather than baked into images.
 
 ## Repo Layout
 
 ```
 luna-service/
 ├── luna/                       # Git submodule — the OSS Luna agent (don't edit here)
-├── cloud/                      # (to build) FastAPI control plane + React UI
-├── dev/                        # (to build) local dev harnesses (docker-compose etc.)
+├── luna-marketplaces/          # Git submodule — plugin marketplace service
+├── cloud/                      # FastAPI control plane
+│   ├── api/                    #   routes: auth, agents, admin, gateway, plugin catalog, relay
+│   ├── auth/                   #   Google OAuth
+│   ├── provisioning/           #   Fly.io machine lifecycle, image bake/promote
+│   ├── gateway/                #   credential gateway: keys, policy, metering, model registry
+│   ├── vault/                  #   secret storage for plugin provisioning
+│   ├── relay/                  #   Composio trigger relay
+│   ├── db/ + alembic/          #   Postgres models + migrations
+│   └── ui/                     #   admin dashboard (fleet, machines, images, audit log)
+├── website/                    # Marketing site (luna.com.ai)
+├── docker/                     # Tenant image (luna-hosted.Dockerfile)
+├── dev/                        # Local dev harnesses, backfills, probes
 │
 ├── vision/                     # Why we're building this, how it's shaped
-│   ├── vision.md
-│   └── filesystem-architecture.md
-│
-├── plans/                      # Implementation phases — read these in order
-│   ├── README.md               # Phase overview + decisions
-│   ├── 001-luna-hosted-mode/PLAN.md
-│   ├── 002-control-plane-skeleton/PLAN.md
-│   ├── 003-local-provisioning-and-routing/PLAN.md
-│   └── 004-fly-deployment/PLAN.md
-│
+├── plans/                      # Implementation phases — numbered, read in order
 ├── tests/                      # Dojo-style E2E scenarios per phase
-│   ├── 001-luna-hosted-mode/
-│   ├── 002-control-plane-skeleton/
-│   ├── 003-local-provisioning-and-routing/
-│   └── 004-fly-deployment/
-│
-├── dojo-vision/                # Testing philosophy
-│   └── vision.md
-│
-├── dojo-results/               # (populated as plans execute) numbered run results
-│
-└── skills/                     # LLM skills (copied from .cursor/skills)
-    └── devprocess/SKILL.md     # The dev process to follow for each plan
+├── dojo-results/               # Numbered run results from executed plans
+└── skills/                     # LLM skills (devprocess, luna-submodule-changes)
 ```
+
+## Where To Start
+
+- **Product vision:** `vision/vision.md`
+- **Filesystem architecture:** `vision/filesystem-architecture.md`
+- **Plan overview + MVP scoping:** `plans/README.md`
+- **Test philosophy:** `dojo-vision/vision.md`
+- **Dev process to follow:** `skills/devprocess/SKILL.md`
 
 ## How To Work On This
 
-When you (the LLM in Cursor) are asked to execute a plan, follow `skills/devprocess/SKILL.md`:
+When you (the LLM) are asked to execute a plan, follow `skills/devprocess/SKILL.md`:
 
-1. Branch named after the plan folder (e.g., `001-luna-hosted-mode`)
-2. **Write the test scenarios first** in `tests/XXX-name/` (most already drafted — refine as needed)
+1. Branch named after the plan folder (e.g., `034-plugin-forge`)
+2. **Write the test scenarios first** in `tests/XXX-name/`
 3. Implement the plan, phase by phase
 4. Run scenarios in a real browser (you are the test framework — open the browser, screenshot, judge pass/fail)
 5. Do the live walkthrough (a real multi-turn conversation, judged qualitatively)
 6. Write results to `dojo-results/NNNN-XXX-name/`
 
+Luna changes never happen here directly — see `skills/luna-submodule-changes/` for how submodule bumps flow in.
+
 ## Accounts & Secrets
 
-See `.env.example` for the full list of env vars and where to source each one.
+See `.env.example` for the full list of env vars and where to source each one. In broad strokes:
 
-What we already have (reusable from prior projects):
-
-- **LLM keys:** Anthropic, OpenAI, Tavily in `../luna/.env` and `../luna-dojo/luna/.env`
-- **Render account:** new `luna-service` web service created, separate from old `runluna`
-  - LLM keys: copy from existing `runluna` service dashboard
-- **Cloudflare:** `luna.com.ai` zone exists. User will move the domain to point at `luna-service.onrender.com` when ready.
-- **Domain:** `luna.com.ai` registered and pointed at Cloudflare nameservers
-
-What we still need to create:
-
-- **Google OAuth client** inside `novalystrix.ai` Workspace (phase 002)
-- **Second Render Postgres** for tenant DB (phase 004)
-- **Fly.io account** + `luna-tenants-prod` app + API token (phase 004)
-- **R2 bucket** + scoped API token under existing Cloudflare account (phase 004)
+- **Render** hosts the control plane (`render.yaml`) and Postgres
+- **Fly.io** hosts tenant machines (`luna-tenants-prod`)
+- **Cloudflare** fronts `luna.com.ai` and provides the R2 bucket
+- **Google OAuth** (Novalystrix Workspace client) handles sign-in
+- **LLM keys** are provisioned to tenants through the credential gateway, not baked into images
 
 ## Related Projects
 
 - `../luna` — the OSS agent, this repo's main dependency
-- `../luna-dojo` — the OSS agent's testing dojo (different layer from this repo's tests)
+- `../plugins/*` — extracted Luna plugins, published to the marketplace
+- `luna-marketplaces/` — the marketplace service they're published to
 
 ## Vision Documents
 
