@@ -136,3 +136,27 @@
 - Gateway wiped to zero accounts (dojo + admin-flow experiments deleted).
 - Next: luna-whatsapp ships plugin v0.7.0 per
   `plans/034.1-whatsapp-fix/plugin-ask.md`; end-to-end dojo then.
+
+## v0.8.0 rollout debugging (2026-07-05)
+
+The first real hosted install of plugin v0.8.0 failed to self-provision.
+Three stacked causes, all fixed:
+1. **`LUNA_GATEWAY_URL` is `<host>/proxy`**, and v0.8.0 doesn't strip the
+   suffix (the vault does — `plugin_vault/gateway.py:106`). Fixed on our
+   side by also serving `/proxy/api/agent/whatsapp/*` (main.py alias,
+   registered before the credential-proxy catch-all); v0.8.1 ask filed
+   (`plans/034.1-whatsapp-fix/v080-proxy-suffix-note.md`).
+2. **Stale vault secret** from pre-034.1 experiments made
+   `ensure_provisioned` (correctly) skip — cleared via trusted-proxy vault
+   DELETEs.
+3. **`plugin-marketplace /install` does NOT upgrade an installed plugin**
+   (idempotent no-op) and `/upgrade` needs a machine restart before the new
+   routes serve. Machine restart via Fly API loaded 0.8.0, whose on_load
+   then auto-provisioned successfully end-to-end.
+Also: the gateway auto-resurrects account `default` at boot from legacy env —
+deleted `LUNA_INBOUND_URL` + `WA_SHARED_SECRET` from the luna-wa-gateway
+Render service and redeployed; residue gone for good.
+Debugging tip that finally cracked it: the plugin's `GET
+/api/p/plugin-whatsapp/status` is unauthenticated and reachable at
+`luna-agents.fly.dev` with `fly-force-instance-id` — the response SHAPE
+reveals the running plugin version.
