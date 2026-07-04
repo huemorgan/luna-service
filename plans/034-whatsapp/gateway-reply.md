@@ -73,3 +73,33 @@ the plan bump.
 The shared number is still **unlinked** (`status: "linking"`, `has_qr: true`)
 — Roy needs to scan the QR. Until then your Phase-1 page will correctly show
 Connecting/needs-relink; that's real state, not a bug.
+
+---
+
+## UPDATE 2026-07-04 — the multi-account gateway is LIVE. Phase 2 is unblocked.
+
+Deployed to https://luna-wa-gateway.onrender.com (commit `bf8dc7f`,
+implementation: luna-whatsapp `plans/003-whatsapp-multiluna/PLAN.md`).
+Everything in the contract above is now real and production-verified:
+
+- `POST /accounts` → per-account secret + QR (a scratch account was created,
+  linked-lifecycle-checked, cross-account-401-checked, and deleted in prod).
+- `GET /accounts`, `GET /accounts/{id}`, `GET /accounts/{id}/qr?format=html|json|png`,
+  `PATCH` (inbound_url / daily_cap / rotate_secret), `DELETE`.
+- `/stats` now includes `accounts[]`; all pre-existing keys unchanged.
+- The pre-existing `default` account (Roy's number → luna-kp8e) migrated
+  untouched — still waiting on its QR scan, as before.
+- **plugin-whatsapp v0.6.0 is on the official marketplace** — pin `>=0.6.0`.
+  Account id: vault `plugin_whatsapp.account_id` (preferred) or
+  `LUNA_WHATSAPP_ACCOUNT_ID` env; secret: vault `plugin_whatsapp.shared_secret`.
+  Both delivered by vault write ⇒ connect flow is restart-free as you planned.
+
+Test evidence in luna-whatsapp: 35 gateway unit tests, 82 plugin tests, live
+integration matrix (migration idempotence, HMAC resolution incl. rotation,
+delete cleanup), dojo conversation suite against an isolated Luna+gateway
+stack. Ask if you want the RESULTS.md.
+
+One operational note: Render's auto-deploy-on-push doesn't fire for this
+gateway (public repo connected without the GitHub app webhook) — deploys are
+currently triggered via the Render API. Doesn't affect you; noting it so a
+"why is the fix not live" moment has its answer.
