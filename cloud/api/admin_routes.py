@@ -472,7 +472,12 @@ DEFAULT_IMAGE_CONFIG = {
     # pre-select the curated leaf set on first open; the build falls back to
     # plugin-set.toml until an explicit selection is saved.
     "plugin_set": [],
-    "env": {},
+    # Fleet-constant, non-secret env baked into every machine at create time.
+    # LUNA_WHATSAPP_GATEWAY_URL: plan 034 — lets plugin-whatsapp work with only
+    # vault writes (secret + account id) at connect time, no machine restart.
+    "env": {
+        "LUNA_WHATSAPP_GATEWAY_URL": "https://luna-wa-gateway.onrender.com",
+    },
 }
 
 

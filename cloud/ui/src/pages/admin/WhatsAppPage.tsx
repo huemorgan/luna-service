@@ -36,12 +36,24 @@ interface StatsEnvelope {
   qr_url?: string | null;
 }
 
+interface InstanceAccount {
+  status: string | null;
+  connected: boolean | null;
+  self_jid: string | null;
+  has_qr: boolean | null;
+  messages_24h_in: number | null;
+  messages_24h_out: number | null;
+  sent_today: number | null;
+  daily_cap: number | null;
+}
+
 interface InstanceRow {
   agent_id: string;
   name: string;
   slug: string;
   status: string;
   plugin_installed: boolean;
+  account: InstanceAccount | null;
 }
 
 type Pill = { label: string; color: string };
@@ -101,6 +113,9 @@ export default function WhatsAppPage() {
   const [instances, setInstances] = useState<InstanceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchFailed, setFetchFailed] = useState(false);
+  const [busySlug, setBusySlug] = useState<string | null>(null);
+  const [qrAgent, setQrAgent] = useState<InstanceRow | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -122,6 +137,42 @@ export default function WhatsAppPage() {
     const interval = setInterval(fetchAll, 15000);
     return () => clearInterval(interval);
   }, [fetchAll]);
+
+  const handleConnect = async (a: InstanceRow) => {
+    setActionError(null);
+    setBusySlug(a.slug);
+    try {
+      const res = await fetch(`/api/admin/whatsapp/instances/${a.agent_id}/connect`, { method: 'POST' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setActionError(body?.detail || `Connect failed (${res.status})`);
+      } else {
+        await fetchAll();
+        setQrAgent(a);
+      }
+    } catch {
+      setActionError('Connect failed (network)');
+    }
+    setBusySlug(null);
+  };
+
+  const handleDisconnect = async (a: InstanceRow) => {
+    if (!window.confirm(`Disconnect WhatsApp for ${a.slug}? Its number unlinks and inbound stops.`)) return;
+    setActionError(null);
+    setBusySlug(a.slug);
+    try {
+      const res = await fetch(`/api/admin/whatsapp/instances/${a.agent_id}/connect`, { method: 'DELETE' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setActionError(body?.detail || `Disconnect failed (${res.status})`);
+      } else {
+        await fetchAll();
+      }
+    } catch {
+      setActionError('Disconnect failed (network)');
+    }
+    setBusySlug(null);
+  };
 
   if (loading) {
     return (
@@ -254,45 +305,125 @@ export default function WhatsAppPage() {
         </div>
       )}
 
-      {/* ── Instances ── */}
+      {/* ── Instances (per-Luna WhatsApp) ── */}
       <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--text)' }}>
         Instances <span className="font-normal" style={dimText}>({instances.length})</span>
       </h3>
       <p className="text-xs mb-3 max-w-3xl" style={dimText}>
-        WhatsApp readiness per Luna instance. Today the gateway forwards inbound to a single
-        Luna; per-instance numbers arrive with the multi-account gateway.
+        Each Luna gets its own WhatsApp number: Connect creates the gateway account and
+        wires the plugin (no restart); scan that Luna's QR to link its number.
       </p>
       <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--ink-lighter)' }}>
         <table className="w-full">
           <thead>
             <tr style={{ background: 'var(--surface)', borderBottom: '1px solid var(--ink-lighter)' }}>
-              {['Agent', 'Machine', 'WhatsApp plugin'].map(h => (
-                <th key={h} className="text-left text-xs font-medium px-4 py-3" style={dimText}>{h}</th>
+              {['Agent', 'Machine', 'Plugin', 'WhatsApp', '24h msgs', ''].map((h, i) => (
+                <th key={i} className="text-left text-xs font-medium px-4 py-3" style={dimText}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {instances.length === 0 ? (
               <tr style={{ background: 'var(--surface)' }}>
-                <td colSpan={3} className="px-4 py-6 text-center text-sm" style={dimText}>No agents provisioned.</td>
+                <td colSpan={6} className="px-4 py-6 text-center text-sm" style={dimText}>No agents provisioned.</td>
               </tr>
             ) : instances.map(a => (
-              <tr key={a.agent_id} className="border-t" style={{ borderColor: 'var(--ink-lighter)', background: 'var(--surface)' }}>
-                <td className="px-4 py-3 text-sm" style={{ color: 'var(--text)' }}>
-                  {a.name} <span className="text-xs font-mono" style={dimText}>{a.slug}</span>
-                </td>
-                <td className="px-4 py-3 text-xs" style={dimText}>{a.status}</td>
-                <td className="px-4 py-3 text-sm">
-                  {a.plugin_installed
-                    ? <span style={{ color: '#22c55e' }}>installed</span>
-                    : <span style={dimText}>—</span>}
-                </td>
-              </tr>
+              <InstanceTr key={a.agent_id} row={a} busy={busySlug === a.slug}
+                onConnect={() => handleConnect(a)} onDisconnect={() => handleDisconnect(a)}
+                onShowQr={() => setQrAgent(a)} />
             ))}
           </tbody>
         </table>
       </div>
+
+      {actionError && (
+        <p className="text-xs mt-2" style={{ color: '#ef4444' }}>{actionError}</p>
+      )}
+
+      {qrAgent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={() => setQrAgent(null)}>
+          <div className="rounded-2xl border p-4 w-[420px]" style={cardStyle} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
+                Link WhatsApp — <span className="font-mono">{qrAgent.slug}</span>
+              </span>
+              <button onClick={() => setQrAgent(null)} className="text-sm px-2" style={dimText}>✕</button>
+            </div>
+            <iframe
+              title="whatsapp-qr"
+              src={`/api/admin/whatsapp/instances/${qrAgent.agent_id}/qr`}
+              className="w-full rounded-lg"
+              style={{ height: 420, border: '1px solid var(--ink-lighter)', background: '#fff' }}
+            />
+            <p className="text-xs mt-2" style={dimText}>
+              Scan with the WhatsApp phone for this Luna. The page refreshes itself until linked.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+function waPill(acct: InstanceAccount): { label: string; color: string } {
+  if (acct.connected) return { label: acct.self_jid ? acct.self_jid.split('@')[0] : 'Online', color: '#22c55e' };
+  if (acct.has_qr) return { label: 'needs QR', color: '#eab308' };
+  if (acct.status) return { label: acct.status, color: '#eab308' };
+  return { label: 'unknown', color: 'var(--text-dim)' };
+}
+
+function InstanceTr({ row: a, busy, onConnect, onDisconnect, onShowQr }: {
+  row: InstanceRow; busy: boolean;
+  onConnect: () => void; onDisconnect: () => void; onShowQr: () => void;
+}) {
+  // A disabled account is a disconnected one — offer Connect again.
+  const acct = a.account && a.account.status !== 'disabled' ? a.account : null;
+  return (
+    <tr className="border-t" style={{ borderColor: 'var(--ink-lighter)', background: 'var(--surface)' }}>
+      <td className="px-4 py-3 text-sm" style={{ color: 'var(--text)' }}>
+        {a.name} <span className="text-xs font-mono" style={dimText}>{a.slug}</span>
+      </td>
+      <td className="px-4 py-3 text-xs" style={dimText}>{a.status}</td>
+      <td className="px-4 py-3 text-sm">
+        {a.plugin_installed ? <span style={{ color: '#22c55e' }}>✓</span> : <span style={dimText}>—</span>}
+      </td>
+      <td className="px-4 py-3 text-sm">
+        {acct ? (
+          <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+            style={{ color: waPill(acct).color, background: `${waPill(acct).color}22` }}>
+            {waPill(acct).label}
+          </span>
+        ) : <span style={dimText}>—</span>}
+      </td>
+      <td className="px-4 py-3 text-xs" style={dimText}>
+        {acct ? `${acct.messages_24h_in ?? 0} in / ${acct.messages_24h_out ?? 0} out` : '—'}
+      </td>
+      <td className="px-4 py-3 text-right whitespace-nowrap">
+        {!acct ? (
+          <button onClick={onConnect} disabled={busy}
+            className="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all hover:scale-105 disabled:opacity-50"
+            style={{ background: 'var(--moon)', color: 'var(--ink)' }}>
+            {busy ? 'Connecting…' : 'Connect'}
+          </button>
+        ) : (
+          <>
+            {acct.has_qr && (
+              <button onClick={onShowQr}
+                className="px-3 py-1.5 rounded-xl text-xs font-semibold mr-2 transition-all hover:scale-105"
+                style={{ background: '#eab308', color: 'var(--ink)' }}>
+                Show QR
+              </button>
+            )}
+            <button onClick={onDisconnect} disabled={busy}
+              className="px-2 py-1.5 rounded-xl text-xs transition-all hover:scale-105 disabled:opacity-50"
+              style={{ border: '1px solid var(--ink-lighter)', color: 'var(--text-dim)' }}
+              title="Disconnect this Luna's WhatsApp account">
+              {busy ? '…' : 'Disconnect'}
+            </button>
+          </>
+        )}
+      </td>
+    </tr>
   );
 }
 
