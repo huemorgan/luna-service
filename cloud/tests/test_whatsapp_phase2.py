@@ -214,3 +214,54 @@ async def test_relay_passes_through_plugin_401(anon_client, sample_agent):
         res = await anon_client.post(
             f"/api/webhooks/whatsapp/{sample_agent.slug}/inbound", content=b"{}")
     assert res.status_code == 401  # the plugin's verdict, not ours
+
+
+# ── Phase 3: env backfill + reconcile ────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_backfill_dry_run_reports_missing(admin_client, sample_agent, monkeypatch):
+    monkeypatch.setenv("FLY_API_TOKEN", "t")
+    accounts_resp = _gw_response(200, {"accounts": [
+        {"account_id": "ghost-agent", "status": "linking"},
+        {"account_id": "default", "status": "linking"},
+        {"account_id": sample_agent.slug, "status": "linking"},
+    ]})
+    fly = MagicMock()
+    fly.describe = AsyncMock(return_value={"config": {"env": {"LUNA_ENV": "prod"}}})
+    fly.update_machine_env = AsyncMock()
+    with patch.object(prov, "_gateway", AsyncMock(return_value=accounts_resp)), \
+         patch("cloud.runtime.fly_machines.FlyMachinesRuntime", return_value=fly):
+        res = await admin_client.post("/api/admin/whatsapp/env/backfill?dry_run=true")
+    body = res.json()
+    assert body["dry_run"] is True
+    assert body["machines"][0]["status"] == "would_update"
+    fly.update_machine_env.assert_not_called()
+    # default + matching slug excluded; ghost reported
+    assert body["orphan_accounts"] == ["ghost-agent"]
+
+
+@pytest.mark.asyncio
+async def test_backfill_pushes_only_whatsapp_var(admin_client, sample_agent, monkeypatch):
+    monkeypatch.setenv("FLY_API_TOKEN", "t")
+    fly = MagicMock()
+    fly.describe = AsyncMock(return_value={"config": {"env": {}}})
+    fly.update_machine_env = AsyncMock()
+    with patch.object(prov, "_gateway", AsyncMock(return_value=_gw_response(200, {"accounts": []}))), \
+         patch("cloud.runtime.fly_machines.FlyMachinesRuntime", return_value=fly):
+        res = await admin_client.post("/api/admin/whatsapp/env/backfill?dry_run=false")
+    assert res.json()["updated"] == 1
+    fly.update_machine_env.assert_called_once_with(
+        sample_agent.runtime_ref, {"LUNA_WHATSAPP_GATEWAY_URL": "https://wa.example.com"})
+
+
+@pytest.mark.asyncio
+async def test_backfill_skips_up_to_date(admin_client, sample_agent, monkeypatch):
+    monkeypatch.setenv("FLY_API_TOKEN", "t")
+    fly = MagicMock()
+    fly.describe = AsyncMock(return_value={"config": {"env": {"LUNA_WHATSAPP_GATEWAY_URL": "x"}}})
+    fly.update_machine_env = AsyncMock()
+    with patch.object(prov, "_gateway", AsyncMock(return_value=_gw_response(200, {"accounts": []}))), \
+         patch("cloud.runtime.fly_machines.FlyMachinesRuntime", return_value=fly):
+        res = await admin_client.post("/api/admin/whatsapp/env/backfill?dry_run=false")
+    assert res.json()["skipped"] == 1 and res.json()["updated"] == 0
+    fly.update_machine_env.assert_not_called()

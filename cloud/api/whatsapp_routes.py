@@ -201,6 +201,83 @@ async def instance_qr(agent_id: str, admin=Depends(require_admin)):
     return HTMLResponse(resp.text, status_code=resp.status_code)
 
 
+# ── Phase 3: fleet backfill + reconcile ──────────────────────────────────────
+
+@router.post("/env/backfill")
+async def whatsapp_env_backfill(dry_run: bool = True, admin: User = Depends(require_admin)):
+    """Push LUNA_WHATSAPP_GATEWAY_URL to Fly machines missing it, and report
+    gateway⇄agents drift (accounts with no matching agent).
+
+    Unlike the plan-029 gateway backfill this pushes ONLY the one WhatsApp var
+    (update_machine_env merges), so there is no token rotation involved. A
+    machine update restarts it in place. dry_run=true reports only.
+    """
+    import os
+
+    url, _ = provision.gateway_config()
+    if not url:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "WhatsApp gateway not configured")
+
+    # Drift: gateway accounts that match no agent slug (account `default` is
+    # the legacy pre-multiluna number and is expected to be unmatched).
+    orphans: list[str] = []
+    try:
+        resp = await provision._gateway("GET", "/accounts")
+        payload = resp.json() if resp.status_code == 200 else {}
+        accounts = payload.get("accounts") if isinstance(payload, dict) else payload
+    except Exception:
+        accounts = None
+
+    async with get_db_session() as db:
+        agents = (await db.execute(
+            select(Agent).where(Agent.runtime_ref.is_not(None))
+        )).scalars().all()
+        slugs = {a.slug for a in agents}
+        targets = [(a.slug, a.runtime_ref, a.runtime_kind) for a in agents]
+    if accounts is not None:
+        orphans = [a["account_id"] for a in accounts
+                   if a.get("account_id") not in slugs and a.get("account_id") != "default"
+                   and a.get("status") != "disabled"]
+
+    results: list[dict] = []
+    updated = skipped = errored = 0
+    if os.environ.get("FLY_API_TOKEN"):
+        from cloud.runtime.fly_machines import FlyMachinesRuntime
+        fly = FlyMachinesRuntime()
+        for slug, ref, kind in targets:
+            if not (kind or "").startswith("fly"):
+                continue
+            row: dict = {"slug": slug, "machine_id": ref}
+            try:
+                rec = await fly.describe(ref)
+                if not rec:
+                    row["status"] = "machine_gone"
+                    errored += 1
+                elif "LUNA_WHATSAPP_GATEWAY_URL" in ((rec.get("config") or {}).get("env") or {}):
+                    row["status"] = "up_to_date"
+                    skipped += 1
+                elif dry_run:
+                    row["status"] = "would_update"
+                else:
+                    await fly.update_machine_env(ref, {"LUNA_WHATSAPP_GATEWAY_URL": url})
+                    row["status"] = "updated"
+                    updated += 1
+            except Exception as exc:  # noqa: BLE001 — per-machine, never abort the run
+                log.error("whatsapp backfill failed for %s: %s", slug, exc)
+                row["status"] = f"error: {type(exc).__name__}"
+                errored += 1
+            results.append(row)
+    else:
+        results.append({"status": "fly_not_configured"})
+
+    return {
+        "dry_run": dry_run,
+        "updated": updated, "skipped": skipped, "errored": errored,
+        "machines": results,
+        "orphan_accounts": orphans,
+    }
+
+
 # ── Public inbound relay ─────────────────────────────────────────────────────
 # The gateway POSTs each account's inbound envelope here (this URL is what
 # connect registers as the account's inbound_url). We forward the RAW bytes +
