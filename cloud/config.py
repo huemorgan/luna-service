@@ -39,6 +39,12 @@ class Settings(BaseSettings):
         "https://marketplaces.com.ai/downloads/luna-plugin-cursor.zip"
     )
 
+    # WhatsApp gateway monitoring (plan 034). URL of the always-on Baileys
+    # gateway (Render: luna-wa-gateway) and its admin key — the key stays
+    # server-side; the UI only ever sees proxied stats.
+    whatsapp_gateway_url: str = ""
+    whatsapp_gateway_admin_key: str = ""
+
     model_config = {"env_prefix": "CLOUD_"}
 
 

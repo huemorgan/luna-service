@@ -12,6 +12,7 @@ import DefaultsPage from './pages/admin/DefaultsPage';
 import DefaultEnvPage from './pages/admin/DefaultEnvPage';
 import ModelsPage from './pages/admin/ModelsPage';
 import ServicesPage from './pages/admin/ServicesPage';
+import WhatsAppPage from './pages/admin/WhatsAppPage';
 
 // Marketing site (plan 021) — public, unauthenticated routes.
 import MarketingLayout from './marketing/MarketingLayout';
@@ -50,6 +51,7 @@ export default function App() {
           <Route path="defaults/env" element={<DefaultEnvPage />} />
           <Route path="machines" element={<MachinesPage />} />
           <Route path="services" element={<ServicesPage />} />
+          <Route path="whatsapp" element={<WhatsAppPage />} />
           <Route path="relay" element={<Navigate to="/admin/machines" replace />} />
           <Route path="changelog" element={<ChangelogPage />} />
         </Route>

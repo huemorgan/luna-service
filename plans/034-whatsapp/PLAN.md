@@ -1,6 +1,9 @@
 # 034 — WhatsApp: admin monitoring + per-instance WhatsApp (multi-Luna)
 
-**Status:** PLAN (not yet executed)
+**Status:** Phase 1 EXECUTED (2026-07-04, branch `034-whatsapp`) — monitoring
+page + `/api/admin/whatsapp/*` live; dojo scenarios in `tests/034-whatsapp/`.
+Phase 2 blocked on the gateway multi-account API (accepted, in flight —
+`gateway-reply.md`).
 **Companions:** `recomendation.md` (monitoring brief from luna-whatsapp, adopted
 in Phase 1) · `multi-luna-gateway-ask.md` (our blocking ask TO luna-whatsapp:
 convert the gateway to multi-account — this plan's Phases 2–3 depend on it)
@@ -108,16 +111,23 @@ per-account HMAC secrets and daily caps; `/stats.accounts[]`.
    explicit Connect button (admin: instances table row action; user-facing
    surface can come later).
 2. Control plane (`cloud/api/whatsapp_routes.py` + a small
-   `cloud/whatsapp/provision.py`):
+   `cloud/whatsapp/provision.py`) — **restart-free by design** (an
+   `update_machine_env` push recreates the Fly machine; avoid it):
+   - `LUNA_WHATSAPP_GATEWAY_URL` is fleet-constant → bake it into the default
+     image env (`DEFAULT_IMAGE_CONFIG["env"]` / Defaults → Env) so every
+     machine has it from creation; one-time backfill for older machines. No
+     install-time env push at all.
    - `POST {gateway}/accounts` with `account_id = agent.slug`,
      `inbound_url = https://{agent host}/api/p/plugin-whatsapp/inbound`
      (admin-key authed, idempotent).
    - Store the returned per-account secret in **that tenant's vault** as
      `plugin_whatsapp.shared_secret` (the plugin already prefers vault over
-     env — no plugin change). Secret is never shared across tenants and never
-     placed in fleet-wide env.
-   - Install the plugin on the machine (existing catalog hook) and push env:
-     `LUNA_WHATSAPP_GATEWAY_URL` only (non-secret, same for everyone).
+     env — runtime write over the trusted proxy, no restart). Never shared
+     across tenants, never in fleet-wide env.
+   - Account id delivery: vault/settings too (needs the v0.6.0 plugin to read
+     it from vault as well as env — asked in `gateway-reply.md` follow-up,
+     open item 5). Env fallback stays for backfill.
+   - Install the plugin (existing catalog hook — live-load, restart-free).
    - Surface the per-account QR (`GET /accounts/{id}/qr` proxied server-side)
      in the admin UI / instance page; user scans with their phone; linked.
 3. Machine moves/recreates ⇒ `PATCH /accounts/{id}` with the new inbound URL —
@@ -179,4 +189,11 @@ uninstall cleans up the account.
    (`CLOUD_WHATSAPP_GATEWAY_ADMIN_KEY`). One-time manual.
 3. The live gateway needs a QR re-link right now (`has_qr: true`).
 4. Upstream nits to flag with the ask: `pyproject.toml` 0.4.0 vs manifest
-   0.5.0 version drift in plugin-whatsapp.
+   0.5.0 version drift in plugin-whatsapp (their reply says v0.6.0 fixes it).
+5. Follow-up ask for plugin v0.6.0: read the account id from the vault
+   (e.g. `plugin_whatsapp.account_id`) with `LUNA_WHATSAPP_ACCOUNT_ID` as env
+   fallback — lets our connect flow stay restart-free (vault writes only).
+6. Production env: set `CLOUD_WHATSAPP_GATEWAY_URL` +
+   `CLOUD_WHATSAPP_GATEWAY_ADMIN_KEY` on the luna-service Render service
+   (key from luna-wa-gateway → Environment). Until then the page shows
+   "not configured" / "check the admin key".
