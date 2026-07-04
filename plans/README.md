@@ -52,6 +52,9 @@ Every phase follows `skills/devprocess/SKILL.md`:
 4. Run the E2E scenarios in a browser, screenshot + DOM, judge pass/fail
 5. Live walkthrough (real conversation with the deployed thing)
 6. Report results in `dojo-results/NNNN-XXX-name/`
+7. Write `plans/NNN-name/execution-summary.md` — what was accomplished, what
+   was discovered along the way, things to consider in the future
+   (template in `skills/devprocess/SKILL.md` §7; mandatory for every executed plan)
 
 ## Test Architecture
 
