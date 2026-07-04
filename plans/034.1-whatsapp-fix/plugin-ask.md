@@ -22,8 +22,9 @@ POST {LUNA_GATEWAY_URL}/api/agent/whatsapp/connect
   → 200 {account_id, secret?, gateway_url, status}
     - account_id is ALWAYS the machine's own agent slug (server-enforced;
       you cannot and need not choose it)
-    - secret present only on first create (or rotation) — store it then;
-      on an idempotent re-connect it is absent and your stored one is valid
+    - secret is present and STABLE across idempotent re-connects (verified
+      live) — always write it to the vault; a re-connect self-heals a lost
+      vault entry
     - gateway_url = the wa-gateway base (store it; do not read env for it)
   → 503 gateway not configured on the control plane
   → 401 bad/missing token (self-hosted Luna — see OSS fallback)

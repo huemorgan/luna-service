@@ -26,8 +26,6 @@ log = logging.getLogger(__name__)
 
 GATEWAY_TIMEOUT_S = 10.0
 PLUGIN_NAME = "plugin-whatsapp"
-VAULT_SECRET_KEY = "plugin_whatsapp.shared_secret"
-VAULT_ACCOUNT_ID_KEY = "plugin_whatsapp.account_id"
 
 
 def gateway_config() -> tuple[str, str]:
@@ -48,63 +46,6 @@ async def _gateway(method: str, path: str, json_body: dict | None = None) -> htt
         return await client.request(
             method, f"{url}{path}", headers={"x-admin-key": admin_key}, json=json_body
         )
-
-
-async def connect_agent(agent: Agent, *, admin_email: str) -> dict:
-    """Create the gateway account for this agent and wire the plugin.
-
-    Idempotent. Returns a summary dict; raises only on gateway-unreachable /
-    gateway-error (callers map to HTTP errors).
-    """
-    from cloud.api.agent_routes import _tenant_request
-
-    resp = await _gateway("POST", "/accounts", {
-        "account_id": agent.slug,
-        "inbound_url": relay_inbound_url(agent.slug),
-    })
-    if resp.status_code not in (200, 201):
-        raise RuntimeError(f"gateway /accounts failed: {resp.status_code} {resp.text[:200]}")
-    account = resp.json()
-    secret = account.get("secret")
-
-    result = {
-        "account_id": account.get("account_id", agent.slug),
-        "account_status": account.get("status"),
-        "secret_stored": False,
-        "account_id_stored": False,
-        "plugin_installed": False,
-    }
-
-    # Vault writes over the trusted proxy — restart-free. The secret is only
-    # returned on create/rotate; on an idempotent re-connect it is absent and
-    # the existing vault value stays valid.
-    if secret:
-        code, _ = await _tenant_request(
-            agent, "POST", "/api/p/plugin-vault/credentials",
-            {"name": VAULT_SECRET_KEY, "value": secret, "kind": "api_key"},
-            user_email=admin_email,
-        )
-        result["secret_stored"] = code == 200
-        if code != 200:
-            log.error("whatsapp.connect vault secret write failed agent=%s code=%s",
-                      agent.slug, code)
-    code, _ = await _tenant_request(
-        agent, "POST", "/api/p/plugin-vault/credentials",
-        {"name": VAULT_ACCOUNT_ID_KEY, "value": agent.slug, "kind": "api_key"},
-        user_email=admin_email,
-    )
-    result["account_id_stored"] = code == 200
-
-    # Plugin code (live-load, restart-free). Best-effort + idempotent.
-    s = config.get_settings()
-    code, _ = await _tenant_request(
-        agent, "POST", "/api/p/plugin-marketplace/install",
-        {"marketplace_url": s.whatsapp_plugin_marketplace_url, "name": PLUGIN_NAME},
-        user_email=admin_email, timeout=60.0,
-    )
-    result["plugin_installed"] = code == 200
-
-    return result
 
 
 async def disconnect_agent(agent: Agent) -> dict:
