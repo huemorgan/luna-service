@@ -181,7 +181,23 @@ async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
         if service is None or not service.enabled:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown service")
 
-        auth = parse_auth_style(service.auth_style)
+        # A row created without a template can have a blank upstream/auth_style;
+        # fail loud with a 502 instead of crashing mid-forward.
+        if not (service.upstream_url or "").strip():
+            log.error("gateway service %s has no upstream_url", service_slug)
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                f"Service '{service_slug}' is misconfigured: no upstream URL",
+            )
+        try:
+            auth = parse_auth_style(service.auth_style)
+        except ValueError:
+            log.error("gateway service %s has invalid auth_style %r",
+                      service_slug, service.auth_style)
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                f"Service '{service_slug}' is misconfigured: invalid auth style",
+            )
         if auth.is_query:
             credential = request.query_params.get(auth.header, "").strip()
         else:

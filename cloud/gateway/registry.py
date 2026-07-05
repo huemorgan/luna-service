@@ -146,6 +146,7 @@ KNOWN_SERVICES: dict[str, tuple[str, str, str]] = {
     "tavily":         ("https://api.tavily.com",           "header:Authorization:Bearer", "Tavily"),
     "openai":         ("https://api.openai.com/v1",         "header:Authorization:Bearer", "OpenAI"),
     "anthropic":      ("https://api.anthropic.com",         "header:x-api-key",            "Anthropic"),
+    "elevenlabs":     ("https://api.elevenlabs.io",          "header:xi-api-key",           "ElevenLabs"),
 }
 
 
@@ -164,6 +165,7 @@ PLUGIN_KEY_SERVICES: dict[str, str] = {
     "plugin-connectors": "composio",
     "plugin-cloudflare": "cloudflare",
     "plugin-web-access": "tavily",
+    "plugin-voice": "elevenlabs",
 }
 
 

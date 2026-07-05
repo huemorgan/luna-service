@@ -272,6 +272,23 @@ async def test_proxy_unknown_or_disabled_service_404(anon_client, db_session, sa
     assert r.status_code == 404
 
 
+async def test_proxy_misconfigured_service_502_not_500(anon_client, db_session, upstream):
+    # A row created in the admin UI without a template can have blank
+    # upstream_url / auth_style — must 502 with a clear message, never crash.
+    await _add_service(db_session, slug="blank-url", upstream_url="")
+    await _add_service(db_session, slug="blank-auth", auth_style="")
+    await db_session.commit()
+
+    r = await anon_client.get("/proxy/blank-url/v1/x", headers={"x-api-key": "anything"})
+    assert r.status_code == 502
+    assert "misconfigured" in r.json()["detail"]
+
+    r = await anon_client.get("/proxy/blank-auth/v1/x", headers={"x-api-key": "anything"})
+    assert r.status_code == 502
+    assert "misconfigured" in r.json()["detail"]
+    assert upstream == []
+
+
 async def test_proxy_fallback_to_priority_2(anon_client, db_session, sample_agent, upstream_rejecting):
     await _add_service(db_session)
     k1 = await _add_key(db_session, "echo-test", priority=1, value="REAL-G1")
