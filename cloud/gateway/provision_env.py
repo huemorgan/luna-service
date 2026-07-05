@@ -37,7 +37,7 @@ def _emit_proxy_service(env: dict[str, str], svc: GatewayService, base: str, tok
 
 # Services Luna can't route through the proxy yet (no base-url support on the
 # Luna side until 007.001 lands). The real key keeps being injected for these.
-LEGACY_REAL_KEY_VARS = ("LUNA_TAVILY_API_KEY",)
+LEGACY_REAL_KEY_VARS = ("LUNA_TAVILY_API_KEY", "LUNA_ELEVENLABS_API_KEY")
 
 
 async def build_gateway_env(
