@@ -132,7 +132,8 @@ async def test_triggers_list(admin_client):
     rows = [{"id": "t1", "account_id": "a", "name": "n", "expr_raw": "every minute",
              "expr_cron": "* * * * *", "timezone": "UTC", "action_type": "playbook",
              "target": "x", "enabled": True, "next_run_at": None, "last_run_at": None}]
-    patcher, _ = _mock_service(json_body=rows)
+    # The service envelopes list responses: {"triggers": [...]}.
+    patcher, _ = _mock_service(json_body={"triggers": rows})
     with patcher:
         body = (await admin_client.get("/api/admin/scheduler/triggers")).json()
     assert body["triggers"] == rows

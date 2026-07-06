@@ -76,6 +76,53 @@ async def test_reconnect_without_secret(anon_client, db_session, sample_agent):
 
 
 @pytest.mark.asyncio
+async def test_connect_rotate_recovers_lost_secret(anon_client, db_session, sample_agent):
+    """Vault wiped: account exists (connect returns no secret) — rotate mints
+    a fresh one via PATCH and returns it once."""
+    tok = await _token(db_session, sample_agent)
+    svc = AsyncMock(side_effect=[
+        _svc_response(200, {"account_id": sample_agent.slug, "created": False}),
+        _svc_response(200, {"account_id": sample_agent.slug, "secret": "fresh-s3cret"}),
+    ])
+    with patch.object(prov, "_service", svc):
+        res = await anon_client.post(
+            "/api/agent/scheduler/connect", json={"rotate": True},
+            headers={"Authorization": f"Bearer {tok}"})
+    assert res.status_code == 200
+    assert res.json()["secret"] == "fresh-s3cret"
+    method, path, payload = svc.call_args_list[1][0]
+    assert (method, path) == ("PATCH", f"/accounts/{sample_agent.slug}")
+    assert payload == {"rotate_secret": True}
+
+
+@pytest.mark.asyncio
+async def test_connect_rotate_skipped_on_fresh_create(anon_client, db_session, sample_agent):
+    """First-ever connect already returns a secret — rotate must not
+    invalidate it with a second PATCH."""
+    tok = await _token(db_session, sample_agent)
+    svc = AsyncMock(return_value=_svc_response(201, {
+        "account_id": sample_agent.slug, "secret": "first-s3cret", "created": True}))
+    with patch.object(prov, "_service", svc):
+        res = await anon_client.post(
+            "/api/agent/scheduler/connect", json={"rotate": True},
+            headers={"Authorization": f"Bearer {tok}"})
+    assert res.json()["secret"] == "first-s3cret"
+    assert svc.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_connect_without_rotate_never_patches(anon_client, db_session, sample_agent):
+    tok = await _token(db_session, sample_agent)
+    svc = AsyncMock(return_value=_svc_response(
+        200, {"account_id": sample_agent.slug, "created": False}))
+    with patch.object(prov, "_service", svc):
+        res = await anon_client.post("/api/agent/scheduler/connect",
+                                     headers={"Authorization": f"Bearer {tok}"})
+    assert res.status_code == 200 and "secret" not in res.json()
+    assert svc.call_count == 1
+
+
+@pytest.mark.asyncio
 async def test_connect_requires_token(anon_client):
     assert (await anon_client.post("/api/agent/scheduler/connect")).status_code == 401
     res = await anon_client.post("/api/agent/scheduler/connect",

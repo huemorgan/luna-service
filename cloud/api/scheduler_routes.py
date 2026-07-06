@@ -94,8 +94,9 @@ async def service_triggers(admin=Depends(require_admin)):
     env = await _fetch_service("/triggers", url, admin_key)
     if not env.get("authorized"):
         return env
-    triggers = env.pop("stats")
-    return {**env, "triggers": triggers}
+    # The service envelopes every response as an object: {"triggers": [...]}.
+    body = env.pop("stats")
+    return {**env, "triggers": (body or {}).get("triggers", [])}
 
 
 async def _accounts_by_id() -> dict[str, dict]:

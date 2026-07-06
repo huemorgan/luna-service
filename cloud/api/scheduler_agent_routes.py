@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Body, Header, HTTPException, status
 from sqlalchemy import select
 
 from cloud.db import session as db_session
@@ -58,12 +58,19 @@ def _require_service() -> str:
 
 @router.post("/connect")
 async def agent_connect(
+    payload: dict | None = Body(default=None),
     authorization: str | None = Header(default=None),
     x_luna_gateway_token: str | None = Header(default=None),
 ):
     """Create (or assert) THIS machine's scheduler account. Returns the
     per-account secret only when newly created/rotated — the plugin stores
-    it in its vault. Idempotent."""
+    it in its vault. Idempotent.
+
+    ``{"rotate": true}`` recovers a lost secret (vault wiped, machine
+    rebuilt): the account already exists, so plain connect returns no
+    secret; rotate mints a fresh one via the service and returns it once.
+    Safe — the device token already proves this is the account's machine,
+    and rotation invalidates only the lost secret."""
     agent = await _agent_from_token(authorization, x_luna_gateway_token)
     service_url = _require_service()
 
@@ -75,6 +82,16 @@ async def agent_connect(
         log.error("scheduler.agent_connect service %s: %s", resp.status_code, resp.text[:200])
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Scheduler account creation failed")
     account = resp.json()
+
+    secret = account.get("secret")
+    if (payload or {}).get("rotate") and not secret:
+        rot = await provision._service(
+            "PATCH", f"/accounts/{agent.slug}", {"rotate_secret": True}
+        )
+        if rot.status_code != 200:
+            log.error("scheduler.agent_rotate service %s: %s", rot.status_code, rot.text[:200])
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Scheduler secret rotation failed")
+        secret = rot.json().get("secret")
 
     # Keep the admin monitoring table truthful about who runs the plugin.
     async with db_session.get_session() as db:
@@ -91,11 +108,11 @@ async def agent_connect(
 
     out = {
         "account_id": account.get("account_id", agent.slug),
-        "status": account.get("status"),
+        "created": account.get("created"),
         "service_url": service_url,
     }
-    if account.get("secret"):
-        out["secret"] = account["secret"]
+    if secret:
+        out["secret"] = secret
     return out
 
 
