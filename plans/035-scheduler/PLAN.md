@@ -1,6 +1,11 @@
 # 035 — Scheduler: always-on trigger service + plugin (luna-service end)
 
-**Status:** PLAN
+**Status:** Phases A–D EXECUTED (2026-07-06) — config, fire relay, agent
+self-service (+ `/proxy` alias), admin proxy routes, and the left-nav
+Scheduler page are live in-tree with tests (`cloud/tests/test_scheduler.py`,
+`test_scheduler_agent.py`). Phase E (catalog entry) waits on the plugin being
+published; Phase F dojo waits on the service deploying to Render and the two
+`CLOUD_SCHEDULER_*` env vars being set.
 **Model:** the WhatsApp split (034 / 034.1). A standalone always-on service on
 Render owns the clock; a marketplace plugin (`plugin-scheduler`) owns the UX and
 fires work inside each Luna; luna-service owns connect, the fire relay, and an

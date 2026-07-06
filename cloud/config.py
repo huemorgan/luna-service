@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     # Marketplace serving plugin-whatsapp (>=0.6.0) for the connect flow.
     whatsapp_plugin_marketplace_url: str = "https://luna-marketplaces.onrender.com/mp/official/"
 
+    # Scheduler service monitoring + provisioning (plan 035). URL of the
+    # always-on trigger service (Render: luna-scheduler) and its admin key —
+    # the key stays server-side; the UI only ever sees proxied stats.
+    scheduler_service_url: str = ""
+    scheduler_service_admin_key: str = ""
+
     model_config = {"env_prefix": "CLOUD_"}
 
 

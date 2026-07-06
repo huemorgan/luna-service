@@ -19,6 +19,9 @@ from cloud.api.gateway_proxy import router as gateway_proxy_router
 from cloud.api.plugin_catalog_routes import router as plugin_catalog_router
 from cloud.api.proxy import router as proxy_router
 from cloud.api.relay_routes import router as relay_router
+from cloud.api.scheduler_agent_routes import router as scheduler_agent_router
+from cloud.api.scheduler_routes import relay_router as scheduler_relay_router
+from cloud.api.scheduler_routes import router as scheduler_router
 from cloud.api.whatsapp_agent_routes import router as whatsapp_agent_router
 from cloud.api.whatsapp_routes import relay_router as whatsapp_relay_router
 from cloud.api.whatsapp_routes import router as whatsapp_router
@@ -248,6 +251,10 @@ def create_app() -> FastAPI:
     # before gateway_proxy_router, so the specific path wins its catch-all.
     app.include_router(whatsapp_agent_router, prefix="/proxy")
     app.include_router(whatsapp_relay_router)
+    app.include_router(scheduler_router)
+    app.include_router(scheduler_agent_router)
+    app.include_router(scheduler_agent_router, prefix="/proxy")
+    app.include_router(scheduler_relay_router)
     app.include_router(gateway_proxy_router)
     app.include_router(proxy_router)
 
