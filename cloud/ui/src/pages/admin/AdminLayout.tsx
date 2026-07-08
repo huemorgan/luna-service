@@ -1,26 +1,49 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Moon, Shield, Package, Server, ScrollText, ArrowLeft, LogOut, Loader2, User, ChevronDown, KeyRound, SlidersHorizontal, MessageCircle, Clock } from 'lucide-react';
+import { Moon, Shield, Package, Server, ScrollText, ArrowLeft, LogOut, Loader2, User, ChevronDown, ChevronRight, KeyRound, SlidersHorizontal, MessageCircle, Clock, Blocks } from 'lucide-react';
 
 interface UserInfo {
   user: { id: string; email: string; name: string | null; avatar_url: string | null; is_admin: boolean };
   account: { id: string; slug: string; name: string; plan: string } | null;
 }
 
-const NAV_ITEMS = [
+const NAV_TOP = [
   { to: '/admin/admins', label: 'Admins', icon: Shield },
   { to: '/admin/images', label: 'Luna Images', icon: Package },
   { to: '/admin/defaults', label: 'Defaults', icon: SlidersHorizontal },
   { to: '/admin/machines', label: 'Machines', icon: Server },
   { to: '/admin/services', label: 'Key Registry', icon: KeyRound },
+];
+
+const SERVICE_ITEMS = [
   { to: '/admin/whatsapp', label: 'WhatsApp', icon: MessageCircle },
   { to: '/admin/scheduler', label: 'Scheduler', icon: Clock },
+];
+
+const NAV_BOTTOM = [
   { to: '/admin/changelog', label: 'Changelog', icon: ScrollText },
 ];
+
+function NavItem({ item }: { item: { to: string; label: string; icon: typeof Shield } }) {
+  return (
+    <NavLink
+      to={item.to}
+      className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
+      style={({ isActive }) => ({
+        background: isActive ? 'var(--ink-light)' : 'transparent',
+        color: isActive ? 'var(--moon)' : 'var(--text-dim)',
+      })}
+    >
+      <item.icon size={16} />
+      {item.label}
+    </NavLink>
+  );
+}
 
 export default function AdminLayout() {
   const [data, setData] = useState<UserInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [servicesOpen, setServicesOpen] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -78,20 +101,26 @@ export default function AdminLayout() {
             Dashboard
           </Link>
 
-          {NAV_ITEMS.map(item => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
-              style={({ isActive }) => ({
-                background: isActive ? 'var(--ink-light)' : 'transparent',
-                color: isActive ? 'var(--moon)' : 'var(--text-dim)',
-              })}
-            >
-              <item.icon size={16} />
-              {item.label}
-            </NavLink>
-          ))}
+          {NAV_TOP.map(item => <NavItem key={item.to} item={item} />)}
+
+          <button
+            onClick={() => setServicesOpen(o => !o)}
+            className="flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors hover:opacity-80"
+            style={{ color: 'var(--text-dim)' }}
+          >
+            <span className="flex items-center gap-2.5">
+              <Blocks size={16} />
+              Services
+            </span>
+            {servicesOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </button>
+          {servicesOpen && (
+            <div className="flex flex-col gap-1 pl-4">
+              {SERVICE_ITEMS.map(item => <NavItem key={item.to} item={item} />)}
+            </div>
+          )}
+
+          {NAV_BOTTOM.map(item => <NavItem key={item.to} item={item} />)}
         </nav>
 
         <main className="flex-1 p-8 overflow-auto">

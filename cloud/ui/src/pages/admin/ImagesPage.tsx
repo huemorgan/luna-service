@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, Loader2, Star, Hammer, RefreshCw, ExternalLink, ChevronDown, ChevronRight, AlertCircle, Trash2, RotateCcw, ArrowUpCircle, Settings, Play, GitBranch, AlertTriangle } from 'lucide-react';
+import { Package, Loader2, Star, Hammer, RefreshCw, ExternalLink, ChevronDown, ChevronRight, AlertCircle, Trash2, RotateCcw, ArrowUpCircle, Settings, Play, GitBranch, AlertTriangle, Search, Check } from 'lucide-react';
 
 interface LunaImage {
   id: string;
@@ -24,6 +24,7 @@ interface LunaBranch {
   merged: boolean;
   ahead_by: number;
   behind_by: number;
+  committed_at: string | null;
 }
 
 interface UpdateCheck {
@@ -45,6 +46,147 @@ function formatDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit',
   });
+}
+
+function branchHint(b: LunaBranch): string {
+  if (b.name === 'main') return 'release';
+  return b.merged ? 'merged' : `+${b.ahead_by} unmerged`;
+}
+
+function relativeDate(iso: string | null): string {
+  if (!iso) return '';
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  if (days <= 0) return 'today';
+  if (days === 1) return '1d ago';
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  return months < 12 ? `${months}mo ago` : `${Math.floor(months / 12)}y ago`;
+}
+
+function BranchPicker({ branches, selected, onSelect, disabled }: {
+  branches: LunaBranch[];
+  selected: string;
+  onSelect: (name: string) => void;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [highlight, setHighlight] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // main pinned on top, the rest by last commit descending (unknown dates last)
+  const sorted = useMemo(() => {
+    const list = branches.length ? branches : [{ name: 'main', commit_sha: null, merged: true, ahead_by: 0, behind_by: 0, committed_at: null }];
+    return [...list].sort((a, b) => {
+      if (a.name === 'main') return -1;
+      if (b.name === 'main') return 1;
+      return (b.committed_at || '').localeCompare(a.committed_at || '') || a.name.localeCompare(b.name);
+    });
+  }, [branches]);
+
+  const filtered = useMemo(
+    () => sorted.filter(b => b.name.toLowerCase().includes(query.trim().toLowerCase())),
+    [sorted, query],
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  useEffect(() => {
+    if (open) {
+      setQuery('');
+      setHighlight(0);
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }, [open]);
+
+  useEffect(() => { setHighlight(0); }, [query]);
+
+  const pick = (name: string) => {
+    onSelect(name);
+    setOpen(false);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') { setOpen(false); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHighlight(h => Math.min(h + 1, filtered.length - 1)); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); setHighlight(h => Math.max(h - 1, 0)); }
+    if (e.key === 'Enter' && filtered[highlight]) { e.preventDefault(); pick(filtered[highlight].name); }
+  };
+
+  const current = sorted.find(b => b.name === selected);
+
+  return (
+    <div ref={rootRef} className="relative" style={{ minWidth: 260 }}>
+      <button
+        onClick={() => !disabled && setOpen(o => !o)}
+        disabled={disabled}
+        className="flex items-center justify-between gap-2 w-full rounded-lg px-3 py-2 text-sm font-medium cursor-pointer disabled:opacity-50"
+        style={{ background: 'var(--ink-light)', color: 'var(--text)', border: '1px solid var(--ink-lighter)' }}
+      >
+        <span className="truncate font-mono">{selected}</span>
+        <span className="flex items-center gap-2 flex-shrink-0">
+          <span className="text-xs" style={{ color: 'var(--text-dim)' }}>{current ? branchHint(current) : ''}</span>
+          <ChevronDown size={14} style={{ color: 'var(--text-dim)' }} />
+        </span>
+      </button>
+
+      {open && (
+        <div
+          className="absolute z-50 mt-1 w-full rounded-lg border overflow-hidden"
+          style={{ background: 'var(--surface)', borderColor: 'var(--ink-lighter)', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}
+          onKeyDown={onKeyDown}
+        >
+          <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: '1px solid var(--ink-lighter)' }}>
+            <Search size={13} style={{ color: 'var(--text-dim)' }} className="flex-shrink-0" />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search branches…"
+              className="w-full bg-transparent text-sm outline-none"
+              style={{ color: 'var(--text)' }}
+            />
+          </div>
+          <div className="max-h-72 overflow-y-auto py-1">
+            {filtered.length === 0 && (
+              <div className="px-3 py-2 text-xs" style={{ color: 'var(--text-dim)' }}>No branches match</div>
+            )}
+            {filtered.map((b, i) => (
+              <button
+                key={b.name}
+                onClick={() => pick(b.name)}
+                onMouseEnter={() => setHighlight(i)}
+                className="flex items-center justify-between gap-2 w-full px-3 py-1.5 text-left text-sm"
+                style={{
+                  background: i === highlight ? 'var(--ink-light)' : 'transparent',
+                  color: 'var(--text)',
+                }}
+              >
+                <span className="flex items-center gap-1.5 min-w-0">
+                  {b.name === selected
+                    ? <Check size={12} className="flex-shrink-0" style={{ color: 'var(--moon)' }} />
+                    : <span className="w-3 flex-shrink-0" />}
+                  <span className="truncate font-mono">{b.name}</span>
+                </span>
+                <span className="flex items-center gap-2 flex-shrink-0 text-xs" style={{ color: 'var(--text-dim)' }}>
+                  <span style={b.name !== 'main' && !b.merged ? { color: '#facc15' } : undefined}>{branchHint(b)}</span>
+                  {b.committed_at && <span>{relativeDate(b.committed_at)}</span>}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface StaleStatus {
@@ -514,21 +656,12 @@ export default function ImagesPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <select
-              value={selectedBranch}
-              onChange={e => setSelectedBranch(e.target.value)}
+            <BranchPicker
+              branches={branches}
+              selected={selectedBranch}
+              onSelect={setSelectedBranch}
               disabled={branchesLoading}
-              className="rounded-lg px-3 py-2 text-sm font-medium outline-none cursor-pointer"
-              style={{ background: 'var(--ink-light)', color: 'var(--text)', border: '1px solid var(--ink-lighter)', minWidth: 220 }}
-            >
-              {branches.length === 0 && <option value="main">main</option>}
-              {branches.map(b => (
-                <option key={b.name} value={b.name}>
-                  {b.name}
-                  {b.name === 'main' ? ' (release)' : b.merged ? ' (merged)' : ` (+${b.ahead_by} unmerged)`}
-                </option>
-              ))}
-            </select>
+            />
             <button
               onClick={() => { fetchBranches(); }}
               disabled={branchesLoading}

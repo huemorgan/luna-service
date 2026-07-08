@@ -345,8 +345,9 @@ async def _fetch_luna_ref_info(ref: str) -> tuple[str | None, str | None]:
 async def _list_luna_branches() -> list[dict]:
     """List luna repo branches with merge status vs main. Short-TTL cached.
 
-    Each entry: {name, commit_sha, merged, ahead_by, behind_by}. `merged` means
-    the branch has no commits beyond main (ahead_by == 0). Never raises.
+    Each entry: {name, commit_sha, merged, ahead_by, behind_by, committed_at}.
+    `merged` means the branch has no commits beyond main (ahead_by == 0).
+    Sorted main first, then last commit date descending. Never raises.
     """
     now = time.time()
     cached = _branches_cache.get("luna")
@@ -372,6 +373,7 @@ async def _list_luna_branches() -> list[dict]:
                     "merged": name == "main",
                     "ahead_by": 0,
                     "behind_by": 0,
+                    "committed_at": None,
                 }
                 if name != "main" and compares < _MAX_BRANCH_COMPARES:
                     compares += 1
@@ -387,14 +389,29 @@ async def _list_luna_branches() -> list[dict]:
                             entry["merged"] = cj.get("ahead_by", 0) == 0
                     except Exception:  # noqa: BLE001
                         pass
-            # Order: unmerged (experimental) first, main pinned at top, then name.
+                if entry["commit_sha"]:
+                    try:
+                        cdet = await client.get(
+                            f"https://api.github.com/repos/{LUNA_GITHUB_REPO}/commits/{entry['commit_sha']}",
+                            headers=_gh_headers(),
+                        )
+                        if cdet.status_code == 200:
+                            entry["committed_at"] = (
+                                cdet.json().get("commit", {}).get("committer") or {}
+                            ).get("date")
+                    except Exception:  # noqa: BLE001
+                        pass
                 out.append(entry)
-        out.sort(key=lambda e: (e["name"] != "main", e["merged"], e["name"]))
+        # Order: main pinned at top, then last commit date descending (unknown
+        # dates last), name as tiebreaker. Stable sorts, least-significant first.
+        out.sort(key=lambda e: e["name"])
+        out.sort(key=lambda e: e["committed_at"] or "", reverse=True)
+        out.sort(key=lambda e: e["name"] != "main")
         _branches_cache["luna"] = (now, out)
         return out
     except Exception as exc:  # noqa: BLE001
         log.warning("GitHub branches fetch failed: %s", exc)
-        return cached[1] if cached else [{"name": "main", "commit_sha": None, "merged": True, "ahead_by": 0, "behind_by": 0}]
+        return cached[1] if cached else [{"name": "main", "commit_sha": None, "merged": True, "ahead_by": 0, "behind_by": 0, "committed_at": None}]
 
 
 # This list is ONLY the in-tree plugins that ship inside luna core, i.e. the ones
