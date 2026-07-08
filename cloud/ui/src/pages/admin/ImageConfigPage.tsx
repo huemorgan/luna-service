@@ -1,10 +1,12 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Loader2, Package, Cpu, Brain, Plug, Variable,
-  Star, Check, Plus, Trash2, Lock, DollarSign, ArrowRight, Boxes,
+  ArrowLeft, Loader2, Package, Brain, Plug, Variable,
+  Star, Check, Plus, Trash2, Lock, Boxes,
 } from 'lucide-react';
 import PluginSetEditor from '../../components/PluginSetEditor';
+import MachineConfigEditor from '../../components/MachineConfigEditor';
+import type { MachineConfig } from '../../components/MachineConfigEditor';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -57,98 +59,6 @@ interface PluginMeta {
   name: string;
   description: string;
   required: boolean;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Options                                                            */
-/* ------------------------------------------------------------------ */
-
-const CPU_KINDS = [
-  { value: 'shared', label: 'Shared' },
-  { value: 'performance', label: 'Performance' },
-];
-
-const CPU_COUNTS = [1, 2, 4, 8];
-
-const MEMORY_OPTIONS = [
-  { value: 256, label: '256 MB' },
-  { value: 512, label: '512 MB' },
-  { value: 1024, label: '1 GB' },
-  { value: 2048, label: '2 GB' },
-  { value: 4096, label: '4 GB' },
-  { value: 8192, label: '8 GB' },
-  { value: 16384, label: '16 GB' },
-  { value: 32768, label: '32 GB' },
-  { value: 65536, label: '64 GB' },
-];
-
-// Fly guest RAM limits per vCPU, by CPU kind. Dedicated ("performance") CPUs
-// require ≥2048 MiB each (so 4 vCPU → 8192 MiB min); shared allow ≥256 MiB.
-// Fly also caps RAM per CPU. An invalid pair (e.g. performance/4/1 GB) is what
-// triggers Fly's `invalid config.guest.memory_mb, minimum required …` 400.
-const MEM_PER_CPU: Record<'shared' | 'performance', { min: number; max: number }> = {
-  shared: { min: 256, max: 2048 },
-  performance: { min: 2048, max: 16384 },
-};
-
-function memBounds(cpuKind: string, cpus: number): { min: number; max: number } {
-  const r = MEM_PER_CPU[cpuKind as 'shared' | 'performance'] ?? MEM_PER_CPU.shared;
-  return { min: r.min * cpus, max: r.max * cpus };
-}
-
-function validMemoryOptions(cpuKind: string, cpus: number) {
-  const { min, max } = memBounds(cpuKind, cpus);
-  return MEMORY_OPTIONS.filter(o => o.value >= min && o.value <= max);
-}
-
-// Snap a memory value into the allowed range for the chosen CPU kind + count.
-function clampMemory(cpuKind: string, cpus: number, mem: number): number {
-  const opts = validMemoryOptions(cpuKind, cpus).map(o => o.value);
-  if (opts.length === 0) return memBounds(cpuKind, cpus).min;
-  if (opts.includes(mem)) return mem;
-  if (mem < opts[0]) return opts[0];
-  if (mem > opts[opts.length - 1]) return opts[opts.length - 1];
-  return opts.find(o => o >= mem) ?? opts[opts.length - 1];
-}
-
-function fmtMem(mb: number): string {
-  return mb >= 1024 ? `${mb / 1024} GB` : `${mb} MB`;
-}
-
-const REGIONS = [
-  { value: 'sjc', label: 'San Jose (sjc)' },
-  { value: 'iad', label: 'Ashburn (iad)' },
-  { value: 'lhr', label: 'London (lhr)' },
-  { value: 'ams', label: 'Amsterdam (ams)' },
-  { value: 'cdg', label: 'Paris (cdg)' },
-  { value: 'nrt', label: 'Tokyo (nrt)' },
-  { value: 'sin', label: 'Singapore (sin)' },
-  { value: 'syd', label: 'Sydney (syd)' },
-  { value: 'gru', label: 'São Paulo (gru)' },
-];
-
-/* ------------------------------------------------------------------ */
-/*  Cost estimation (Fly.io pricing, per-month, 730h)                  */
-/* ------------------------------------------------------------------ */
-
-const REGION_MULTIPLIERS: Record<string, number> = {
-  iad: 1.00, sjc: 1.04, lhr: 1.25, ams: 1.25,
-  cdg: 1.25, nrt: 1.25, sin: 1.25, syd: 1.25, gru: 1.25,
-};
-
-function estimateMonthlyCost(cpuKind: string, cpus: number, memoryMb: number, region: string): number {
-  const mult = REGION_MULTIPLIERS[region] ?? 1.04;
-  const baseCpuRate = cpuKind === 'shared' ? 1.94 : 31.00;
-  const baseRamPerCpu = cpuKind === 'shared' ? 256 : 2048;
-  const cpuCost = cpus * baseCpuRate;
-  const baseRamMb = cpus * baseRamPerCpu;
-  const extraRamGb = Math.max(0, memoryMb - baseRamMb) / 1024;
-  const ramCost = extraRamGb * 5.00;
-  return (cpuCost + ramCost) * mult;
-}
-
-function formatCost(v: number): string {
-  return `$${v.toFixed(2)}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -272,10 +182,6 @@ export default function ImageConfigPage() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  type MachineConfig = ImageConfig['machine'];
-  const [machineDraft, setMachineDraft] = useState<MachineConfig | null>(null);
-  const [applyingMachine, setApplyingMachine] = useState(false);
-
   const fetchData = useCallback(async () => {
     const [imgRes, cfgRes, plugRes, modelsRes] = await Promise.all([
       fetch('/api/admin/images'),
@@ -288,12 +194,7 @@ export default function ImageConfigPage() {
       setImage(imgs.find(i => i.id === imageId) || null);
     }
     if (cfgRes.ok) {
-      const cfg = await cfgRes.json();
-      setConfig(cfg);
-      setMachineDraft({
-        ...cfg.machine,
-        memory_mb: clampMemory(cfg.machine.cpu_kind, cfg.machine.cpus, cfg.machine.memory_mb),
-      });
+      setConfig(await cfgRes.json());
     }
     if (plugRes.ok) setPlugins(await plugRes.json());
     if (modelsRes.ok) setCatalog((await modelsRes.json()).filter((m: CatalogModel) => m.enabled));
@@ -316,51 +217,10 @@ export default function ImageConfigPage() {
     saveTimer.current = setTimeout(() => setSaveStatus('idle'), 2000);
   }, [imageId]);
 
-  const machineChanged = useMemo(() => {
-    if (!config || !machineDraft) return false;
-    return config.machine.cpu_kind !== machineDraft.cpu_kind
-      || config.machine.cpus !== machineDraft.cpus
-      || config.machine.memory_mb !== machineDraft.memory_mb
-      || config.machine.region !== machineDraft.region;
-  }, [config, machineDraft]);
-
-  const currentCost = useMemo(() => {
-    if (!config) return 0;
-    const m = config.machine;
-    return estimateMonthlyCost(m.cpu_kind, m.cpus, m.memory_mb, m.region);
-  }, [config]);
-
-  const draftCost = useMemo(() => {
-    if (!machineDraft) return 0;
-    return estimateMonthlyCost(machineDraft.cpu_kind, machineDraft.cpus, machineDraft.memory_mb, machineDraft.region);
-  }, [machineDraft]);
-
-  // Final guard so an out-of-range memory can never be applied (and turned into
-  // a Fly 400 at agent-create time).
-  const memValid = useMemo(() => {
-    if (!machineDraft) return true;
-    const { min, max } = memBounds(machineDraft.cpu_kind, machineDraft.cpus);
-    return machineDraft.memory_mb >= min && machineDraft.memory_mb <= max;
-  }, [machineDraft]);
-
-  const updateMachineDraft = (field: string, value: string | number) => {
-    if (!machineDraft) return;
-    const next = { ...machineDraft, [field]: value };
-    // Guard: changing CPU kind or count can invalidate the current memory
-    // (Fly's per-vCPU floor/ceiling). Snap memory back into the valid range.
-    if (field === 'cpu_kind' || field === 'cpus') {
-      next.memory_mb = clampMemory(next.cpu_kind, next.cpus, next.memory_mb);
-    }
-    setMachineDraft(next);
-  };
-
-  const applyMachine = async () => {
-    if (!machineDraft || !config) return;
-    setApplyingMachine(true);
-    const next = { ...config, machine: machineDraft };
-    setConfig(next);
-    await save({ machine: machineDraft });
-    setApplyingMachine(false);
+  const applyMachine = async (machine: MachineConfig) => {
+    if (!config) return;
+    setConfig({ ...config, machine });
+    await save({ machine });
   };
 
   const updateModel = (role: 'primary' | 'fast', modelKey: string) => {
@@ -460,80 +320,8 @@ export default function ImageConfigPage() {
 
       <div className="space-y-4">
         {/* ---- Machine ---- */}
-        {machineDraft && (
-        <SectionCard icon={Cpu} title="Machine">
-          <div>
-            <FieldRow label="CPU Kind">
-              <Select value={machineDraft.cpu_kind} options={CPU_KINDS} onChange={v => updateMachineDraft('cpu_kind', v)} />
-            </FieldRow>
-            <FieldRow label="CPUs">
-              <Select value={machineDraft.cpus} options={CPU_COUNTS.map(c => ({ value: c, label: `${c} vCPU` }))} onChange={v => updateMachineDraft('cpus', parseInt(v))} />
-            </FieldRow>
-            <FieldRow label="Memory">
-              <div className="flex flex-col items-end gap-1">
-                <Select
-                  value={machineDraft.memory_mb}
-                  options={validMemoryOptions(machineDraft.cpu_kind, machineDraft.cpus)}
-                  onChange={v => updateMachineDraft('memory_mb', parseInt(v))}
-                />
-                <span className="text-[10px]" style={{ color: 'var(--text-dim)' }}>
-                  {machineDraft.cpu_kind === 'performance' ? 'Dedicated' : 'Shared'} {machineDraft.cpus}× vCPU
-                  {' '}allows {fmtMem(memBounds(machineDraft.cpu_kind, machineDraft.cpus).min)}–
-                  {fmtMem(memBounds(machineDraft.cpu_kind, machineDraft.cpus).max)}
-                </span>
-              </div>
-            </FieldRow>
-            <FieldRow label="Region" noBorder>
-              <Select value={machineDraft.region} options={REGIONS} onChange={v => updateMachineDraft('region', v)} />
-            </FieldRow>
-          </div>
-
-          {/* Cost + Apply */}
-          <div className="mt-4 pt-3 border-t" style={{ borderColor: 'var(--ink-lighter)' }}>
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="flex items-center gap-1.5 text-xs font-medium mb-1" style={{ color: 'var(--text-dim)' }}>
-                  <DollarSign size={12} /> Estimated monthly cost
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-lg font-bold" style={{ color: machineChanged ? 'var(--text-dim)' : 'var(--text)' }}>
-                    {formatCost(currentCost)}
-                  </span>
-                  {machineChanged && (
-                    <>
-                      <ArrowRight size={14} style={{ color: 'var(--text-dim)' }} />
-                      <span className="text-lg font-bold" style={{ color: draftCost > currentCost ? '#facc15' : '#4ade80' }}>
-                        {formatCost(draftCost)}
-                      </span>
-                      <span className="text-xs px-1.5 py-0.5 rounded" style={{
-                        background: draftCost > currentCost ? 'rgba(250,204,21,0.1)' : 'rgba(74,222,128,0.1)',
-                        color: draftCost > currentCost ? '#facc15' : '#4ade80',
-                      }}>
-                        {draftCost > currentCost ? '+' : ''}{formatCost(draftCost - currentCost)}/mo
-                      </span>
-                    </>
-                  )}
-                </div>
-                <div className="flex items-center gap-3 mt-0.5">
-                  <span className="text-[10px]" style={{ color: 'var(--text-dim)' }}>per agent, running 24/7</span>
-                  <span className="text-[10px]" style={{ color: 'var(--text-dim)' }}>· $0.15/mo when stopped</span>
-                </div>
-              </div>
-              <button
-                onClick={applyMachine}
-                disabled={!machineChanged || applyingMachine || !memValid}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all hover:scale-105 disabled:opacity-30 disabled:hover:scale-100"
-                style={{
-                  background: machineChanged && memValid ? 'var(--moon)' : 'var(--ink-lighter)',
-                  color: machineChanged && memValid ? 'var(--ink)' : 'var(--text-dim)',
-                }}
-              >
-                {applyingMachine ? <Loader2 className="animate-spin" size={14} /> : <Check size={14} />}
-                Apply
-              </button>
-            </div>
-          </div>
-        </SectionCard>
+        {config && (
+          <MachineConfigEditor value={config.machine} onApply={applyMachine} />
         )}
 
         {/* ---- Models ---- */}

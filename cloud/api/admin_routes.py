@@ -23,6 +23,12 @@ from cloud.config import get_settings
 from cloud.db.models import Agent, AppSetting, AuditLog, LunaImage, User
 from cloud.db.session import get_session as get_db_session
 from cloud.gateway.registry import key_service_for_plugin
+from cloud.provisioning.image_defaults import (
+    DEFAULT_IMAGE_CONFIG,
+    IMAGE_DEFAULTS_KEY,
+    overlay_config,
+    resolved_default_config,
+)
 
 log = logging.getLogger(__name__)
 
@@ -462,43 +468,12 @@ def _norm_plugin_name(name: str) -> str:
 _catalog_cache: dict[str, tuple[float, list[dict]]] = {}
 _CATALOG_TTL = 120.0
 
-DEFAULT_IMAGE_CONFIG = {
-    "machine": {
-        "cpu_kind": "shared",
-        "cpus": 1,
-        "memory_mb": 1024,
-        "region": "sjc",
-    },
-    "models": {
-        # Plan 018: empty = inherit the catalog default (the model marked
-        # recommended_default for its kind). An image may pin primary/fast to
-        # override the catalog default; a machine may override the image.
-        "primary": {},
-        "fast": {},
-    },
-    "plugins": {
-        "plugin_vault": True,
-        "plugin_memory": True,
-        "plugin_identity": True,
-        "plugin_brain": True,
-        "plugin_meta": True,
-        "plugin_approvals": True,
-        "plugin_web": True,
-    },
-    # Plan 019: marketplace plugins baked into this image. Empty = the UI will
-    # pre-select the curated leaf set on first open; the build falls back to
-    # plugin-set.toml until an explicit selection is saved.
-    "plugin_set": [],
-    "env": {},
-}
-
-
 # ── Image defaults (Plan 020) ─────────────────────────────────────────────────
-# The admin-editable defaults (default model + default plugin set) live in the
-# app_settings singleton under this key. DEFAULT_IMAGE_CONFIG above is the
-# hardcoded base; the stored defaults overlay it. Resolution for an image is:
+# The hardcoded base + the admin-stored overlay now live in
+# cloud/provisioning/image_defaults.py so provisioning resolves the same values
+# without importing the API layer. Resolution for an image is:
 #   base  <  stored image_defaults  <  the image's own image_config.
-IMAGE_DEFAULTS_KEY = "image_defaults"
+_overlay = overlay_config  # backwards-compatible alias
 
 
 async def _get_app_setting(db: AsyncSession, key: str) -> dict:
@@ -518,20 +493,9 @@ async def _set_app_setting(db: AsyncSession, key: str, value: dict) -> None:
         db.add(AppSetting(key=key, value=value))
 
 
-def _overlay(base: dict, overlay: dict) -> dict:
-    """Shallow merge with one level of dict-merge (matches image_config shape)."""
-    out = {**base}
-    for k, v in (overlay or {}).items():
-        if isinstance(v, dict) and isinstance(out.get(k), dict):
-            out[k] = {**out[k], **v}
-        else:
-            out[k] = v
-    return out
-
-
 async def _default_image_config(db: AsyncSession) -> dict:
     """Base config overlaid with the admin-stored image defaults (Plan 020)."""
-    return _overlay(DEFAULT_IMAGE_CONFIG, await _get_app_setting(db, IMAGE_DEFAULTS_KEY))
+    return await resolved_default_config(db)
 
 
 def _image_dict(img: LunaImage, agent_count: int = 0, default_cfg: dict | None = None) -> dict:
@@ -771,6 +735,55 @@ async def marketplace_catalog(
 class ImageDefaultsUpdate(BaseModel):
     models: dict | None = None
     plugin_set: list[dict] | None = None
+    machine: dict | None = None
+
+
+# Fly guest sizing, mirrored on the frontend (MachineConfigEditor). Dedicated
+# ("performance") CPUs require ≥2048 MiB each; shared allow ≥256 MiB. Fly also
+# caps RAM per CPU. An out-of-range pair is what triggers Fly's
+# `invalid config.guest.memory_mb` 400 at machine-create time.
+_MACHINE_CPU_KINDS = {"shared", "performance"}
+_MACHINE_CPU_COUNTS = {1, 2, 4, 8}
+_MACHINE_MEM_OPTIONS = {256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536}
+_MACHINE_MEM_PER_CPU = {"shared": (256, 2048), "performance": (2048, 16384)}
+_MACHINE_REGIONS = {"sjc", "iad", "lhr", "ams", "cdg", "nrt", "sin", "syd", "gru"}
+
+
+def _validate_machine(machine: dict) -> dict:
+    """Normalise + bound-check a machine block so we never persist a config Fly
+    would reject at create time. Returns a clean {cpu_kind, cpus, memory_mb, region}."""
+    if not isinstance(machine, dict):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "machine must be an object")
+
+    base = DEFAULT_IMAGE_CONFIG["machine"]
+    cpu_kind = str(machine.get("cpu_kind", base["cpu_kind"]))
+    if cpu_kind not in _MACHINE_CPU_KINDS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"cpu_kind must be one of {sorted(_MACHINE_CPU_KINDS)}")
+
+    try:
+        cpus = int(machine.get("cpus", base["cpus"]))
+        memory_mb = int(machine.get("memory_mb", base["memory_mb"]))
+    except (TypeError, ValueError):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "cpus and memory_mb must be integers")
+
+    if cpus not in _MACHINE_CPU_COUNTS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"cpus must be one of {sorted(_MACHINE_CPU_COUNTS)}")
+    if memory_mb not in _MACHINE_MEM_OPTIONS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"memory_mb must be one of {sorted(_MACHINE_MEM_OPTIONS)}")
+
+    per_min, per_max = _MACHINE_MEM_PER_CPU[cpu_kind]
+    lo, hi = per_min * cpus, per_max * cpus
+    if not (lo <= memory_mb <= hi):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"{cpu_kind} {cpus}× vCPU requires {lo}–{hi} MB (got {memory_mb})",
+        )
+
+    region = str(machine.get("region", base["region"]))
+    if region not in _MACHINE_REGIONS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"region must be one of {sorted(_MACHINE_REGIONS)}")
+
+    return {"cpu_kind": cpu_kind, "cpus": cpus, "memory_mb": memory_mb, "region": region}
 
 
 def _validate_default_models(models: dict) -> dict:
@@ -801,7 +814,11 @@ async def get_image_defaults(admin: User = Depends(require_admin)):
     resolved over the hardcoded base so the UI always sees a full shape."""
     async with get_db_session() as db:
         cfg = await _default_image_config(db)
-    return {"models": cfg.get("models", {}), "plugin_set": cfg.get("plugin_set", [])}
+    return {
+        "models": cfg.get("models", {}),
+        "plugin_set": cfg.get("plugin_set", []),
+        "machine": cfg.get("machine", {}),
+    }
 
 
 @router.get("/defaults/env")
@@ -830,6 +847,8 @@ async def update_image_defaults(
         patch["plugin_set"] = _validate_plugin_set(patch["plugin_set"])
     if "models" in patch:
         patch["models"] = _validate_default_models(patch["models"])
+    if "machine" in patch:
+        patch["machine"] = _validate_machine(patch["machine"])
 
     async with get_db_session() as db:
         before = await _get_app_setting(db, IMAGE_DEFAULTS_KEY)
@@ -840,7 +859,11 @@ async def update_image_defaults(
                      before_state=before, after_state=current)
         await db.commit()
         cfg = await _default_image_config(db)
-    return {"models": cfg.get("models", {}), "plugin_set": cfg.get("plugin_set", [])}
+    return {
+        "models": cfg.get("models", {}),
+        "plugin_set": cfg.get("plugin_set", []),
+        "machine": cfg.get("machine", {}),
+    }
 
 
 def _normalize_plugin_set(entries: list[dict] | None) -> set[tuple[str, str]]:

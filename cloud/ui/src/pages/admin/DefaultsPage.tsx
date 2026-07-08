@@ -5,13 +5,18 @@ import DefaultsStaleBanner from '../../components/DefaultsStaleBanner';
 import PluginSetEditor from '../../components/PluginSetEditor';
 import type { PluginSetEntry, PluginKeying } from '../../components/PluginSetEditor';
 import SupportedPluginsEditor from '../../components/SupportedPluginsEditor';
+import MachineConfigEditor from '../../components/MachineConfigEditor';
+import type { MachineConfig } from '../../components/MachineConfigEditor';
 import { CAT, GW } from '../../components/pluginKeys';
 import type { CatalogEntry, ServiceLite } from '../../components/pluginKeys';
+
+const DEFAULT_MACHINE: MachineConfig = { cpu_kind: 'shared', cpus: 1, memory_mb: 1024, region: 'sjc' };
 
 interface ModelHead { provider?: string; model?: string }
 interface Defaults {
   models: { primary: ModelHead; fast: ModelHead };
   plugin_set: PluginSetEntry[];
+  machine: MachineConfig;
 }
 interface CatalogModel {
   provider: string;
@@ -44,6 +49,7 @@ export default function DefaultsPage() {
       setDefaults({
         models: { primary: d.models?.primary || {}, fast: d.models?.fast || {} },
         plugin_set: d.plugin_set || [],
+        machine: { ...DEFAULT_MACHINE, ...(d.machine || {}) },
       });
     }
     if (modelsRes.ok) setCatalog((await modelsRes.json()).filter((m: CatalogModel) => m.enabled));
@@ -114,6 +120,12 @@ export default function DefaultsPage() {
     if (!defaults) return;
     setDefaults({ ...defaults, plugin_set: next });
     save({ plugin_set: next });
+  };
+
+  const updateMachine = async (machine: MachineConfig) => {
+    if (!defaults) return;
+    setDefaults({ ...defaults, machine });
+    await save({ machine });
   };
 
   const catalogByName: Record<string, CatalogEntry> = {};
@@ -198,6 +210,14 @@ export default function DefaultsPage() {
             })}
           </div>
         </SectionCard>
+
+        {/* Default machine */}
+        <MachineConfigEditor
+          title="Default machine"
+          note="The machine every new agent gets. Any image can override these in its own config; unset fields fall back here."
+          value={defaults.machine}
+          onApply={updateMachine}
+        />
 
         {keyError && (
           <div className="rounded-xl px-4 py-3 text-sm" style={{ background: 'rgba(255,107,107,0.12)', color: '#ff6b6b' }}>

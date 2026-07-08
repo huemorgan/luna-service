@@ -24,6 +24,7 @@ from cloud.db.tenant_provisioner import (
     provision_tenant_database,
 )
 from cloud.gateway.provision_env import build_gateway_env
+from cloud.provisioning.image_defaults import resolved_default_config
 from cloud.provisioning.model_catalog import resolve_default_heads, system_catalog
 from cloud.relay.secrets import derive_relay_secret
 from cloud.runtime.base import AgentSpec
@@ -134,6 +135,9 @@ async def _provision_core(
             agent_overrides=agent.config_overrides,
         )
         catalog = await system_catalog(db)
+        # Plan 036: the admin-set default machine params apply when the image
+        # didn't set its own; the image's machine block still wins per-field.
+        default_machine = (await resolved_default_config(db)).get("machine", {})
         await db.commit()
     heads = resolve_default_heads(catalog, image_config, agent.config_overrides)
 
@@ -153,6 +157,7 @@ async def _provision_core(
     # Plan 018: merge resolved heads + system catalog into the effective config
     # the runtime injects (LUNA_PRIMARY_MODEL / LUNA_FAST_MODEL / LUNA_MODEL_CATALOG).
     effective_image_config = {**image_config}
+    effective_image_config["machine"] = {**default_machine, **(image_config.get("machine") or {})}
     effective_image_config["models"] = {
         "primary": heads["primary"],
         "fast": heads["fast"],

@@ -75,6 +75,33 @@ def test_overlay_merges_one_level():
     assert out["models"]["fast"] == {}  # untouched key preserved
 
 
+# ── machine params (Plan 036) ─────────────────────────────────────────────────
+
+def test_validate_machine_accepts_valid():
+    out = admin_routes._validate_machine(
+        {"cpu_kind": "performance", "cpus": 2, "memory_mb": 4096, "region": "iad"}
+    )
+    assert out == {"cpu_kind": "performance", "cpus": 2, "memory_mb": 4096, "region": "iad"}
+
+
+def test_validate_machine_fills_defaults():
+    out = admin_routes._validate_machine({"region": "lhr"})
+    assert out == {"cpu_kind": "shared", "cpus": 1, "memory_mb": 1024, "region": "lhr"}
+
+
+@pytest.mark.parametrize("bad", [
+    {"cpu_kind": "turbo"},                                  # unknown kind
+    {"cpus": 3},                                            # not a valid count
+    {"memory_mb": 300},                                     # not a known option
+    {"cpu_kind": "performance", "cpus": 1, "memory_mb": 256},  # below per-CPU floor
+    {"cpu_kind": "shared", "cpus": 1, "memory_mb": 4096},   # above per-CPU ceiling
+    {"region": "mars"},                                     # unknown region
+])
+def test_validate_machine_rejects(bad):
+    with pytest.raises(Exception):
+        admin_routes._validate_machine(bad)
+
+
 # ── endpoints ─────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -97,6 +124,26 @@ async def test_defaults_round_trip(admin_client):
     got = await admin_client.get("/api/admin/defaults")
     assert got.json()["models"]["primary"] == {"provider": "anthropic", "model": "claude-test"}
     assert got.json()["plugin_set"] == body["plugin_set"]
+
+
+@pytest.mark.asyncio
+async def test_defaults_machine_round_trip(admin_client):
+    body = {"machine": {"cpu_kind": "performance", "cpus": 2, "memory_mb": 8192, "region": "iad"}}
+    put = await admin_client.put("/api/admin/defaults", json=body)
+    assert put.status_code == 200
+    assert put.json()["machine"] == body["machine"]
+
+    got = await admin_client.get("/api/admin/defaults")
+    assert got.json()["machine"] == body["machine"]
+
+
+@pytest.mark.asyncio
+async def test_defaults_rejects_invalid_machine(admin_client):
+    resp = await admin_client.put(
+        "/api/admin/defaults",
+        json={"machine": {"cpu_kind": "shared", "cpus": 1, "memory_mb": 65536, "region": "sjc"}},
+    )
+    assert resp.status_code == 400
 
 
 @pytest.mark.asyncio
