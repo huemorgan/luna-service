@@ -127,6 +127,20 @@ export default function AgentDetail() {
 
   useEffect(() => { fetchDetails(); }, [fetchDetails]);
 
+  // The agent's self-chosen identity (name, emoji/avatar) lives on the machine —
+  // fetched through the /a/{slug}/ proxy once the agent is running.
+  const [identity, setIdentity] = useState<{ name: string | null; emoji: string | null; avatar_url: string | null } | null>(null);
+  useEffect(() => {
+    const slug = data?.agent.slug;
+    if (!slug || data?.agent.status !== 'running') return;
+    fetch(`/a/${slug}/api/p/plugin-identity/`)
+      .then(r => r.ok ? r.json() : null)
+      .then(idn => {
+        if (idn) setIdentity({ name: idn.name || null, emoji: idn.emoji || null, avatar_url: idn.avatar_url || null });
+      })
+      .catch(() => { /* best-effort — header falls back to the machine name */ });
+  }, [data?.agent.slug, data?.agent.status]);
+
   useEffect(() => {
     if (!data || data.agent.status !== 'provisioning') return;
     const t = setInterval(fetchDetails, 4000);
@@ -375,7 +389,14 @@ export default function AgentDetail() {
                 </span>
               ) : (
                 <span className="flex items-center gap-2">
-                  {agent.name}
+                  {identity?.name || agent.name}
+                  {identity?.name && (
+                    identity.emoji
+                      ? <span>{identity.emoji}</span>
+                      : identity.avatar_url
+                        ? <img src={`/a/${agent.slug}${identity.avatar_url}`} alt="" className="w-6 h-6 rounded-full" />
+                        : null
+                  )}
                   <button
                     onClick={() => { setNameDraft(agent.name); setEditingName(true); }}
                     title="Rename"
@@ -387,6 +408,11 @@ export default function AgentDetail() {
                 </span>
               )}
             </h1>
+            {identity?.name && identity.name !== agent.name && (
+              <div className="text-xs mt-0.5 ml-6" style={{ color: 'var(--text-dim)', opacity: 0.7 }}>
+                {agent.name}
+              </div>
+            )}
             <p className="text-sm mt-1" style={{ color: 'var(--text-dim)' }}>
               <span className="capitalize">{agent.status}</span>
               {agent.created_at && <> · Created {timeAgo(agent.created_at)}</>}

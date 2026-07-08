@@ -27,6 +27,12 @@ interface AgentInfo {
   last_active_at: string | null;
 }
 
+interface AgentIdentity {
+  name: string | null;
+  emoji: string | null;
+  avatar_url: string | null;
+}
+
 interface PluginStatus {
   name: string;
   installed_version?: string | null;
@@ -91,6 +97,22 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // The agent's self-chosen identity (name it gave itself, emoji/avatar) lives
+  // on the machine — fetch it through the /a/{slug}/ proxy for running agents.
+  const [identities, setIdentities] = useState<Record<string, AgentIdentity>>({});
+  useEffect(() => {
+    agents
+      .filter(a => a.status === 'running' && a.slug && !(a.id in identities))
+      .forEach(a => {
+        fetch(`/a/${a.slug}/api/p/plugin-identity/`)
+          .then(r => r.ok ? r.json() : null)
+          .then(idn => {
+            if (idn) setIdentities(prev => ({ ...prev, [a.id]: { name: idn.name || null, emoji: idn.emoji || null, avatar_url: idn.avatar_url || null } }));
+          })
+          .catch(() => { /* best-effort — card falls back to the machine name */ });
+      });
+  }, [agents, identities]);
 
   // Poll for provisioning agents
   useEffect(() => {
@@ -271,6 +293,7 @@ export default function Dashboard() {
               <AgentCard
                 key={agent.id}
                 agent={agent}
+                identity={identities[agent.id] || null}
                 isLoading={actionLoading === agent.id}
                 onAction={handleAction}
                 onUpgrade={handleUpgrade}
@@ -284,9 +307,10 @@ export default function Dashboard() {
 }
 
 function AgentCard({
-  agent, isLoading, onAction, onUpgrade,
+  agent, identity, isLoading, onAction, onUpgrade,
 }: {
   agent: AgentInfo;
+  identity: AgentIdentity | null;
   isLoading: boolean;
   onAction: (id: string, action: 'start' | 'stop' | 'retry') => void;
   onUpgrade: (id: string, mode: 'upgrade_only' | 'update_plugins_then_upgrade') => Promise<string | null>;
@@ -310,9 +334,21 @@ function AgentCard({
               style={{ color: 'var(--moon)' }}
               title="Open settings & config"
             >
-              {agent.name}
+              {identity?.name || agent.name}
+              {identity?.name && (
+                identity.emoji
+                  ? <span className="no-underline">{identity.emoji}</span>
+                  : identity.avatar_url
+                    ? <img src={`/a/${agent.slug}${identity.avatar_url}`} alt="" className="w-4 h-4 rounded-full" />
+                    : null
+              )}
               <Settings size={13} className="opacity-60 transition-opacity group-hover:opacity-100" />
             </Link>
+            {identity?.name && identity.name !== agent.name && (
+              <div className="text-xs" style={{ color: 'var(--text-dim)', opacity: 0.7 }}>
+                {agent.name}
+              </div>
+            )}
             <div className="flex items-center gap-3 mt-1">
               <span className="text-xs capitalize" style={{ color: stuckProvisioning ? '#facc15' : 'var(--text-dim)' }}>
                 {agent.status === 'provisioning' && !stuckProvisioning && (
