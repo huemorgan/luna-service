@@ -19,4 +19,7 @@ COPY --from=ui-build /build/dist ./cloud/ui/dist
 
 EXPOSE 8100
 ENV PORT=8100
-CMD ["sh", "-c", "uvicorn cloud.main:app --host 0.0.0.0 --port ${PORT}"]
+# 2 workers (plan 037-SPEED101): isolates long LLM/proxy streams from the UI
+# API; RSS ~105 MB fits 2x in the 512 MB instance. Background loops are
+# advisory-lock guarded so they still run once (cloud/runtime/exclusive.py).
+CMD ["sh", "-c", "uvicorn cloud.main:app --host 0.0.0.0 --port ${PORT} --workers 2"]

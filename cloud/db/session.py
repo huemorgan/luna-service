@@ -17,7 +17,17 @@ def _get_engine():
     global _engine
     if _engine is None:
         settings = get_settings()
-        _engine = create_async_engine(settings.database_url, echo=settings.debug)
+        _engine = create_async_engine(
+            settings.database_url,
+            echo=settings.debug,
+            # Plan 037-SPEED101: explicit sizing (sized per worker — see
+            # Dockerfile --workers), pre-ping so a recycled Render connection
+            # never surfaces as a 500, recycle under the LB idle timeout.
+            pool_size=5,
+            max_overflow=5,
+            pool_pre_ping=True,
+            pool_recycle=300,
+        )
     return _engine
 
 

@@ -92,6 +92,35 @@ async def get_service(db: AsyncSession, slug: str) -> GatewayService | None:
     )).scalar_one_or_none()
 
 
+# Hot-path TTL cache (plan 037-SPEED101): the gateway proxy resolves the same
+# handful of services on every tenant LLM call. Admin edits take effect within
+# SERVICE_CACHE_TTL seconds. Rows are expunged so they outlive their session
+# (read-only use).
+SERVICE_CACHE_TTL = 30.0
+_service_cache: dict[str, tuple[float, GatewayService | None]] = {}
+
+
+async def get_service_cached(db: AsyncSession, slug: str) -> GatewayService | None:
+    import time
+
+    now = time.monotonic()
+    hit = _service_cache.get(slug)
+    if hit is not None and now - hit[0] < SERVICE_CACHE_TTL:
+        return hit[1]
+    service = await get_service(db, slug)
+    if service is not None:
+        db.expunge(service)
+    _service_cache[slug] = (now, service)
+    return service
+
+
+def invalidate_service_cache(slug: str | None = None) -> None:
+    if slug is None:
+        _service_cache.clear()
+    else:
+        _service_cache.pop(slug, None)
+
+
 @dataclass
 class AuthStyle:
     header: str          # header name, or (when location=="query") the query-param name

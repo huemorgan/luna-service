@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import os
@@ -367,12 +368,16 @@ async def _list_luna_branches() -> list[dict]:
             )
             resp.raise_for_status()
             raw = resp.json()
-            out: list[dict] = []
-            compares = 0
-            for b in raw:
+
+            # Enrich all branches concurrently (plan 037-SPEED101) — serial
+            # compare+commit calls made this endpoint take ~12 s.
+            sem = asyncio.Semaphore(10)
+            compare_budget = iter(range(_MAX_BRANCH_COMPARES))
+
+            async def enrich(b: dict) -> dict | None:
                 name = b.get("name")
                 if not name:
-                    continue
+                    return None
                 entry = {
                     "name": name,
                     "commit_sha": b.get("commit", {}).get("sha"),
@@ -381,33 +386,36 @@ async def _list_luna_branches() -> list[dict]:
                     "behind_by": 0,
                     "committed_at": None,
                 }
-                if name != "main" and compares < _MAX_BRANCH_COMPARES:
-                    compares += 1
-                    try:
-                        cmp = await client.get(
-                            f"https://api.github.com/repos/{LUNA_GITHUB_REPO}/compare/main...{name}",
-                            headers=_gh_headers(),
-                        )
-                        if cmp.status_code == 200:
-                            cj = cmp.json()
-                            entry["ahead_by"] = cj.get("ahead_by", 0)
-                            entry["behind_by"] = cj.get("behind_by", 0)
-                            entry["merged"] = cj.get("ahead_by", 0) == 0
-                    except Exception:  # noqa: BLE001
-                        pass
-                if entry["commit_sha"]:
-                    try:
-                        cdet = await client.get(
-                            f"https://api.github.com/repos/{LUNA_GITHUB_REPO}/commits/{entry['commit_sha']}",
-                            headers=_gh_headers(),
-                        )
-                        if cdet.status_code == 200:
-                            entry["committed_at"] = (
-                                cdet.json().get("commit", {}).get("committer") or {}
-                            ).get("date")
-                    except Exception:  # noqa: BLE001
-                        pass
-                out.append(entry)
+                do_compare = name != "main" and next(compare_budget, None) is not None
+                async with sem:
+                    if do_compare:
+                        try:
+                            cmp = await client.get(
+                                f"https://api.github.com/repos/{LUNA_GITHUB_REPO}/compare/main...{name}",
+                                headers=_gh_headers(),
+                            )
+                            if cmp.status_code == 200:
+                                cj = cmp.json()
+                                entry["ahead_by"] = cj.get("ahead_by", 0)
+                                entry["behind_by"] = cj.get("behind_by", 0)
+                                entry["merged"] = cj.get("ahead_by", 0) == 0
+                        except Exception:  # noqa: BLE001
+                            pass
+                    if entry["commit_sha"]:
+                        try:
+                            cdet = await client.get(
+                                f"https://api.github.com/repos/{LUNA_GITHUB_REPO}/commits/{entry['commit_sha']}",
+                                headers=_gh_headers(),
+                            )
+                            if cdet.status_code == 200:
+                                entry["committed_at"] = (
+                                    cdet.json().get("commit", {}).get("committer") or {}
+                                ).get("date")
+                        except Exception:  # noqa: BLE001
+                            pass
+                return entry
+
+            out = [e for e in await asyncio.gather(*(enrich(b) for b in raw)) if e]
         # Order: main pinned at top, then last commit date descending (unknown
         # dates last), name as tiebreaker. Stable sorts, least-significant first.
         out.sort(key=lambda e: e["name"])

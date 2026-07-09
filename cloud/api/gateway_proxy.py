@@ -8,6 +8,7 @@ billed, never logged.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -23,7 +24,7 @@ from cloud.gateway import policy
 from cloud.gateway import tokens as token_svc
 from cloud.gateway.crypto import decrypt_key
 from cloud.gateway.metering import UsageScanner, record_usage
-from cloud.gateway.registry import AuthStyle, get_service, parse_auth_style
+from cloud.gateway.registry import AuthStyle, get_service_cached, parse_auth_style
 from cloud.provisioning.model_catalog import cached_system_catalog, catalog_has
 from cloud.relay import capture as composio_capture
 
@@ -47,8 +48,22 @@ _DROP_RESPONSE_HEADERS = ("transfer-encoding", "content-length", "content-encodi
 def _get_client() -> httpx.AsyncClient:
     global _client
     if _client is None:
-        _client = httpx.AsyncClient(timeout=httpx.Timeout(300, connect=15))
+        from cloud.observability import httpx_timing_hooks
+        _client = httpx.AsyncClient(
+            timeout=httpx.Timeout(300, connect=15),
+            event_hooks=httpx_timing_hooks("gateway"),
+        )
     return _client
+
+
+async def _mark_key_used_bg(key_id: uuid.UUID) -> None:
+    """Post-response bookkeeping — runs as a task so streaming starts immediately."""
+    try:
+        async with db_session.get_session() as db:
+            await key_pool.mark_key_used(db, key_id)
+            await db.commit()
+    except Exception:  # noqa: BLE001 — bookkeeping must never break the response
+        log.exception("mark_key_used failed for key %s", key_id)
 
 
 def _requested_model(body: bytes) -> str | None:
@@ -176,8 +191,12 @@ def _stream_response(
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
 )
 async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
+    body = await request.body()
+
+    # One DB session covers the entire pre-flight (service, token, policy,
+    # keys, catalog) — this used to be 2-3 sessions per request.
     async with db_session.get_session() as db:
-        service = await get_service(db, service_slug)
+        service = await get_service_cached(db, service_slug)
         if service is None or not service.enabled:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown service")
 
@@ -231,11 +250,42 @@ async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
                 )
             # Decrypt before leaving the session; never log these.
             candidates = [(k.id, decrypt_key(k.api_key_enc)) for k in pool[:2]]
+
+            # ── Catalog enforcement (managed flow only, Plan 018) ────────
+            # Off-catalog model → 404 BEFORE spending a pool key. Aliases
+            # resolve. Only LLM providers are gated; non-LLM services and
+            # bodyless/GET paths skip.
+            if service_slug in _MODEL_GATED_PROVIDERS:
+                model = _requested_model(body)
+                if model is not None:
+                    catalog = await cached_system_catalog(db)
+                    if not catalog_has(catalog, service_slug, model):
+                        log.warning(
+                            "gateway off-catalog model rejected: service=%s model=%s agent=%s",
+                            service_slug, model, agent_id,
+                        )
+                        await record_usage(
+                            agent_id=agent_id,
+                            service_slug=service_slug,
+                            billable=False,
+                            key_id=None,
+                            status_code=404,
+                            input_tokens=0,
+                            output_tokens=0,
+                        )
+                        return JSONResponse(
+                            status_code=status.HTTP_404_NOT_FOUND,
+                            content={"error": {
+                                "type": "not_found",
+                                "message": (
+                                    f"Model '{model}' is not in this workspace's catalog. "
+                                    "Ask your admin to enable it."
+                                ),
+                            }},
+                        )
         else:
             agent_id = None
             candidates = None
-
-    body = await request.body()
 
     # ── BYOK passthrough ─────────────────────────────────────────────────
     if candidates is None:
@@ -253,39 +303,6 @@ async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
             billable=False,
             key_id=None,
         )
-
-    # ── Catalog enforcement (managed flow only, Plan 018) ────────────────
-    # Off-catalog model → 404 BEFORE spending a pool key. Aliases resolve.
-    # Only LLM providers are gated; non-LLM services and bodyless/GET paths skip.
-    if service_slug in _MODEL_GATED_PROVIDERS:
-        model = _requested_model(body)
-        if model is not None:
-            async with db_session.get_session() as db:
-                catalog = await cached_system_catalog(db)
-            if not catalog_has(catalog, service_slug, model):
-                log.warning(
-                    "gateway off-catalog model rejected: service=%s model=%s agent=%s",
-                    service_slug, model, agent_id,
-                )
-                await record_usage(
-                    agent_id=agent_id,
-                    service_slug=service_slug,
-                    billable=False,
-                    key_id=None,
-                    status_code=404,
-                    input_tokens=0,
-                    output_tokens=0,
-                )
-                return JSONResponse(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    content={"error": {
-                        "type": "not_found",
-                        "message": (
-                            f"Model '{model}' is not in this workspace's catalog. "
-                            "Ask your admin to enable it."
-                        ),
-                    }},
-                )
 
     # ── Managed flow with one fallback retry ─────────────────────────────
     for attempt, (key_id, real_key) in enumerate(candidates):
@@ -313,9 +330,8 @@ async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
                 await key_pool.mark_key_failure(db, key_id, resp.status_code)
                 await db.commit()
         else:
-            async with db_session.get_session() as db:
-                await key_pool.mark_key_used(db, key_id)
-                await db.commit()
+            # Fire-and-forget: don't hold up first-byte on a bookkeeping write.
+            asyncio.create_task(_mark_key_used_bg(key_id))
         return _stream_response(
             resp,
             service_slug=service_slug,

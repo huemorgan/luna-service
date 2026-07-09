@@ -101,10 +101,15 @@ export default function Dashboard() {
   // The agent's self-chosen identity (name it gave itself, emoji/avatar) lives
   // on the machine — fetch it through the /a/{slug}/ proxy for running agents.
   const [identities, setIdentities] = useState<Record<string, AgentIdentity>>({});
+  // Track *attempted* fetches, not resolved ones: a failed fetch (agent
+  // unreachable) must not be retried on every agents/identities change —
+  // that fan-out used to hammer dead agents with 35 s requests.
+  const identityAttempted = useRef<Set<string>>(new Set());
   useEffect(() => {
     agents
-      .filter(a => a.status === 'running' && a.slug && !(a.id in identities))
+      .filter(a => a.status === 'running' && a.slug && !identityAttempted.current.has(a.id))
       .forEach(a => {
+        identityAttempted.current.add(a.id);
         fetch(`/a/${a.slug}/api/p/plugin-identity/`)
           .then(r => r.ok ? r.json() : null)
           .then(idn => {
@@ -112,7 +117,7 @@ export default function Dashboard() {
           })
           .catch(() => { /* best-effort — card falls back to the machine name */ });
       });
-  }, [agents, identities]);
+  }, [agents]);
 
   // Poll for provisioning agents
   useEffect(() => {

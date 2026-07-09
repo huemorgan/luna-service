@@ -147,6 +147,8 @@ class TestWakeLock:
         ):
             instance = MockFly.return_value
             instance.start = mock_start
+            # Fail-fast existence check (plan 037): machine exists.
+            instance.describe = AsyncMock(return_value={"id": "machine-999", "state": "stopped"})
 
             mock_session = AsyncMock()
             mock_session.__aenter__ = AsyncMock(return_value=mock_session)

@@ -5,10 +5,10 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, Response
-from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from cloud.api.admin_routes import router as admin_router
 from cloud.api.agent_routes import router as agent_router
@@ -28,6 +28,7 @@ from cloud.api.whatsapp_routes import router as whatsapp_router
 from cloud.config import get_settings
 from cloud.db.models import Base
 from cloud.db.session import dispose_engine
+from cloud.observability import TimingMiddleware
 
 UI_DIR = Path(__file__).parent / "ui" / "dist"
 
@@ -38,31 +39,13 @@ RESERVED_PREFIXES = (
 )
 
 
-class SPAStaticMiddleware(BaseHTTPMiddleware):
-    """Serve UI static files before route matching so the proxy
-    catch-all doesn't intercept asset requests."""
+class ImmutableStaticFiles(StaticFiles):
+    """Vite assets are content-hashed, so they can be cached forever."""
 
-    async def dispatch(self, request: Request, call_next):
-        path = request.url.path
-
-        if any(path.startswith(p) for p in ("/assets/",)):
-            file = UI_DIR / path.lstrip("/")
-            if file.is_file():
-                return FileResponse(file)
-
-        if path in ("/favicon.svg", "/icons.svg"):
-            file = UI_DIR / path.lstrip("/")
-            if file.is_file():
-                return FileResponse(file)
-
-        response: Response = await call_next(request)
-
-        if response.status_code == 404 and UI_DIR.is_dir():
-            is_api = any(path.startswith(p) for p in RESERVED_PREFIXES)
-            if not is_api:
-                return FileResponse(UI_DIR / "index.html")
-
-        return response
+    def file_response(self, *args, **kwargs):
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["cache-control"] = "public, max-age=31536000, immutable"
+        return resp
 
 
 @asynccontextmanager
@@ -150,22 +133,39 @@ async def lifespan(app: FastAPI):
         await seed_models(db)  # Plan 018: system model catalog
         await db.commit()
 
-    # Composio trigger-relay forwarder (plan 015)
+    # Background loops run in exactly one worker (advisory-lock guarded —
+    # with --workers N the lifespan executes N times).
     import asyncio
     import os
+    from cloud.runtime.exclusive import (
+        LOCK_RECONCILER, LOCK_RELAY_FORWARDER, run_exclusive,
+    )
+
+    # Composio trigger-relay forwarder (plan 015)
     forwarder_task = None
     if os.environ.get("CLOUD_RELAY_FORWARDER", "1") == "1":
         from cloud.relay.forwarder import forwarder_loop
-        forwarder_task = asyncio.create_task(forwarder_loop())
+        forwarder_task = asyncio.create_task(
+            run_exclusive(LOCK_RELAY_FORWARDER, "relay-forwarder", forwarder_loop)
+        )
+
+    # Fly-status reconciliation sweep (plan 037-SPEED101)
+    reconciler_task = None
+    if os.environ.get("CLOUD_RECONCILER", "1") == "1":
+        from cloud.runtime.reconcile import reconcile_loop
+        reconciler_task = asyncio.create_task(
+            run_exclusive(LOCK_RECONCILER, "reconciler", reconcile_loop)
+        )
 
     yield
 
-    if forwarder_task:
-        forwarder_task.cancel()
-        try:
-            await forwarder_task
-        except (asyncio.CancelledError, Exception):
-            pass
+    for task in (forwarder_task, reconciler_task):
+        if task:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
     await dispose_engine()
 
 
@@ -178,8 +178,6 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    app.add_middleware(SPAStaticMiddleware)
-
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"] if settings.env == "dev" else [settings.base_url],
@@ -187,6 +185,12 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Outermost (added last): times every request, including static/proxy.
+    app.add_middleware(TimingMiddleware)
+
+    if (UI_DIR / "assets").is_dir():
+        app.mount("/assets", ImmutableStaticFiles(directory=UI_DIR / "assets"), name="assets")
 
     @app.get("/healthz")
     async def healthz():
@@ -257,6 +261,21 @@ def create_app() -> FastAPI:
     app.include_router(scheduler_relay_router)
     app.include_router(gateway_proxy_router)
     app.include_router(proxy_router)
+
+    # SPA fallback — matches only paths no route/mount claimed (registered last).
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str):
+        from fastapi import HTTPException
+
+        if any(("/" + full_path).startswith(p) for p in RESERVED_PREFIXES):
+            raise HTTPException(404)
+        if full_path in ("favicon.svg", "icons.svg"):
+            file = UI_DIR / full_path
+            if file.is_file():
+                return FileResponse(file, headers={"cache-control": "public, max-age=3600"})
+        if UI_DIR.is_dir():
+            return FileResponse(UI_DIR / "index.html")
+        raise HTTPException(404)
 
     return app
 

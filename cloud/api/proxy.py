@@ -15,7 +15,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
 from cloud.auth.session import get_session
-from cloud.db.models import Agent, Membership, User
+from cloud.db.models import Agent, User
 from cloud.db.session import get_session as get_db_session
 
 log = logging.getLogger(__name__)
@@ -24,75 +24,111 @@ router = APIRouter(tags=["proxy"])
 
 _http_client: httpx.AsyncClient | None = None
 
-# In-memory wake locks: agent_slug → asyncio.Event
+# How long piggy-backing requests wait for an in-flight wake before giving up.
+WAKE_WAIT_TIMEOUT = 10
+
+
+class _WakeAttempt:
+    """One in-flight wake: an event waiters block on + the outcome."""
+
+    __slots__ = ("event", "success")
+
+    def __init__(self) -> None:
+        self.event = asyncio.Event()
+        self.success = False
+
+
+# In-memory wake locks: agent_slug → attempt.
 # Prevents multiple simultaneous requests from all trying to wake the same machine
-_wake_locks: dict[str, asyncio.Event] = {}
+_wake_locks: dict[str, _WakeAttempt] = {}
 
 
 def _get_http_client() -> httpx.AsyncClient:
     global _http_client
     if _http_client is None:
-        _http_client = httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10))
+        from cloud.observability import httpx_timing_hooks
+        _http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(120, connect=10),
+            event_hooks=httpx_timing_hooks("agent-proxy"),
+        )
     return _http_client
 
 
 async def _resolve_agent(request: Request, agent_slug: str):
-    """Resolve session + agent, verifying the user has access."""
+    """Resolve session + agent, verifying the user has access.
+
+    User + membership come from the auth TTL cache (plan 037-SPEED101); the
+    agent row is always fresh because its status drives the wake logic.
+    """
+    from cloud.auth.deps import check_membership_cached, load_user_cached
+
     sess = get_session(request)
-    if not sess:
+    if not sess or "user_id" not in sess:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
 
-    async with get_db_session() as db:
-        user = (await db.execute(
-            select(User).where(User.id == uuid.UUID(sess["user_id"]))
-        )).scalar_one_or_none()
-        if not user:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
+    user = await load_user_cached(sess["user_id"])
+    if not user:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
 
+    async with get_db_session() as db:
         agent = (await db.execute(
             select(Agent).where(Agent.slug == agent_slug)
         )).scalar_one_or_none()
         if not agent:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
 
-        membership = (await db.execute(
-            select(Membership).where(
-                Membership.user_id == user.id,
-                Membership.account_id == agent.account_id,
-                Membership.status == "active",
-            )
-        )).scalar_one_or_none()
-        if not membership:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a member of this account")
+    if not await check_membership_cached(sess["user_id"], str(agent.account_id)):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a member of this account")
 
-        return user, agent
+    return user, agent
+
+
+async def _mark_agent_error(agent_id, message: str) -> None:
+    async with get_db_session() as db:
+        a = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one()
+        a.status = "error"
+        a.error_message = message
+        a.error_at = datetime.now(timezone.utc)
+        await db.commit()
 
 
 async def _try_wake_agent(agent: Agent) -> bool:
-    """Attempt to start a stopped/crashed Fly machine. Returns True on success."""
+    """Attempt to start a stopped/crashed Fly machine. Returns True on success.
+
+    Fail-fast: if the machine no longer exists, marks the agent error and
+    returns immediately instead of letting every caller burn a full timeout.
+    """
     if not agent.runtime_ref or not os.environ.get("FLY_API_TOKEN"):
         return False
 
     slug = agent.slug
 
     # If another request is already waking this agent, wait for it
-    if slug in _wake_locks:
-        event = _wake_locks[slug]
+    attempt = _wake_locks.get(slug)
+    if attempt is not None:
         try:
-            await asyncio.wait_for(event.wait(), timeout=30)
+            await asyncio.wait_for(attempt.event.wait(), timeout=WAKE_WAIT_TIMEOUT)
         except asyncio.TimeoutError:
             return False
-        return event.is_set()
+        return attempt.success
 
     # We're the first — take the lock
-    event = asyncio.Event()
-    _wake_locks[slug] = event
+    attempt = _WakeAttempt()
+    _wake_locks[slug] = attempt
 
     try:
         from cloud.runtime.fly_machines import FlyMachinesRuntime
         from cloud.runtime.base import RuntimeHandle
 
         fly = FlyMachinesRuntime()
+
+        # Machine gone entirely? Mark error and bail — no wait, no retries.
+        machine = await fly.describe(agent.runtime_ref)
+        if machine is None:
+            log.warning("Wake %s: machine %s no longer exists", slug, agent.runtime_ref)
+            await _mark_agent_error(agent.id, "Machine no longer exists")
+            return False
+
         handle = RuntimeHandle(
             agent.runtime_kind or "fly-machine",
             agent.runtime_ref,
@@ -108,12 +144,15 @@ async def _try_wake_agent(agent: Agent) -> bool:
             await db.commit()
 
         log.info("Auto-woke agent %s (machine %s)", slug, agent.runtime_ref)
-        event.set()
+        attempt.success = True
         return True
     except Exception as exc:
         log.error("Failed to auto-wake agent %s: %s", slug, exc)
         return False
     finally:
+        # Always release waiters — before this fix a failed wake left them
+        # blocked for the full timeout.
+        attempt.event.set()
         _wake_locks.pop(slug, None)
 
 
