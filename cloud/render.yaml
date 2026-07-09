@@ -4,7 +4,10 @@ services:
     runtime: docker
     dockerfilePath: ./cloud/Dockerfile
     dockerContext: .
-    plan: standard
+    # SPEED101 (plan 037 §13): live service runs `starter`; 2 uvicorn workers
+    # fit its 512 MB (RSS ~105 MB each). Declared `standard` was aspirational —
+    # synced to reality. Upgrade deliberately if worker RSS grows.
+    plan: starter
     region: oregon
     healthCheckPath: /healthz
     envVars:
@@ -29,6 +32,7 @@ services:
 
 databases:
   - name: luna-service-cp
-    plan: starter
+    # SPEED101 (plan 037 §13): live DB is accelerated-16gb (upgraded Jul 2026).
+    plan: accelerated-16gb
     region: oregon
     postgresMajorVersion: "16"
