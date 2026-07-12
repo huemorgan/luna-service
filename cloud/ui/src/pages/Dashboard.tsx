@@ -407,9 +407,6 @@ function AgentCard({
         </div>
       )}
 
-      {/* Upgrade tray — docked under the machine box when a newer image exists */}
-      {agent.upgrade_available && <UpgradeTray agent={agent} onUpgrade={onUpgrade} />}
-
       {/* Actions — pinned to the card bottom so rows of cards stay even */}
       <div className="flex items-center gap-2 flex-wrap mt-auto pt-3">
           {isLoading && <Loader2 className="animate-spin" size={16} style={{ color: 'var(--moon)' }} />}
@@ -489,6 +486,9 @@ function AgentCard({
             Config
           </Link>
       </div>
+
+      {/* Upgrade tray — full-bleed bar docked to the card's bottom edge */}
+      {agent.upgrade_available && <UpgradeTray agent={agent} onUpgrade={onUpgrade} />}
     </div>
   );
 }
@@ -554,7 +554,7 @@ function UpgradeTray({
 
   return (
     <div
-      className="mt-4 -mx-5 -mb-5 rounded-b-2xl overflow-hidden"
+      className="mt-3 -mx-4 -mb-4 rounded-b-2xl overflow-hidden"
       style={{ borderTop: '1px solid var(--ink-lighter)', background: 'rgba(201,184,255,0.05)' }}
     >
       {/* Collapsed bar */}
