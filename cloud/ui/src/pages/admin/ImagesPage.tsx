@@ -140,8 +140,12 @@ function BranchPicker({ branches, selected, onSelect, disabled }: {
 
       {open && (
         <div
-          className="absolute z-50 mt-1 w-full rounded-lg border overflow-hidden"
-          style={{ background: 'var(--surface)', borderColor: 'var(--ink-lighter)', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}
+          className="absolute z-50 mt-1 rounded-lg border overflow-hidden"
+          style={{
+            background: 'var(--surface)', borderColor: 'var(--ink-lighter)', boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+            // Wide enough for full branch names: grow to content, never narrower than the trigger.
+            width: 'max-content', minWidth: '100%', maxWidth: 'min(640px, 90vw)',
+          }}
           onKeyDown={onKeyDown}
         >
           <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: '1px solid var(--ink-lighter)' }}>
