@@ -3,6 +3,7 @@ import { Link, useParams, useNavigate } from 'react-router-dom';
 import {
   Moon, LogOut, ChevronLeft, Loader2, ExternalLink,
   Square, Play, RotateCcw, AlertTriangle, RefreshCw, Pencil, Check, X, Trash2,
+  Copy, Palette,
 } from 'lucide-react';
 import { InfoCard } from '../components/InfoCard';
 import type { InfoRow } from '../components/InfoCard';
@@ -15,6 +16,7 @@ interface DetailPayload {
     id: string;
     name: string;
     slug: string;
+    color: string;
     status: string;
     runtime_kind: string | null;
     error_message: string | null;
@@ -68,6 +70,12 @@ const STATUS_DOT: Record<string, string> = {
   error: '#ef4444',
 };
 
+// Mirrors AGENT_COLOR_PALETTE in cloud/api/agent_routes.py.
+const CARD_COLORS = [
+  '#f59e0b', '#f97316', '#f43f5e', '#ec4899', '#d946ef', '#8b5cf6',
+  '#6366f1', '#0ea5e9', '#06b6d4', '#10b981', '#84cc16', '#ef4444',
+];
+
 function timeAgo(iso: string | null | undefined): string {
   if (!iso) return '—';
   const diff = Date.now() - new Date(iso).getTime();
@@ -106,6 +114,8 @@ export default function AgentDetail() {
   const [savingName, setSavingName] = useState(false);
   const [deleteDraft, setDeleteDraft] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [savingColor, setSavingColor] = useState(false);
+  const [nameCopied, setNameCopied] = useState(false);
 
   const fetchDetails = useCallback(async () => {
     if (!id) return;
@@ -206,6 +216,34 @@ export default function AgentDetail() {
     } finally {
       setSavingName(false);
     }
+  };
+
+  const handleColorSave = async (color: string) => {
+    if (!id || color === agent.color) return;
+    setSavingColor(true);
+    try {
+      const res = await fetch(`/api/agents/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ color }),
+      });
+      if (res.ok) {
+        await fetchDetails();
+      } else {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        alert(`Color update failed: ${err.detail || JSON.stringify(err)}`);
+      }
+    } finally {
+      setSavingColor(false);
+    }
+  };
+
+  const handleCopyName = async () => {
+    try {
+      await navigator.clipboard.writeText(agent.name);
+      setNameCopied(true);
+      setTimeout(() => setNameCopied(false), 1500);
+    } catch { /* clipboard unavailable — nothing to do */ }
   };
 
   const handleDelete = async () => {
@@ -486,6 +524,50 @@ export default function AgentDetail() {
           <code className="font-mono">{agent.id}</code>
         </div>
 
+        {/* Card color — accent used on the dashboard card */}
+        <div
+          className="mt-8 rounded-2xl border p-5"
+          style={{ background: 'var(--surface)', borderColor: 'var(--ink-lighter)' }}
+        >
+          <h3 className="text-sm font-semibold flex items-center gap-2 mb-1" style={{ color: 'var(--text)' }}>
+            <Palette size={15} style={{ color: agent.color }} /> Card color
+          </h3>
+          <p className="text-xs mb-4" style={{ color: 'var(--text-dim)' }}>
+            Accent color for this agent's card on the dashboard.
+          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            {CARD_COLORS.map(c => (
+              <button
+                key={c}
+                onClick={() => handleColorSave(c)}
+                disabled={savingColor}
+                title={c}
+                className="w-7 h-7 rounded-full transition-transform hover:scale-110 disabled:opacity-50"
+                style={{
+                  background: c,
+                  border: agent.color === c ? '2px solid var(--text)' : '2px solid transparent',
+                  boxShadow: agent.color === c ? '0 0 0 2px var(--ink)' : 'none',
+                }}
+              />
+            ))}
+            <label
+              className="flex items-center gap-1.5 ml-2 px-2 py-1 rounded-lg text-xs cursor-pointer transition-colors hover:bg-[var(--ink-light)]"
+              style={{ color: 'var(--text-dim)', border: '1px solid var(--ink-lighter)' }}
+              title="Custom color"
+            >
+              <input
+                type="color"
+                value={agent.color}
+                disabled={savingColor}
+                onChange={e => handleColorSave(e.target.value)}
+                className="w-5 h-5 cursor-pointer bg-transparent border-0 p-0"
+              />
+              Custom
+            </label>
+            {savingColor && <Loader2 className="animate-spin" size={14} style={{ color: 'var(--moon)' }} />}
+          </div>
+        </div>
+
         {/* Danger zone — delete only lives here, behind a type-the-name failsafe */}
         <div
           className="mt-8 rounded-2xl border p-5"
@@ -495,7 +577,16 @@ export default function AgentDetail() {
             <AlertTriangle size={15} /> Danger zone
           </h3>
           <p className="text-xs mb-4" style={{ color: 'var(--text-dim)' }}>
-            Deleting <strong style={{ color: 'var(--text)' }}>{agent.name}</strong> destroys its
+            Deleting <strong style={{ color: 'var(--text)' }}>{agent.name}</strong>
+            <button
+              onClick={handleCopyName}
+              title={nameCopied ? 'Copied!' : 'Copy name'}
+              className="inline-flex align-middle ml-1 mr-0.5 p-0.5 rounded transition-colors hover:bg-[var(--ink-light)]"
+              style={{ color: nameCopied ? '#22c55e' : 'var(--text-dim)' }}
+            >
+              {nameCopied ? <Check size={12} /> : <Copy size={12} />}
+            </button>
+            {' '}destroys its
             machine and removes the agent. This cannot be undone. Type the agent's name to confirm.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 sm:items-center">

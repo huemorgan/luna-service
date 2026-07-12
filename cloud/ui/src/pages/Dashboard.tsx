@@ -15,6 +15,7 @@ interface AgentInfo {
   id: string;
   name: string;
   slug: string;
+  color: string;
   status: string;
   runtime_kind: string | null;
   internal_url: string | null;
@@ -293,7 +294,7 @@ export default function Dashboard() {
 
         {/* Agent list */}
         {agents.length > 0 && (
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
             {agents.map(agent => (
               <AgentCard
                 key={agent.id}
@@ -321,34 +322,33 @@ function AgentCard({
   onUpgrade: (id: string, mode: 'upgrade_only' | 'update_plugins_then_upgrade') => Promise<string | null>;
 }) {
   const dotColor = STATUS_DOT[agent.status] || '#94a3b8';
+  const accent = agent.color || '#8b5cf6';
   const stuckProvisioning = agent.status === 'provisioning' && agent.created_at
     && (Date.now() - new Date(agent.created_at).getTime()) > 5 * 60 * 1000;
 
   return (
     <div
-      className="rounded-2xl p-5 border transition-all"
-      style={{ background: 'var(--surface)', borderColor: 'var(--ink-lighter)' }}
+      className="rounded-2xl p-4 border transition-all"
+      style={{
+        background: `linear-gradient(135deg, ${accent}14, var(--surface) 60%)`,
+        borderColor: 'var(--ink-lighter)',
+        borderLeft: `4px solid ${accent}`,
+      }}
     >
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
           <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: dotColor }} />
           <div>
-            <Link
-              to={`/dashboard/agents/${agent.id}`}
-              className="group inline-flex items-center gap-1.5 font-semibold underline decoration-dotted underline-offset-4 hover:decoration-solid transition-colors"
-              style={{ color: 'var(--moon)' }}
-              title="Open settings & config"
-            >
+            <span className="inline-flex items-center gap-1.5 font-semibold" style={{ color: 'var(--text)' }}>
               {identity?.name || agent.name}
               {identity?.name && (
                 identity.emoji
-                  ? <span className="no-underline">{identity.emoji}</span>
+                  ? <span>{identity.emoji}</span>
                   : identity.avatar_url
                     ? <img src={`/a/${agent.slug}${identity.avatar_url}`} alt="" className="w-4 h-4 rounded-full" />
                     : null
               )}
-              <Settings size={13} className="opacity-60 transition-opacity group-hover:opacity-100" />
-            </Link>
+            </span>
             {identity?.name && identity.name !== agent.name && (
               <div className="text-xs" style={{ color: 'var(--text-dim)', opacity: 0.7 }}>
                 {agent.name}
@@ -393,7 +393,7 @@ function AgentCard({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           {isLoading && <Loader2 className="animate-spin" size={16} style={{ color: 'var(--moon)' }} />}
 
           {agent.status === 'running' && agent.slug && (

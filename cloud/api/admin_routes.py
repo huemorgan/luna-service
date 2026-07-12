@@ -2178,12 +2178,14 @@ async def create_test_agent(
             suffix += 1
             slug = f"{account.slug}-{base_slug}-{suffix}"
 
+        from cloud.api.agent_routes import random_agent_color
         agent = Agent(
             account_id=account.id,
             creator_id=admin.id,
             name=name,
             slug=slug,
             status="provisioning",
+            color=random_agent_color(),
         )
         db.add(agent)
         await db.commit()

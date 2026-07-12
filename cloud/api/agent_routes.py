@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import random
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -44,6 +45,34 @@ def _make_slug(name: str, account_slug: str) -> str:
     base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "luna"
     return f"{account_slug}-{base}"
 
+
+# Plan 038: vibrant card accent colors. New agents get a random one; agents
+# with color=NULL fall back deterministically so existing cards stay stable.
+AGENT_COLOR_PALETTE = [
+    "#f59e0b",  # amber
+    "#f97316",  # orange
+    "#f43f5e",  # rose
+    "#ec4899",  # pink
+    "#d946ef",  # fuchsia
+    "#8b5cf6",  # violet
+    "#6366f1",  # indigo
+    "#0ea5e9",  # sky
+    "#06b6d4",  # cyan
+    "#10b981",  # emerald
+    "#84cc16",  # lime
+    "#ef4444",  # red
+]
+
+_HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def random_agent_color() -> str:
+    return random.choice(AGENT_COLOR_PALETTE)
+
+
+def _fallback_color(agent_id: uuid.UUID) -> str:
+    return AGENT_COLOR_PALETTE[int(agent_id.int) % len(AGENT_COLOR_PALETTE)]
+
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
 
@@ -52,7 +81,8 @@ class CreateAgentRequest(BaseModel):
 
 
 class UpdateAgentRequest(BaseModel):
-    name: str
+    name: str | None = None
+    color: str | None = None
 
 
 async def _main_image_version(db) -> str | None:
@@ -72,6 +102,7 @@ def _agent_dict(a: Agent, latest_version: str | None = None) -> dict:
         "id": str(a.id),
         "name": a.name,
         "slug": a.slug,
+        "color": a.color or _fallback_color(a.id),
         "status": a.status,
         "runtime_kind": a.runtime_kind,
         "internal_url": a.internal_url,
@@ -173,6 +204,7 @@ async def create_agent(
             name=name,
             slug=slug,
             status="provisioning",
+            color=random_agent_color(),
         )
         db.add(agent)
         await db.commit()
@@ -212,13 +244,19 @@ async def update_agent(
     body: UpdateAgentRequest,
     auth: tuple[User, Account] = Depends(require_active_account),
 ):
-    """Rename an agent (display name only — slug, routing and storage stay stable)."""
+    """Update display fields — name and/or card color. Slug, routing and storage stay stable."""
     _, account = auth
-    name = body.name.strip()
-    if not name:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Name cannot be empty")
-    if len(name) > 100:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Name too long (max 100 characters)")
+    if body.name is None and body.color is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Nothing to update")
+
+    name = body.name.strip() if body.name is not None else None
+    if body.name is not None:
+        if not name:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Name cannot be empty")
+        if len(name) > 100:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Name too long (max 100 characters)")
+    if body.color is not None and not _HEX_COLOR_RE.match(body.color):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Color must be #RRGGBB")
 
     async with get_db_session() as db:
         agent = (await db.execute(
@@ -229,7 +267,10 @@ async def update_agent(
         )).scalar_one_or_none()
         if not agent:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
-        agent.name = name
+        if name is not None:
+            agent.name = name
+        if body.color is not None:
+            agent.color = body.color.lower()
         await db.commit()
         await db.refresh(agent)
         return _agent_dict(agent, await _main_image_version(db))

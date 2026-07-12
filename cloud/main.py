@@ -67,6 +67,8 @@ async def lifespan(app: FastAPI):
             ("volume_id", "TEXT"),
             ("volume_region", "TEXT"),
             ("volume_size_gb", "INTEGER"),
+            # Plan 038: card accent color.
+            ("color", "TEXT"),
         ]:
             await conn.execute(text(
                 f"ALTER TABLE agents ADD COLUMN IF NOT EXISTS {col} {coltype}"

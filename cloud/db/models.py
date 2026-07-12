@@ -96,6 +96,9 @@ class Agent(Base):
     # nested shape as image_config (e.g. {"services": {"composio": {...}}}).
     # NULL means "inherit everything from the image".
     config_overrides: Mapped[dict | None] = mapped_column(JSONB)
+    # Plan 038: dashboard card accent color (#RRGGBB). NULL falls back to a
+    # deterministic palette color derived from the agent id.
+    color: Mapped[str | None] = mapped_column(Text)
 
     account: Mapped[Account] = relationship(back_populates="agents")
 
