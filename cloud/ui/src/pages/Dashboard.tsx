@@ -294,7 +294,7 @@ export default function Dashboard() {
 
         {/* Agent list */}
         {agents.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {agents.map(agent => (
               <AgentCard
                 key={agent.id}
@@ -328,17 +328,14 @@ function AgentCard({
 
   return (
     <div
-      className="rounded-2xl p-4 border transition-all"
+      className="rounded-2xl p-4 border transition-all h-full flex flex-col"
       style={{
-        background: `linear-gradient(135deg, ${accent}14, var(--surface) 60%)`,
-        borderColor: 'var(--ink-lighter)',
-        borderLeft: `4px solid ${accent}`,
+        background: `linear-gradient(135deg, ${accent}10, var(--surface) 60%)`,
+        borderColor: `${accent}99`,
       }}
     >
-      <div className="flex items-start justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-3">
-          <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: dotColor }} />
-          <div>
+      <div className="flex items-start justify-between gap-2">
+        <div>
             <span className="inline-flex items-center gap-1.5 font-semibold" style={{ color: 'var(--text)' }}>
               {identity?.name || agent.name}
               {identity?.name && (
@@ -349,11 +346,11 @@ function AgentCard({
                     : null
               )}
             </span>
-            {identity?.name && identity.name !== agent.name && (
-              <div className="text-xs" style={{ color: 'var(--text-dim)', opacity: 0.7 }}>
-                {agent.name}
-              </div>
-            )}
+            {/* Machine name lives here permanently — the title above swaps to the
+                agent's self-chosen identity once it loads, this line never moves. */}
+            <div className="text-xs" style={{ color: 'var(--text-dim)', opacity: 0.7 }}>
+              {agent.name}
+            </div>
             <div className="flex items-center gap-3 mt-1">
               <span className="text-xs capitalize" style={{ color: stuckProvisioning ? '#facc15' : 'var(--text-dim)' }}>
                 {agent.status === 'provisioning' && !stuckProvisioning && (
@@ -390,10 +387,31 @@ function AgentCard({
                 <span style={{ color: '#fca5a5' }}>{agent.error_message}</span>
               </div>
             )}
-          </div>
         </div>
+        {/* Status dot — fixed to the card's top-right corner */}
+        <div
+          className="w-3 h-3 rounded-full flex-shrink-0 mt-1.5"
+          style={{ background: dotColor }}
+          title={agent.status}
+        />
+      </div>
 
-        <div className="flex items-center gap-2 flex-wrap justify-end">
+      {/* Error message */}
+      {agent.status === 'error' && agent.error_message && (
+        <div
+          className="mt-3 flex items-start gap-2 px-4 py-3 rounded-xl text-xs"
+          style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)' }}
+        >
+          <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" style={{ color: '#ef4444' }} />
+          <span style={{ color: '#fca5a5' }}>{agent.error_message}</span>
+        </div>
+      )}
+
+      {/* Upgrade tray — docked under the machine box when a newer image exists */}
+      {agent.upgrade_available && <UpgradeTray agent={agent} onUpgrade={onUpgrade} />}
+
+      {/* Actions — pinned to the card bottom so rows of cards stay even */}
+      <div className="flex items-center gap-2 flex-wrap mt-auto pt-3">
           {isLoading && <Loader2 className="animate-spin" size={16} style={{ color: 'var(--moon)' }} />}
 
           {agent.status === 'running' && agent.slug && (
@@ -470,22 +488,7 @@ function AgentCard({
             <Settings size={12} />
             Config
           </Link>
-        </div>
       </div>
-
-      {/* Error message */}
-      {agent.status === 'error' && agent.error_message && (
-        <div
-          className="mt-3 flex items-start gap-2 px-4 py-3 rounded-xl text-xs"
-          style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)' }}
-        >
-          <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" style={{ color: '#ef4444' }} />
-          <span style={{ color: '#fca5a5' }}>{agent.error_message}</span>
-        </div>
-      )}
-
-      {/* Upgrade tray — docked under the machine box when a newer image exists */}
-      {agent.upgrade_available && <UpgradeTray agent={agent} onUpgrade={onUpgrade} />}
     </div>
   );
 }
