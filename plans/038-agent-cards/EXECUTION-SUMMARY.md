@@ -38,6 +38,15 @@ deploy hook (`dep-d99j2c3tqb8s73alsb30`, LIVE).
   - Copy icon in the danger zone put `Rayla` on the clipboard.
   - Rayla's color restored to `#0ea5e9` after the test.
 
+## Revision (same day, Roy feedback)
+
+Commit `c439e2d`: the 4 px left color bar read as "ugly AI design" — replaced with a colored
+card **outline** (+ subtle tint). Cards are now equal height (`h-full` flex column, actions row
+pinned to the bottom); the machine name is always rendered in a fixed line under the title, so
+the layout no longer shifts when the agent's self-chosen identity name loads; the status dot
+moved to the card's top-right corner. Verified in prod: both cards 142 px, outline colors
+correct, dot top-right.
+
 ## Notes
 
 - Roy's uncommitted gateway `extra_env` WIP (`gateway_admin_routes.py`, `models.py`,
