@@ -1,0 +1,9 @@
+PASS  1 sidebar shows Pricing group with 4 items
+PASS  2 overview shows default v1 + stats, no attention banner
+PASS  3 clone on v1 creates a v2 draft
+PASS  4 draft edit saves and diff shows trial.gift_credits 1800→2000
+PASS  5 invalid config rejected with server message; draft restored
+PASS  6 publish requires a reason; published version is read-only
+PASS  7 LLM & services renders tiers/constants/SKUs/provider costs read-only
+PASS  8 credit buckets renders trial/migration/products with Stripe placeholders
+PASS  9 rollout ran through the outbox worker; overview default is now v2

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import secrets
 from datetime import datetime, timezone
@@ -16,6 +17,8 @@ from cloud.auth.session import clear_session, set_session
 from cloud.config import Settings, get_settings
 from cloud.db.models import Account, Membership, User
 from cloud.db.session import get_session as get_db_session
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["auth"])
 
@@ -143,6 +146,17 @@ async def _upsert_user_and_account(info: UserInfo) -> tuple[User, Account]:
             await db.flush()
 
             db.add(Membership(account_id=account.id, user_id=user.id, role="owner"))
+
+            # 039/002: billing account + commercial pricing assignment are
+            # created in the same transaction as the account itself, so no
+            # authorized account is ever unassigned.
+            from cloud.billing.assignments import AssignmentError, assign_new_account
+            try:
+                await assign_new_account(db, account.id)
+            except AssignmentError as exc:
+                # Signup must not fail on an unseeded environment; billing
+                # stays off for the account until versions exist.
+                log.warning("No pricing assignment for new account %s: %s", account.id, exc)
 
         await db.commit()
         await db.refresh(user)

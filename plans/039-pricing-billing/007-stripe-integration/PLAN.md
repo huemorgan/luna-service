@@ -126,3 +126,21 @@ refunds/disputes. Test mode first; live mode is flipped during rollout (010).
 
 - Real Stripe test-mode money-in maps exactly once to visible grant lots and receipts,
   including the yearly twelve-lot + gift issuance.
+
+## Amendments from phase 002 (2026-07-14)
+
+- Financial-mutation conventions are set: browser-facing billing routers take
+  `Depends(enforce_same_origin)`, mutations require a non-blank `reason`
+  (400 "A reason is required for financial changes"), and write an `audit_log`
+  row with before/after state. Reuse for checkout/portal/refund admin actions.
+  The Stripe webhook router must NOT rely on origin checks in any way — its
+  auth is the Stripe signature; mount it without the same-origin dependency.
+- Product catalog shape is frozen by 002 validation: top-ups can never carry
+  bonus/gift credits or an interval; a yearly product is exactly 12 monthly
+  scheduled lots whose totals close to the yearly amounts. Checkout and grant
+  issuance must read products from the buyer's assigned version config and
+  reproduce the validated lot math — no independent price tables.
+- Rollout renewal-migration intent: an `all_accounts` rollout switches
+  assignments immediately (002); moving a subscriber to the new version's
+  products at next renewal is 007's job — honor the recorded intent at invoice
+  time.

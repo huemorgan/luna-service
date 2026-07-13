@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from cloud.api.admin_routes import router as admin_router
 from cloud.api.agent_routes import router as agent_router
 from cloud.api.auth_routes import router as auth_router
+from cloud.api.billing_admin_routes import router as billing_admin_router
 from cloud.api.gateway_admin_routes import router as gateway_admin_router
 from cloud.api.gateway_agent_routes import router as gateway_agent_router
 from cloud.api.gateway_proxy import router as gateway_proxy_router
@@ -56,9 +57,14 @@ async def lifespan(app: FastAPI):
     from cloud.db.session import get_session as _get_db
     from cloud.gateway.registry import seed_services
     from cloud.gateway.model_registry import seed_models
+    from cloud.billing.seed import seed_billing
+
     async with _get_db() as db:
         await seed_services(db)  # credential-gateway registry (insert-if-missing)
         await seed_models(db)  # Plan 018: system model catalog
+        # 039: commercial pricing v1 + provider-cost v1. Runs after
+        # seed_models — publish validates tier coverage of enabled models.
+        await seed_billing(db)
         # Owner admin bootstrap so a fresh environment is never adminless.
         await db.execute(text(
             "UPDATE users SET is_admin = true WHERE email = 'vaselin@gmail.com' AND is_admin = false"
@@ -70,7 +76,7 @@ async def lifespan(app: FastAPI):
     import asyncio
     import os
     from cloud.runtime.exclusive import (
-        LOCK_RECONCILER, LOCK_RELAY_FORWARDER, run_exclusive,
+        LOCK_BILLING_WORKER, LOCK_RECONCILER, LOCK_RELAY_FORWARDER, run_exclusive,
     )
 
     # Composio trigger-relay forwarder (plan 015)
@@ -89,9 +95,23 @@ async def lifespan(app: FastAPI):
             run_exclusive(LOCK_RECONCILER, "reconciler", reconcile_loop)
         )
 
+    # Durable billing outbox worker (plan 039) — rollouts, grants, settlement.
+    billing_worker_task = None
+    if os.environ.get("CLOUD_BILLING_WORKER", "1") == "1":
+        import cloud.billing.assignments  # noqa: F401 — registers job handlers
+        from cloud.billing.worker import worker_loop
+        from cloud.db.session import get_session as billing_session_factory
+
+        async def billing_loop() -> None:
+            await worker_loop(billing_session_factory, worker_id=f"web-{os.getpid()}")
+
+        billing_worker_task = asyncio.create_task(
+            run_exclusive(LOCK_BILLING_WORKER, "billing-worker", billing_loop)
+        )
+
     yield
 
-    for task in (forwarder_task, reconciler_task):
+    for task in (forwarder_task, reconciler_task, billing_worker_task):
         if task:
             task.cancel()
             try:
@@ -173,6 +193,7 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_router)
     app.include_router(admin_router)
+    app.include_router(billing_admin_router)
     app.include_router(gateway_admin_router)
     app.include_router(plugin_catalog_router)
     app.include_router(gateway_agent_router)

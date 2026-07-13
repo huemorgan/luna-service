@@ -120,3 +120,25 @@ separately approved retention/deletion policy exists.
 
 - All accounts on explicit immutable assignments; every parent-plan Definition of Done
   item checked and evidenced in the execution report.
+
+## Amendments from phase 002 (2026-07-14)
+
+- The rollout engine is built and tested — 010 adds no engine code. Audiences
+  `new_accounts`/`selected_accounts`/`all_accounts` run as durable
+  `billing_outbox` jobs (dedupe key `pricing_rollout:{id}`); restart reruns are
+  idempotent via `audit_ref="rollout:{id}"`; manual future assignments survive
+  an `all_accounts` rollout (`completed_with_failures`, counted, never
+  clobbered); an account created mid-rollout gets exactly one assignment. The
+  migration itself is a `selected_accounts`/`all_accounts` rollout plus
+  migration gifts.
+- `config.migration_gift` ships in the seeded v1 and is editable in the admin
+  Credit buckets page — set final migration amounts by publishing a version,
+  not by code.
+- Browser-verified end to end: the 002 dojo run
+  (`tests/039-pricing/results/2026-07-14-local/`) schedules a rollout in the
+  UI, the outbox worker applies it within one 5 s poll, and the overview
+  default flips — the operational flow this phase scripts against production.
+- Alembic head is now `0003` (assignment-overlap exclusion constraint; it
+  runs `CREATE EXTENSION IF NOT EXISTS btree_gist`). The first prod deploy
+  fingerprints, stamps `0001`, and upgrades through `0003` — the deploy DB
+  role must be allowed to create extensions (Render Postgres permits it).

@@ -93,7 +93,7 @@ def test_fresh_db_reaches_head(scratch_db):
     assert "billing_outbox" in tables
     assert "users" in tables
     version = asyncio.run(_exec(scratch_db, "SELECT version_num FROM alembic_version"))
-    assert version[0].scalar_one() == "0002"
+    assert version[0].scalar_one() == "0003"
     # Idempotent rerun.
     assert _run_migrate(scratch_db) == 0
 
@@ -110,7 +110,7 @@ def test_pre_alembic_db_is_stamped_and_upgraded(scratch_db):
     ))
     assert _run_migrate(scratch_db) == 0
     version = asyncio.run(_exec(scratch_db, "SELECT version_num FROM alembic_version"))
-    assert version[0].scalar_one() == "0002"
+    assert version[0].scalar_one() == "0003"
     tables = asyncio.run(_table_columns(scratch_db))
     assert "credit_grants" in tables
 
@@ -210,6 +210,48 @@ def test_triggers_enforce_ledger_invariants(scratch_db):
             scratch_db,
             "DELETE FROM credit_ledger_postings "
             "WHERE transaction_id='00000000-0000-0000-0000-00000000000c'",
+        ))
+
+
+def test_exclusion_constraint_rejects_overlapping_assignments(scratch_db):
+    """039/002 — the gist exclusion constraint is the DB-level backstop for
+    the service-layer chain check."""
+    assert _run_migrate(scratch_db) == 0
+    account_id = "00000000-0000-0000-0000-000000000002"
+    vid = "00000000-0000-0000-0000-0000000000aa"
+    asyncio.run(_exec(
+        scratch_db,
+        "INSERT INTO users (id, google_sub, email, created_at, is_admin) "
+        "VALUES ('00000000-0000-0000-0000-000000000001','sub','t@t.t',now(),false)",
+        f"INSERT INTO accounts (id, slug, name, plan, status, created_by, created_at) "
+        f"VALUES ('{account_id}','t','T','free','active',"
+        f"'00000000-0000-0000-0000-000000000001',now())",
+        f"INSERT INTO commercial_pricing_versions (id, version_number, name, status, "
+        f"config_json, config_schema_version, config_hash, created_at, published_at) "
+        f"VALUES ('{vid}', 1, 'v1', 'published', '{{}}'::jsonb, 1, 'h', now(), now())",
+    ))
+
+    def assignment_sql(effective: str, ends: str | None) -> str:
+        ends_val = f"'{ends}'" if ends else "NULL"
+        return (
+            "INSERT INTO commercial_pricing_assignments (id, account_id, "
+            "commercial_pricing_version_id, effective_at, ends_at, source, created_at) "
+            f"VALUES (gen_random_uuid(), '{account_id}', '{vid}', "
+            f"'{effective}', {ends_val}, 'manual_test', now())"
+        )
+
+    # A gapless closed-then-open chain is accepted.
+    asyncio.run(_exec(
+        scratch_db,
+        assignment_sql("2026-01-01T00:00:00Z", "2026-02-01T00:00:00Z"),
+        assignment_sql("2026-02-01T00:00:00Z", None),
+    ))
+    # An interval overlapping the open tail is rejected by the constraint.
+    with pytest.raises(Exception, match="excl_cpa_no_overlap"):
+        asyncio.run(_exec(scratch_db, assignment_sql("2026-03-01T00:00:00Z", None)))
+    with pytest.raises(Exception, match="excl_cpa_no_overlap"):
+        asyncio.run(_exec(
+            scratch_db, assignment_sql("2026-01-15T00:00:00Z", "2026-01-20T00:00:00Z")
         ))
 
 

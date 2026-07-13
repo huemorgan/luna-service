@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
-from cloud.auth.deps import require_admin
+from cloud.auth.deps import enforce_same_origin, require_admin
 from cloud.db import session as db_session
 from cloud.db.models import Agent, AuditLog, GatewayKey, GatewayModel, GatewayService, UsageEvent, User
 from cloud.gateway.crypto import encrypt_key
@@ -24,7 +24,8 @@ from cloud.provisioning.model_catalog import invalidate_catalog_cache
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/admin/gateway", tags=["gateway-admin"])
+router = APIRouter(prefix="/api/admin/gateway", tags=["gateway-admin"],
+                   dependencies=[Depends(enforce_same_origin)])
 
 
 def _audit(db, *, actor: User, action: str, target: str, metadata: dict | None = None):

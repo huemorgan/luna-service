@@ -126,3 +126,25 @@ fine-tuning, future provider APIs). This phase owns the route/SKU framework:
 - Reconciliation tooling works against provider sandbox/short-window data. Reconciling a
   complete provider billing period is a rollout gate (010), not a code-phase exit
   criterion.
+
+## Amendments from phase 002 (2026-07-14)
+
+- Version resolution: `cloud/billing/assignments.py` maintains a gapless,
+  append-only interval chain per account (`commercial_pricing_assignments`,
+  backstopped by the `excl_cpa_no_overlap` exclusion constraint in 0003). Rating
+  must resolve the commercial version from the interval covering the logical
+  call's start time; the cached pointer on the billing account is an
+  optimization for the happy path only. The deferred 002 test "calls in flight
+  keep both snapshotted versions" lands here.
+- Tier coverage is publish-time only. `GatewayModel` edits never mutate a
+  published config (tested) — a model enabled after publish is uncovered under
+  the active version until the next publish. The gateway must fail closed
+  `sku_unpriced` at request time for models in neither tier list; add that as
+  an explicit test.
+- Provider costs are global and effective-dated (`provider_cost_versions`,
+  no cohort parameter by construction). Rating snapshots the cost version
+  effective at call time; rates are exact rationals (numerator/denominator).
+- CSRF: 002 added `enforce_same_origin` (Origin, else Referer, checked against
+  `base_url`; absent headers pass) to the admin pricing router. Do not attach
+  it to tenant/gateway routes — machine-to-machine calls carry no Origin, and
+  their auth is the tenant token, never origin headers.

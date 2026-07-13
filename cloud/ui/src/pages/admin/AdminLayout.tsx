@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Moon, Shield, Package, Server, ScrollText, ArrowLeft, LogOut, Loader2, User, ChevronDown, ChevronRight, KeyRound, SlidersHorizontal, MessageCircle, Clock, Blocks } from 'lucide-react';
+import { Moon, Shield, Package, Server, ScrollText, ArrowLeft, LogOut, Loader2, User, ChevronDown, ChevronRight, KeyRound, SlidersHorizontal, MessageCircle, Clock, Blocks, Coins, LayoutDashboard, GitBranch, Cpu, Wallet } from 'lucide-react';
 
 interface UserInfo {
   user: { id: string; email: string; name: string | null; avatar_url: string | null; is_admin: boolean };
@@ -20,14 +20,22 @@ const SERVICE_ITEMS = [
   { to: '/admin/scheduler', label: 'Scheduler', icon: Clock },
 ];
 
+const PRICING_ITEMS = [
+  { to: '/admin/pricing', label: 'Overview', icon: LayoutDashboard, end: true },
+  { to: '/admin/pricing/versions', label: 'Versions', icon: GitBranch },
+  { to: '/admin/pricing/models', label: 'LLM & services', icon: Cpu },
+  { to: '/admin/pricing/buckets', label: 'Credit buckets', icon: Wallet },
+];
+
 const NAV_BOTTOM = [
   { to: '/admin/changelog', label: 'Changelog', icon: ScrollText },
 ];
 
-function NavItem({ item }: { item: { to: string; label: string; icon: typeof Shield } }) {
+function NavItem({ item }: { item: { to: string; label: string; icon: typeof Shield; end?: boolean } }) {
   return (
     <NavLink
       to={item.to}
+      end={item.end}
       className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
       style={({ isActive }) => ({
         background: isActive ? 'var(--ink-light)' : 'transparent',
@@ -44,6 +52,7 @@ export default function AdminLayout() {
   const [data, setData] = useState<UserInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [servicesOpen, setServicesOpen] = useState(true);
+  const [pricingOpen, setPricingOpen] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -117,6 +126,23 @@ export default function AdminLayout() {
           {servicesOpen && (
             <div className="flex flex-col gap-1 pl-4">
               {SERVICE_ITEMS.map(item => <NavItem key={item.to} item={item} />)}
+            </div>
+          )}
+
+          <button
+            onClick={() => setPricingOpen(o => !o)}
+            className="flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors hover:opacity-80"
+            style={{ color: 'var(--text-dim)' }}
+          >
+            <span className="flex items-center gap-2.5">
+              <Coins size={16} />
+              Pricing
+            </span>
+            {pricingOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </button>
+          {pricingOpen && (
+            <div className="flex flex-col gap-1 pl-4">
+              {PRICING_ITEMS.map(item => <NavItem key={item.to} item={item} />)}
             </div>
           )}
 

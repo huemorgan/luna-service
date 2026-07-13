@@ -81,3 +81,16 @@ touching production records, and operate the system: reconciliation, invariants,
 - Admin uses real 28-day usage, models an optimized Luna at half vendor cost, adjusts
   constants in a draft, compares margins, saves evidence — and publishing remains a
   separate explicit act.
+
+## Amendments from phase 002 (2026-07-14)
+
+- Ops surfaces have a home: `GET /api/admin/pricing/overview` already reports
+  customer liability, uncovered debt, assigned accounts, dead billing jobs,
+  and reconciliation holds, and the admin Pricing → Overview page shows a red
+  attention banner when dead jobs or holds are non-zero. 009 extends these
+  (drill-downs, alerts) rather than adding a new dashboard.
+- Candidate versions for the simulator are 002 drafts: immutable-once-published
+  configs identified by `config_hash`, cloneable/editable/diffable via the
+  admin API. Provider-cost bases map to 002's global effective-dated
+  `provider_cost_versions` (rational rates, `quality` estimated/reconciled,
+  publish requires a reason and is audited).

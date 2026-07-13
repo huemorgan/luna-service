@@ -106,6 +106,32 @@ async def require_admin(request: Request) -> User:
     return user
 
 
+def _origin_of(url: str) -> str:
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc}".lower()
+
+
+async def enforce_same_origin(request: Request) -> None:
+    """CSRF guard for cookie-authenticated mutation routes (039/002).
+
+    Browsers always attach Origin (or at least Referer) to cross-site
+    state-changing requests, so a present-but-foreign value is rejected.
+    Requests with neither header (curl, tests, server-to-server) pass — they
+    cannot be riding a victim's ambient cookie from a web page.
+    """
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return
+    claimed = request.headers.get("origin") or request.headers.get("referer")
+    if not claimed:
+        return
+    from cloud.config import get_settings
+
+    if _origin_of(claimed) != _origin_of(get_settings().base_url):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Cross-origin request rejected")
+
+
 async def require_active_account(request: Request) -> tuple[User, Account]:
     sess = get_session(request)
     if not sess or "user_id" not in sess or "account_id" not in sess:

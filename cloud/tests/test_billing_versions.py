@@ -56,12 +56,14 @@ def test_subscription_paid_credits_must_equal_payment():
     config["products"][0]["paid_credits"] = 2_000  # hobby_19 pays 1900 cents
     with pytest.raises(ConfigValidationError, match="payment"):
         validate_commercial_config(config)
-    # Topups are exempt from the invariant check shape (still validated ints).
+    # Topups are exempt from the paid==payment invariant but can never carry
+    # a bonus (039/002).
     config = _valid()
     for p in config["products"]:
         if p["kind"] == "topup":
             p["bonus_credits"] = 100
-    validate_commercial_config(config)
+    with pytest.raises(ConfigValidationError, match="bonus"):
+        validate_commercial_config(config)
 
 
 def test_duplicate_keys_rejected():
@@ -112,8 +114,8 @@ async def test_draft_publish_lifecycle(db_session):
 async def test_publish_detects_tampered_draft(db_session):
     version = await create_draft_version(db_session, name="v1", config=_valid())
     tampered = _valid()
-    tampered["hosting"]["price_credits"] = 1
-    version.config_json = tampered  # hash no longer matches
+    tampered["trial"]["gift_credits"] = 9_999  # still valid — only the hash breaks
+    version.config_json = tampered
     with pytest.raises(ConfigValidationError, match="hash mismatch"):
         await publish_version(db_session, version.id)
 

@@ -95,3 +95,17 @@ typed blocked result to headless callers.
 - E2E against luna-service: chat rates `agent` at the verified model tier; `llm_step`
   declaring `direct` rates `direct`; missing context rates `agent`; forge job token
   rates `forge` regardless of headers; blocks render without provider retries.
+
+## Amendments from phase 002 (2026-07-14)
+
+- Version snapshotting is interval-based: 002 shipped a gapless, append-only
+  assignment chain per account (PG exclusion constraint `excl_cpa_no_overlap`
+  guarantees no overlap). A rollout mid-conversation changes pricing only for
+  logical calls that start after the effective time — no Luna-side work, but
+  the E2E canary in the exit criteria should include a version-rollout flip to
+  confirm in-flight calls keep their snapshot.
+- Tier coverage is enforced at publish time only; a gateway model enabled
+  after a version is published is unpriced under that active version and the
+  gateway fails closed with `sku_unpriced`. Treat `sku_unpriced` as an
+  expected runtime state during model rollouts in 3.3's block handling, not an
+  operator-only anomaly.

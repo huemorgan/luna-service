@@ -36,6 +36,17 @@ def commercial_v1_config() -> dict:
             "forge": {"top": 50_000, "mid": 50_000},
         },
         "top_tier_models": ["claude-opus-4-6"],
+        # Explicit coverage: a model in neither list is not billable (fails
+        # closed at rating). Publish rejects uncovered enabled gateway models.
+        "mid_tier_models": [
+            "claude-sonnet-4-5-20250929",
+            "claude-haiku-4-5-20251001",
+            "claude-sonnet-4-20250514",  # deprecated but still enabled in the catalog
+            "gpt-4o",
+            "gpt-4o-mini",
+            "text-embedding-3-small",
+            "text-embedding-3-large",
+        ],
         "skus": [
             {"key": "llm_call", "service": "llm", "formula": "vendor_plus_context_constant",
              "constants": {}, "enabled": True},

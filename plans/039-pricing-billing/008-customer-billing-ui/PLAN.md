@@ -96,3 +96,19 @@ once the offer/purchase/entitlement schema exists (see 005/010).
 - Every dojo scenario passes in the browser; the customer path from every
   customer-actionable block to recovery needs no admin intervention, and
   operator-actionable states are honestly labeled.
+
+## Amendments from phase 002 (2026-07-14)
+
+- Dojo harness exists and is reusable: `tests/039-pricing/dojo_admin_ui.py` —
+  dedicated Postgres DB (docker PG :5435) + `python -m cloud.db.migrate` +
+  uvicorn with background loops disabled, a minted `luna_session` cookie
+  (itsdangerous, dev secret), Playwright headless chromium, screenshots +
+  PASS/FAIL report under `tests/039-pricing/results/<date>-local/`. Write the
+  008 customer scenarios as a sibling script; only block-rendering scenarios
+  need the compatible Luna image.
+- UI conventions confirmed in 002: `verbatimModuleSyntax` is on — interface
+  imports must be `import type`; any file containing JSX must be `.tsx`;
+  coerce FastAPI 422 detail arrays with the shared `apiError()` pattern.
+- Customer billing mutation routes must take `Depends(enforce_same_origin)`
+  like the admin pricing router — the dependency exists in `cloud/auth/deps.py`
+  and absent-header (non-browser) clients still pass.

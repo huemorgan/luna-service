@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cloud.auth.deps import require_admin
+from cloud.auth.deps import enforce_same_origin, require_admin
 from cloud.config import get_settings
 from cloud.db.models import Agent, AppSetting, AuditLog, LunaImage, User
 from cloud.db.session import get_session as get_db_session
@@ -33,7 +33,9 @@ from cloud.provisioning.image_defaults import (
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/admin", tags=["admin"])
+# CSRF: mutations on cookie-authenticated admin routes verify Origin/Referer.
+router = APIRouter(prefix="/api/admin", tags=["admin"],
+                   dependencies=[Depends(enforce_same_origin)])
 
 
 # ── Audit helpers ─────────────────────────────────────────────────────────────

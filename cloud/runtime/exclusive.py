@@ -21,6 +21,7 @@ RETRY_INTERVAL = 60
 # Stable lock ids (arbitrary but unique per loop).
 LOCK_RELAY_FORWARDER = 0x1004A_01
 LOCK_RECONCILER = 0x1004A_02
+LOCK_BILLING_WORKER = 0x1004A_03
 
 
 async def run_exclusive(lock_key: int, name: str, loop_fn: Callable[[], Awaitable[None]]) -> None:

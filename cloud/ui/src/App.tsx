@@ -14,6 +14,11 @@ import ModelsPage from './pages/admin/ModelsPage';
 import ServicesPage from './pages/admin/ServicesPage';
 import WhatsAppPage from './pages/admin/WhatsAppPage';
 import SchedulerPage from './pages/admin/SchedulerPage';
+import PricingOverviewPage from './pages/admin/pricing/PricingOverviewPage';
+import PricingVersionsPage from './pages/admin/pricing/PricingVersionsPage';
+import PricingVersionDetailPage from './pages/admin/pricing/PricingVersionDetailPage';
+import PricingModelsPage from './pages/admin/pricing/PricingModelsPage';
+import PricingBucketsPage from './pages/admin/pricing/PricingBucketsPage';
 
 // Marketing site (plan 021) — public, unauthenticated routes.
 import MarketingLayout from './marketing/MarketingLayout';
@@ -54,6 +59,11 @@ export default function App() {
           <Route path="services" element={<ServicesPage />} />
           <Route path="whatsapp" element={<WhatsAppPage />} />
           <Route path="scheduler" element={<SchedulerPage />} />
+          <Route path="pricing" element={<PricingOverviewPage />} />
+          <Route path="pricing/versions" element={<PricingVersionsPage />} />
+          <Route path="pricing/versions/:versionId" element={<PricingVersionDetailPage />} />
+          <Route path="pricing/models" element={<PricingModelsPage />} />
+          <Route path="pricing/buckets" element={<PricingBucketsPage />} />
           <Route path="relay" element={<Navigate to="/admin/machines" replace />} />
           <Route path="changelog" element={<ChangelogPage />} />
         </Route>

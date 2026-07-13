@@ -129,3 +129,26 @@ usable without any entitlement check — that check lands with the entitlement s
   services. Disabled surfaces (jobs, paid storage, marketplace) are reported as
   disabled — never claimed as statement coverage.
 - Every launch cost surface is explicitly metered, included, or disabled.
+
+## Amendments from phase 002 (2026-07-14)
+
+- The signup hook already exists: `_upsert_user_and_account` creates the
+  billing account and the commercial assignment (`source=new_account_default`)
+  in the same transaction, and tolerates unseeded billing (account created,
+  zero assignments, warning logged). 005 adds the trial gift into this path;
+  it must handle the no-assignment edge the same way — amounts come from the
+  assigned version, so no assignment means no gift plus a reconcile signal,
+  never a crash of signup.
+- Trial parameters live in the assigned version's `config.trial`
+  (`gift_credits` 1,800, expiry days, per-Luna day/month caps,
+  `max_active_lunas` 1) and `config.migration_gift`. Read them from the
+  account's assignment — never from constants; the admin can change them by
+  publishing a new version.
+- Hosting invariant enforced by 002 validation: `config.hosting.price_credits`
+  must equal the `hosting_month` SKU's `price_credits` constant. Hosting
+  charge code should read the SKU constant so there is one source of truth.
+- Renewal/provisioning handlers: follow 002's rollout handler pattern —
+  `register_handler(...)` at module import, `dedupe_key` naming like
+  `pricing_rollout:{id}`, and restart idempotency proven by re-running the
+  handler against committed audit/state (`audit_ref`) rather than in-memory
+  progress.
