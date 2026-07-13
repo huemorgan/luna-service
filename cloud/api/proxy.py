@@ -101,6 +101,15 @@ async def _try_wake_agent(agent: Agent) -> bool:
     if not agent.runtime_ref or not os.environ.get("FLY_API_TOKEN"):
         return False
 
+    # 039/005: a payment_due Luna must not wake through traffic — recovery is
+    # the explicit start endpoint (which re-charges). Enforce mode only.
+    from cloud.billing import hosting as billing_hosting
+    if billing_hosting.hosting_billing_active():
+        async with get_db_session() as db:
+            if await billing_hosting.hosting_blocked(db, agent.id):
+                log.info("Wake %s blocked: hosting payment due", agent.slug)
+                return False
+
     slug = agent.slug
 
     # If another request is already waking this agent, wait for it

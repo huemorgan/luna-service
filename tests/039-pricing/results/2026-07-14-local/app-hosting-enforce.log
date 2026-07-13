@@ -1,0 +1,5 @@
+hosting renewal unpayable for agent 5f7cb5c1-241c-4465-9156-ec0dbc7846a4 (balance 0 < 999) — payment_due
+Provisioning failed for vaselin-dojo-luna: Client error '401 Unauthorized' for url 'https://api.machines.dev/v1/apps/luna-agents/machines'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401
+Provisioning failed for vaselin-dojo-luna: Client error '401 Unauthorized' for url 'https://api.machines.dev/v1/apps/luna-agents/machines'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401

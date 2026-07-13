@@ -99,6 +99,10 @@ class Agent(Base):
     # Plan 038: dashboard card accent color (#RRGGBB). NULL falls back to a
     # deterministic palette color derived from the agent id.
     color: Mapped[str | None] = mapped_column(Text)
+    # 039/005: soft-delete tombstone. Billing rows (ledger, holds, hosting
+    # periods) reference agents with ON DELETE RESTRICT — financial
+    # attribution is permanent, so agents are never hard-deleted once billed.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     account: Mapped[Account] = relationship(back_populates="agents")
 

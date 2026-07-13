@@ -43,6 +43,15 @@ CORE_TABLES = {
 
 BASELINE_REVISION = "0001"
 
+# Columns that post-0001 migrations add to core tables. The fingerprint
+# compares a pre-Alembic database against the 0001 BASELINE shape, and the
+# ORM models describe head — so anything added later must be excluded here,
+# or every legacy database gets refused for lacking it. Grows with each
+# migration that touches a CORE_TABLES table.
+POST_BASELINE_COLUMNS: dict[str, set[str]] = {
+    "agents": {"deleted_at"},  # 0004
+}
+
 
 def _alembic_config(database_url: str) -> Config:
     cfg = Config(str(CLOUD_DIR / "alembic.ini"))
@@ -53,7 +62,7 @@ def _alembic_config(database_url: str) -> Config:
 
 def _expected_core_columns() -> dict[str, set[str]]:
     return {
-        name: {c.name for c in table.columns}
+        name: {c.name for c in table.columns} - POST_BASELINE_COLUMNS.get(name, set())
         for name, table in Base.metadata.tables.items()
         if name in CORE_TABLES
     }

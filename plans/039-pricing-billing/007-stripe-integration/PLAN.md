@@ -160,3 +160,20 @@ refunds/disputes. Test mode first; live mode is flipped during rollout (010).
   dedupe key `gwfin:{operation_id}`. Stripe money-in handlers should keep the
   same shape (handler registered at import, dedupe key per external event id,
   restart-idempotent).
+
+## Amendments from phase 005 (2026-07-14)
+
+- Checkout/top-up handlers must post grants with `source_type='topup'`
+  (or subscription_*) — that single value flips trial→paid; do not add a
+  separate account flag.
+- Dunning integrates with hosting via the existing `payment_due` period
+  state: mark periods, enqueue the durable `hostsusp` suspend job (dedupe
+  `hostsusp:{period_id}`) — gateway blocks, wake guard, and 402s are
+  already enforced. Recovery is the start endpoint charging a fresh month
+  (`hosting_recover:{period.id}`); the renewal sweep never auto-charges
+  `payment_due` rows, so a successful Stripe payment should either credit
+  the wallet and let the user restart, or call the recovery path directly.
+- The provision-settle learning applies to money-in too: `ledger.settle`
+  accepts `needs_reconciliation` holds; handlers should treat "hold
+  missing/terminal" as activate-and-log-for-ops, never as a retryable
+  error (retries can't fix it).

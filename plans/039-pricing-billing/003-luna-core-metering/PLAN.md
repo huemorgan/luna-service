@@ -129,3 +129,17 @@ typed blocked result to headless callers.
 - The 004 dojo (`tests/039-pricing/dojo_gateway_billing.py`) boots a real
   gateway with a mock Anthropic upstream in any billing mode — reuse it as the
   test bench for 3.3's block rendering instead of building a new harness.
+
+## Amendments from phase 005 (2026-07-14)
+
+- The frozen 402 surface Luna core must render now includes
+  `active_luna_limit` (trial cap on create) and `hosting_payment_due`
+  (blocked restart/wake) alongside `credits_exhausted` — all carry
+  `{"code", "message"}` in `detail`.
+- Per-Luna limits are live: trial Lunas get 75/day, 800/month rows
+  (insert-only; admin overrides win). Luna core's interval snapshots meet
+  these at the gateway; no new client logic, but block copy should
+  distinguish "your Luna's daily limit" from "account out of credits".
+- A `payment_due` Luna cannot be woken by traffic (proxy wake guard) —
+  Luna-side UX for a suspended Luna should point at the start endpoint,
+  which charges the fresh month.

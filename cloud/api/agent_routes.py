@@ -174,7 +174,10 @@ async def list_agents(auth: tuple[User, Account] = Depends(require_active_accoun
     _, account = auth
     async with get_db_session() as db:
         agents = (await db.execute(
-            select(Agent).where(Agent.account_id == account.id).order_by(Agent.created_at)
+            select(Agent).where(
+                Agent.account_id == account.id,
+                Agent.deleted_at.is_(None),
+            ).order_by(Agent.created_at)
         )).scalars().all()
         latest = await _main_image_version(db)
 
@@ -191,7 +194,46 @@ async def create_agent(
     name = body.name.strip() or "My Luna"
     base_slug = _make_slug(name, account.slug)
 
+    from cloud.billing import grants as billing_grants
+    from cloud.billing import hosting as billing_hosting
+
+    billing_on = billing_hosting.billing_mode() != "off"
+    enforce = billing_hosting.hosting_billing_active()
+
     async with get_db_session() as db:
+        # 039/005: creation is transactional and durable. The billing-account
+        # row lock serializes concurrent creates, so the trial active-Luna cap
+        # and the hosting authorization can't be raced past.
+        config: dict | None = None
+        if billing_on:
+            try:
+                from cloud.billing.ledger import lock_billing_account
+                await lock_billing_account(db, account.id)
+                config = await billing_grants.account_config(db, account.id)
+            except Exception as exc:  # noqa: BLE001 — unseeded billing: create without it
+                log.warning("Billing unavailable for create_agent on %s: %s", account.id, exc)
+                config = None
+
+        if config is not None and await billing_grants.is_trial_account(db, account.id):
+            cap = billing_grants.active_luna_cap(config)
+            if cap is not None:
+                active = (await db.execute(
+                    select(Agent).where(
+                        Agent.account_id == account.id,
+                        Agent.deleted_at.is_(None),
+                    )
+                )).scalars().all()
+                if len(active) >= cap:
+                    if enforce:
+                        raise HTTPException(
+                            status.HTTP_402_PAYMENT_REQUIRED,
+                            {"code": "active_luna_limit",
+                             "message": f"Your trial includes {cap} active Luna."
+                                        " Delete one or upgrade to add more."},
+                        )
+                    log.info("would_block active_luna_limit for account %s "
+                             "(billing mode %s)", account.id, billing_hosting.billing_mode())
+
         slug = base_slug
         suffix = 1
         while (await db.execute(select(Agent).where(Agent.slug == slug))).scalar_one_or_none():
@@ -207,13 +249,32 @@ async def create_agent(
             color=random_agent_color(),
         )
         db.add(agent)
+        await db.flush()
+
+        if config is not None:
+            if await billing_grants.is_trial_account(db, account.id):
+                await billing_grants.apply_trial_agent_limits(db, agent.id, config)
+            try:
+                await billing_hosting.start_hosting(
+                    db, agent_id=agent.id, account_id=account.id
+                )
+            except billing_hosting.HostingError as exc:
+                # Enforce mode: hosting must be paid before anything is
+                # provisioned. Rollback discards the agent row.
+                raise HTTPException(
+                    status.HTTP_402_PAYMENT_REQUIRED,
+                    {"code": exc.code, "message": str(exc)},
+                )
+
         await db.commit()
         await db.refresh(agent)
         agent_id = str(agent.id)
         result = _agent_dict(agent)
 
-    from cloud.provisioning.workflow import provision_luna_for_account
-    asyncio.create_task(provision_luna_for_account(str(account.id), agent_id=agent_id))
+    if config is None:
+        # Billing off/unseeded: legacy fire-and-forget provisioning.
+        from cloud.provisioning.workflow import provision_luna_for_account
+        asyncio.create_task(provision_luna_for_account(str(account.id), agent_id=agent_id))
 
     return result
 
@@ -229,6 +290,7 @@ async def get_agent(
             select(Agent).where(
                 Agent.id == uuid.UUID(agent_id),
                 Agent.account_id == account.id,
+                Agent.deleted_at.is_(None),
             )
         )).scalar_one_or_none()
         latest = await _main_image_version(db) if agent else None
@@ -263,6 +325,7 @@ async def update_agent(
             select(Agent).where(
                 Agent.id == uuid.UUID(agent_id),
                 Agent.account_id == account.id,
+                Agent.deleted_at.is_(None),
             )
         )).scalar_one_or_none()
         if not agent:
@@ -287,6 +350,7 @@ async def start_agent(
             select(Agent).where(
                 Agent.id == uuid.UUID(agent_id),
                 Agent.account_id == account.id,
+                Agent.deleted_at.is_(None),
             )
         )).scalar_one_or_none()
         if not agent:
@@ -296,6 +360,18 @@ async def start_agent(
             return _agent_dict(agent, latest)
         if not agent.runtime_ref:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Agent has no runtime to start")
+
+        # 039/005: the hosting-state guard. A payment_due Luna restarts only
+        # once the balance covers a fresh month (charged right here).
+        from cloud.billing import hosting as billing_hosting
+        if await billing_hosting.hosting_blocked(db, agent.id):
+            if not await billing_hosting.try_recover_payment_due(db, agent):
+                raise HTTPException(
+                    status.HTTP_402_PAYMENT_REQUIRED,
+                    {"code": "hosting_payment_due",
+                     "message": "Hosting payment is due for this Luna. "
+                                "Add credits to restart it."},
+                )
 
         from cloud.provisioning.workflow import _get_runtime
         from cloud.runtime.base import RuntimeHandle
@@ -325,6 +401,7 @@ async def stop_agent(
             select(Agent).where(
                 Agent.id == uuid.UUID(agent_id),
                 Agent.account_id == account.id,
+                Agent.deleted_at.is_(None),
             )
         )).scalar_one_or_none()
         if not agent:
@@ -362,6 +439,7 @@ async def retry_agent(
             select(Agent).where(
                 Agent.id == uuid.UUID(agent_id),
                 Agent.account_id == account.id,
+                Agent.deleted_at.is_(None),
             )
         )).scalar_one_or_none()
         if not agent:
@@ -370,12 +448,17 @@ async def retry_agent(
         agent.status = "provisioning"
         agent.error_message = None
         agent.error_at = None
+        # 039/005: when a durable hosting period exists, retry means requeue
+        # its provisioning job; the outbox worker picks it up within one poll.
+        from cloud.billing import hosting as billing_hosting
+        durable = await billing_hosting.retry_provisioning(db, agent.id)
         await db.commit()
         await db.refresh(agent)
         result = _agent_dict(agent, await _main_image_version(db))
 
-    from cloud.provisioning.workflow import provision_luna_for_account
-    asyncio.create_task(provision_luna_for_account(str(account.id), agent_id=agent_id))
+    if not durable:
+        from cloud.provisioning.workflow import provision_luna_for_account
+        asyncio.create_task(provision_luna_for_account(str(account.id), agent_id=agent_id))
     return result
 
 
@@ -397,6 +480,7 @@ async def upgrade_check(
             select(Agent).where(
                 Agent.id == uuid.UUID(agent_id),
                 Agent.account_id == account.id,
+                Agent.deleted_at.is_(None),
             )
         )).scalar_one_or_none()
         if not agent:
@@ -477,6 +561,7 @@ async def upgrade_agent(
             select(Agent).where(
                 Agent.id == uuid.UUID(agent_id),
                 Agent.account_id == account.id,
+                Agent.deleted_at.is_(None),
             )
         )).scalar_one_or_none()
         if not agent:
@@ -560,27 +645,28 @@ async def destroy_agent(
             select(Agent).where(
                 Agent.id == uuid.UUID(agent_id),
                 Agent.account_id == account.id,
+                Agent.deleted_at.is_(None),
             )
         )).scalar_one_or_none()
         if not agent:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
 
-        if agent.runtime_ref:
-            from cloud.provisioning.workflow import _get_runtime
-            from cloud.runtime.base import RuntimeHandle
-            runtime = _get_runtime()
-            handle = RuntimeHandle(
-                agent.runtime_kind or "fly-machine",
-                agent.runtime_ref,
-                agent.internal_url or "",
-                extra={"volume_id": agent.volume_id, "agent_slug": agent.slug},
-            )
-            try:
-                await runtime.destroy(handle)
-            except Exception as e:
-                log.warning("Failed to destroy runtime for agent %s: %s", agent_id, e)
+        # 039/005: agents are tombstones, never hard-deleted — billing rows
+        # (ledger, holds, hosting periods) keep their attribution forever.
+        # Runtime/volume cleanup is durable outbox work; the hosting charge
+        # for the current period stands (no partial-month refund).
+        from cloud.billing import hosting as billing_hosting
+        from cloud.billing.worker import enqueue as billing_enqueue
 
-        await db.delete(agent)
+        agent.deleted_at = datetime.now(timezone.utc)
+        agent.status = "stopped"
+        await billing_hosting.end_hosting_for_agent(db, agent.id)
+        await billing_enqueue(
+            db,
+            job_type=billing_hosting.TEARDOWN_JOB,
+            payload={"agent_id": str(agent.id)},
+            dedupe_key=f"teardown:{agent.id}",
+        )
         await db.commit()
 
     return {"ok": True}
@@ -685,6 +771,7 @@ async def get_agent_details(
             select(Agent).where(
                 Agent.id == uuid.UUID(agent_id),
                 Agent.account_id == account.id,
+                Agent.deleted_at.is_(None),
             )
         )).scalar_one_or_none()
         if not agent:

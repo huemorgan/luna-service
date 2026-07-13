@@ -129,3 +129,19 @@ once the offer/purchase/entitlement schema exists (see 005/010).
 - For dojo scenarios that need real gateway traffic (usage rows, blocks),
   reuse `dojo_gateway_billing.py`'s mock-upstream + per-mode app boot instead
   of a live provider; drive the browser against the same scratch PG.
+
+## Amendments from phase 005 (2026-07-14)
+
+- Hosting is now customer-visible data: show the current period
+  (starts/ends, 999 credits) per Luna, `payment_due` as a prominent
+  "restart to pay" CTA (the start endpoint is the payment action), and
+  upcoming renewal date (monthly anchor, clamped).
+- Grants list: trial gift (1800, 28-day expiry) and admin gifts carry
+  `expires_at` — show expiring credits distinctly; expired grants are
+  swept by maintenance, not silently rewritten.
+- Soft-deleted Lunas: excluded from agent lists but their hosting charges
+  and usage remain in billing history — the UI must resolve agent names
+  for tombstoned agents (query without the `deleted_at IS NULL` filter
+  for display purposes only).
+- Trial state for the UI = absence of paid-source grants; surface "trial"
+  badge + 1-Luna cap message from the same rule the backend uses.

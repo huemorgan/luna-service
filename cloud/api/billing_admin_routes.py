@@ -487,6 +487,57 @@ async def create_rollout(body: RolloutRequest, request: Request,
         return _rollout_out(rollout)
 
 
+# ── Gifts (039/005) ──────────────────────────────────────────────────────────
+
+class GiftRequest(BaseModel):
+    account_id: uuid.UUID
+    credits: int = Field(gt=0)
+    expires_days: int | None = Field(default=None, gt=0)
+    idempotency_key: str | None = None
+    reason: str = Field(default="")
+
+
+@router.post("/gifts")
+async def create_gift(body: GiftRequest, request: Request,
+                      admin: User = Depends(require_admin)):
+    reason = _require_reason(body.reason)
+    async with get_db_session() as db:
+        account = await db.get(Account, body.account_id)
+        if account is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
+        from cloud.billing.grants import account_config, grant_admin_gift
+        from cloud.billing.rating import RatingUnavailable
+
+        expires_days = body.expires_days
+        if expires_days is None:
+            try:
+                config = await account_config(db, body.account_id)
+                expires_days = int(config.get("gift_default_days") or 0) or None
+            except RatingUnavailable:
+                expires_days = None
+        source_key = body.idempotency_key or f"admin_gift:{uuid.uuid4()}"
+        grant = await grant_admin_gift(
+            db, body.account_id,
+            credits=body.credits,
+            expires_days=expires_days,
+            source_key=source_key,
+            actor=f"admin:{admin.id}",
+            reason=reason,
+        )
+        _audit(db, request, admin, action="pricing.gift.create",
+               target=f"account:{body.account_id}", reason=reason,
+               after={"grant_id": str(grant.id), "credits": body.credits,
+                      "expires_days": expires_days, "source_key": source_key})
+        await db.commit()
+        return {
+            "grant_id": str(grant.id),
+            "account_id": str(body.account_id),
+            "credits": grant.original_credits,
+            "expires_at": grant.expires_at.isoformat() if grant.expires_at else None,
+            "source_key": grant.source_key,
+        }
+
+
 # ── Coverage helper for the UI warning banner ────────────────────────────────
 
 @router.get("/models-coverage/{version_id}")

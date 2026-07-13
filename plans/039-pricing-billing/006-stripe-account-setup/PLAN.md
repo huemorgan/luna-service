@@ -109,3 +109,14 @@ and metadata only, never credit amounts as a source of truth.
   Stripe account setup. Noted for the record: dunning's enforcement lever
   (`hosting_payment_due` at the gateway) already exists, so this phase's
   webhook/key scope needs no additions for it.
+
+## Amendments from phase 005 (2026-07-14)
+
+- Trial→paid is source-type driven and automatic: the first grant with
+  `source_type` in {subscription_paid, subscription_bonus, topup} lifts
+  trial status, the 1-active-Luna cap, and default trial limits. Stripe
+  setup therefore needs no account-state field or migration — only correct
+  `source_type` values on the products/grants this phase defines.
+- Gifts already exist as an admin lever (`/api/admin/pricing/gifts`,
+  reason-gated + audited, default expiry `gift_default_days`) — support
+  credits during Stripe onboarding hiccups need no new mechanism.

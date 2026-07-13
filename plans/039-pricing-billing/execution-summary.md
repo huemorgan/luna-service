@@ -398,3 +398,134 @@ All remaining phase plans amended with dated sections
   (off → observe → shadow → enforce), each stage verified with the 004 dojo
   run against staging; the mode matrix is already tested so the runbook is
   configuration, not code.
+
+## Phase 005 — Grants, hosting lifecycle, and limits (2026-07-14)
+
+Branch `pricing`. Full regression: 429 passed, 1 skipped (was 399+1 after
+004). Dojo: 11/11 scenarios (`tests/039-pricing/dojo_hosting_lifecycle.py`,
+SCENARIOS.md §039/005).
+
+### What was done
+
+- **Grants** (`cloud/billing/grants.py`): `grant_trial_gift` — 1800 credits,
+  28-day expiry, idempotent via `source_key trial:{account_id}`, wired into
+  the signup transaction (`_upsert_user_and_account`); `grant_admin_gift`;
+  trial detection = no grant with a paid source type
+  (`subscription_paid` / `subscription_bonus` / `topup`); trial→paid flip is
+  therefore automatic on first top-up. All amounts from the published
+  pricing config (`config.trial`), never constants.
+- **Per-Luna limits**: `apply_trial_agent_limits` writes 75/day, 800/month
+  rows insert-only (never overwrites an admin's manual override).
+- **Hosting lifecycle** (`cloud/billing/hosting.py`): monthly 999-credit
+  periods (`hosting_month` SKU). Create (enforce) = explicit
+  `posted_balance` check → 999 hold (`count_toward_limits=False`, 30-min
+  TTL) → durable `hostprov` outbox job → hold settled and period activated
+  on confirmed provisioning. Renewal sweep in the maintenance loop:
+  monthly-anchor clamp (`add_month_clamped`, anchor = day of first period),
+  seamless `starts_at = old.ends_at`, idempotent charge key
+  `hosting_renew:{old.id}`. Unpayable renewal → `payment_due` + durable
+  `hostsusp` suspend job; recovery ONLY via the start endpoint
+  (`try_recover_payment_due`: fresh month charged, key
+  `hosting_recover:{period.id}`). Observe/shadow write lifecycle rows with
+  zero money movement; `off` keeps the legacy asyncio provisioning path.
+- **Route guards** (`cloud/api/agent_routes.py`): create = trial cap (402
+  `active_luna_limit`) + balance check (402 `credits_exhausted`, no rows on
+  refusal); start = `hosting_blocked` → recovery-or-402
+  `hosting_payment_due`; retry = durable job requeue (attempts reset);
+  destroy rewritten as soft delete — `deleted_at` tombstone, period ended,
+  durable `agent_teardown` job, billing rows and attribution kept forever;
+  all ownership queries filter `deleted_at IS NULL`. Proxy wake
+  (`_try_wake_agent`) refuses `payment_due` Lunas in enforce — traffic can't
+  bypass the explicit paid restart.
+- **Admin gifts** (`cloud/api/billing_admin_routes.py`): POST
+  `/api/admin/pricing/gifts` — reason-gated (400 without), default expiry
+  from `gift_default_days`, idempotency-key dedupe, audit row
+  `pricing.gift.create`.
+- **Migration 0004**: `agents.deleted_at`; billing FKs stay RESTRICT.
+  `migrate.py` gained `POST_BASELINE_COLUMNS` (see learnings).
+- **Tests**: `cloud/tests/test_billing_hosting.py` — 30 tests (clamp math
+  incl. leap/year-wrap, trial gift/flip/limits, hold+job idempotency,
+  settle/reap/missing-hold matrix, renewal clamp + payment_due + recovery,
+  soft delete, teardown handler, wake guard, admin gifts). Migration tests
+  updated: dynamic head revision, 0004 column assert.
+- **Dojo** — `tests/039-pricing/dojo_hosting_lifecycle.py`: scratch PG
+  `dojo039host`, real app in enforce then observe, live maintenance loop
+  renewing seeded past-due periods, real 401s from Fly (invalid token) for
+  the failure paths, REAL signup transaction for the trial gift. 11/11.
+  Evidence: `tests/039-pricing/results/2026-07-14-local/REPORT-hosting.txt`.
+
+### What was learned
+
+1. **`ledger.settle` deliberately accepts `needs_reconciliation` holds** —
+   a reaped (expired) provision hold still settles normally with a posted
+   charge once provisioning confirms. The provision handler's
+   try/except around settle exists for the OTHER cases: hold never existed
+   (mode flipped observe→enforce between creation and handler run) or
+   terminal (released/expired). In those cases the period still activates —
+   the customer has the machine — with `charge_transaction_id = NULL`,
+   logged for ops. Retrying the job would never make the settle succeed.
+2. **The pre-Alembic fingerprint must compare against the 0001 BASELINE
+   shape, not head ORM models.** 0004 adding `agents.deleted_at` made
+   `migrate.py` refuse every legacy database ("missing columns:
+   deleted_at"). Fix: `POST_BASELINE_COLUMNS` exclusion map in migrate.py —
+   it must grow with every future migration that touches a CORE_TABLES
+   table. The migration test suite now asserts against the dynamic head
+   revision (`ScriptDirectory.get_current_head()`) instead of a hardcoded
+   string — the hardcode broke at 0003→0004 and would have broken every
+   phase after.
+3. **SQLite identity-map staleness**: with `expire_on_commit=False`, after
+   a route commits in its own session, `db_session.get()` in the test
+   returns cached objects — `await db_session.refresh(obj)` before
+   asserting on route-mutated rows.
+4. **`start_agent` constructs the runtime outside its try/except** — a
+   missing `FLY_API_TOKEN` 500s the request and rolls back the recovery
+   charge committed later in the same session. The dojo therefore uses a
+   present-but-bogus token (Fly answers 401 inside the try/except). Worth a
+   hardening pass someday: move `_get_runtime()` inside the guarded block
+   so an env misconfiguration can't turn a billing-committed restart into
+   a rollback.
+5. **Time-travel seeding beats clock mocking for live-loop dojos**: seed
+   past-due periods BEFORE boot and let the maintenance loop's immediate
+   first tick act on them. But pick dates so exactly ONE renewal lands in
+   the future — a period several months overdue chains one renewal per 60 s
+   sweep until the wallet empties, changing the state mid-run.
+6. **Recovery-vs-sweep separation confirmed in code**: `renew_due_periods`
+   only touches `state='active'` rows, so `payment_due` periods are never
+   auto-charged by the sweep even after the account is refunded — restart
+   is always an explicit, user-visible action. The charge keys differ
+   (`hosting_renew:{old.id}` vs `hosting_recover:{period.id}`) and the
+   posted-balance check prevents any double-charge overlap.
+7. **The signup allowlist blocks stub-identity dojos** — for end-to-end
+   signup coverage, call the real `_upsert_user_and_account` in-process
+   against the dojo database instead of faking an OAuth round-trip.
+
+### Reassessment of future phases
+
+All remaining phase plans amended with dated sections
+("Amendments from phase 005 (2026-07-14)"):
+
+- **003 (deferred)**: the 402 surface Luna core must handle now includes
+  `active_luna_limit` and `hosting_payment_due` alongside
+  `credits_exhausted`; per-Luna daily/monthly limits (75/800 trial) are
+  live rows Luna core's snapshotting already respects.
+- **006**: trial→paid flip is automatic on the first paid grant
+  (source-type driven) — Stripe setup needs no account-state migration,
+  only correct `source_type` on checkout-created grants.
+- **007**: top-ups must post grants with `source_type='topup'` (that alone
+  flips trial→paid and lifts the 1-Luna cap); dunning writes `payment_due`
+  via the existing hosting flag — the gateway, wake path, and start
+  endpoint already enforce it; recovery-on-start already charges a fresh
+  month, so Stripe dunning needs no restart logic of its own.
+- **008**: customer UI shows hosting periods (state, ends_at), the
+  payment_due recovery CTA (start = pay), and gift/trial expiries from
+  `credit_grants`; soft-deleted Lunas stay out of lists but their charges
+  remain in history (attribution is permanent).
+- **009**: ops page gets counters for periods stuck `pending`/`payment_due`,
+  dead `hostprov`/`hostsusp`/`teardown` jobs, and settle-without-charge
+  activations (charge_transaction_id NULL — learning #1); the simulator's
+  replay input gains hosting renewals (pure config: price × periods).
+- **010**: the migration gift (999 × N running Lunas + 801, 28 days) rides
+  the same grant machinery (`source_key migration:{account_id}` pattern,
+  insert-only limits); POST_BASELINE_COLUMNS must be checked in the
+  rollout runbook whenever prod is stamped; enforce-stage verification now
+  includes the hosting dojo alongside the gateway dojo.

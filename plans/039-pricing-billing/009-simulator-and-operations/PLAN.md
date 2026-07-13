@@ -111,3 +111,17 @@ touching production records, and operate the system: reconciliation, invariants,
 - Provider-rate gaps are visible data: rating records unrated dimensions in
   the rule snapshot instead of guessing — the ops page should list distinct
   `provider:model:dimension` gaps so the cost table can be completed.
+
+## Amendments from phase 005 (2026-07-14)
+
+- New ops counters: periods stuck `pending` (provisioning limbo) or
+  `payment_due` (dunning backlog); dead `hostprov` / `hostsusp` /
+  `teardown` outbox jobs; periods activated WITHOUT a charge
+  (`charge_transaction_id IS NULL` — the settle-failed/hold-missing path
+  logs and activates; ops must reconcile these by hand).
+- Simulator: hosting revenue is pure config replay (price_credits ×
+  periods per account) — include it so config candidates show total bill
+  impact, not just LLM usage deltas.
+- Reaper/renewal visibility: the maintenance loop expires grants and
+  renews periods on a 60 s cadence — ops page should show last-run
+  timestamps for maintenance ticks like it does for the outbox worker.

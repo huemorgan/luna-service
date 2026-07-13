@@ -1,0 +1,11 @@
+PASS  0 scratch DB migrated to head on PG (0004 agents.deleted_at present)
+PASS  1 real signup path: assignment + 1800 trial gift exactly once across two logins
+PASS  2 enforce create: pending period + open 999 hold + trial limits 75/800
+PASS  3 enforce create #2: 402 active_luna_limit (trial cap 1)
+PASS  4 provision failure: job retries durably, hold stays open; user retry requeues
+PASS  5 live renewal: Jun 30 → Jul 31 anchor clamp, 999 charged (1800 → 801)
+PASS  6 unpayable renewal: payment_due + durable suspend; start blocked with 402
+PASS  7 admin gift: reason required, audit row written, 1200 credits granted
+PASS  8 recovery: balance covers a fresh month → charged 999, payment_due cleared
+PASS  9 soft delete: tombstone + ended period + teardown succeeded; billing rows kept
+PASS  10 observe: cap only logged, period row written, zero holds

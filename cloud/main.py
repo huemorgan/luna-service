@@ -99,16 +99,20 @@ async def lifespan(app: FastAPI):
     billing_worker_task = None
     if os.environ.get("CLOUD_BILLING_WORKER", "1") == "1":
         import cloud.billing.assignments  # noqa: F401 — registers job handlers
+        import cloud.billing.hosting  # noqa: F401 — registers hosting job handlers
+        from cloud.billing.maintenance import maintenance_loop
         from cloud.billing.worker import worker_loop
         from cloud.db.session import get_session as billing_session_factory
         from cloud.gateway.enforcement import stale_hold_reaper_loop
 
         async def billing_loop() -> None:
-            # Outbox worker + gateway stale-hold reaper (039/004) share the
+            # Outbox worker + gateway stale-hold reaper (039/004) + grant
+            # expiry / scheduled lots / hosting renewals (039/005) share the
             # single-worker advisory lock.
             await asyncio.gather(
                 worker_loop(billing_session_factory, worker_id=f"web-{os.getpid()}"),
                 stale_hold_reaper_loop(billing_session_factory),
+                maintenance_loop(billing_session_factory),
             )
 
         billing_worker_task = asyncio.create_task(

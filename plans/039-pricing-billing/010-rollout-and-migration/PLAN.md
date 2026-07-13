@@ -160,3 +160,23 @@ separately approved retention/deletion policy exists.
   dependency on Luna image versions for billing correctness (headers are
   best-effort hints; missing headers default to `agent` context, which never
   undercharges).
+
+## Amendments from phase 005 (2026-07-14)
+
+- The migration gift rides the existing grant machinery: idempotent
+  `source_key` per account (`migration:{account_id}`), amounts from
+  config (`config.migration_gift`), limits applied insert-only — the M9
+  runbook step is a script calling `grants.py` helpers, not new code.
+- Pre-Alembic stamping on prod MUST use the updated `migrate.py`:
+  `POST_BASELINE_COLUMNS` excludes post-0001 columns (currently
+  `agents.deleted_at`) from the fingerprint. Any phase that adds columns
+  to core tables must extend that map or legacy-stamping breaks — add
+  this check to the rollout checklist.
+- Enforce-stage verification now runs BOTH dojos against staging:
+  `dojo_gateway_billing.py` (metering) and `dojo_hosting_lifecycle.py`
+  (lifecycle) — the latter needs a scratch DB and a bogus FLY_API_TOKEN
+  boot, so it runs against a staging *copy*, never the live app process.
+- Existing running Lunas at enforce-flip get hosting periods opened by the
+  migration script (anchor = flip day), NOT by the renewal sweep — the
+  sweep only renews existing active periods; it never creates first
+  periods for unbilled agents.

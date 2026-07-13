@@ -153,10 +153,17 @@ async def _upsert_user_and_account(info: UserInfo) -> tuple[User, Account]:
             from cloud.billing.assignments import AssignmentError, assign_new_account
             try:
                 await assign_new_account(db, account.id)
+                # 039/005: the one-time trial gift (amount/expiry from the
+                # assigned version's config.trial) lands in the same
+                # transaction — exactly once under concurrent callbacks.
+                from cloud.billing.grants import grant_trial_gift
+                await grant_trial_gift(db, account.id)
             except AssignmentError as exc:
                 # Signup must not fail on an unseeded environment; billing
                 # stays off for the account until versions exist.
                 log.warning("No pricing assignment for new account %s: %s", account.id, exc)
+            except Exception as exc:  # noqa: BLE001 — no gift beats a failed signup
+                log.warning("No trial gift for new account %s: %s", account.id, exc)
 
         await db.commit()
         await db.refresh(user)

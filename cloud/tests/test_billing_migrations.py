@@ -34,6 +34,14 @@ def _pg_available() -> bool:
 pytestmark = pytest.mark.skipif(not _pg_available(), reason="local Postgres (5435) not running")
 
 
+def _head_revision() -> str:
+    # Computed from the script directory so adding a migration doesn't break
+    # these tests (bit us at 0003 → 0004).
+    from alembic.script import ScriptDirectory
+
+    return ScriptDirectory.from_config(_alembic_config(f"{PG_BASE}/postgres")).get_current_head()
+
+
 async def _admin_exec(*statements: str) -> None:
     engine = create_async_engine(f"{PG_BASE}/postgres", isolation_level="AUTOCOMMIT")
     try:
@@ -93,7 +101,7 @@ def test_fresh_db_reaches_head(scratch_db):
     assert "billing_outbox" in tables
     assert "users" in tables
     version = asyncio.run(_exec(scratch_db, "SELECT version_num FROM alembic_version"))
-    assert version[0].scalar_one() == "0003"
+    assert version[0].scalar_one() == _head_revision()
     # Idempotent rerun.
     assert _run_migrate(scratch_db) == 0
 
@@ -110,9 +118,10 @@ def test_pre_alembic_db_is_stamped_and_upgraded(scratch_db):
     ))
     assert _run_migrate(scratch_db) == 0
     version = asyncio.run(_exec(scratch_db, "SELECT version_num FROM alembic_version"))
-    assert version[0].scalar_one() == "0003"
+    assert version[0].scalar_one() == _head_revision()
     tables = asyncio.run(_table_columns(scratch_db))
     assert "credit_grants" in tables
+    assert "deleted_at" in tables["agents"]  # 0004 soft-delete tombstone
 
 
 def test_fresh_and_stamped_paths_produce_identical_billing_schema(scratch_db, monkeypatch):
