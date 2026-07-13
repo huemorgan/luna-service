@@ -12,9 +12,23 @@ Real money in: Stripe Checkout for buckets and top-ups, verified durable webhook
 processing, paid + bonus + yearly-gift grant issuance, upgrade/downgrade/cancel,
 refunds/disputes. Test mode first; live mode is flipped during rollout (010).
 
-## Deliverables
+## Amendments from phase 001 (2026-07-13)
 
-### Stripe objects and flows
+- The ledger's whole-grant reversal (`reverse_grant`) intentionally errors on a
+  partially consumed grant ("clawback required"). The proportional refund/dispute
+  clawback in this phase must post its own partial-reversal transactions (possibly
+  creating debt) rather than calling whole-grant reversal — that error is the pointer
+  here, not a bug.
+- Grant `source_type` values are check-constrained; refund reversals use `refund`,
+  subscription lots `subscription_paid`/`subscription_bonus`, yearly gift `gift`,
+  top-ups `topup`.
+- Compound idempotency keys ride the existing scheme: operation ID + canonical request
+  hash; a replayed webhook with identical facts returns the prior lots, an altered
+  replay is an `IdempotencyConflict`.
+- Webhook handlers run on the 001 `billing_outbox` worker; `fail_job` stamps
+  `next_attempt_at` from the real clock — tests with frozen time must claim retries with
+  a future `now` (see `test_billing_worker.py`).
+- Lot-boundary math in Python must normalize naive→aware datetimes (`_aware()` pattern).
 
 - One Stripe Customer per Luna `Account` (concurrent creation produces exactly one);
   SDK/config wiring (`CLOUD_STRIPE_*` settings) and `.env.example` docs.

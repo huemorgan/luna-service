@@ -72,6 +72,14 @@ grouped, individually identified events.
 Exit: a 402 credit block makes no provider retry, shows a usable banner, and returns a
 typed blocked result to headless callers.
 
+## Amendments from phase 001 (2026-07-13)
+
+- The ledger's idempotency scheme is fixed: operation ID + canonical sha256 of the
+  sorted-key JSON request facts; same ID with a different hash is a hard conflict, never
+  a dedupe. Luna's correlation IDs (`X-Luna-Logical-Call-Id`, attempt, root action) must
+  therefore be stable across Luna-side retries of the *same* logical call and fresh for
+  new ones — the gateway derives charge idempotency from them (004).
+
 ## Coordination with luna-service
 
 1. luna-service ships first and rates missing metadata as `agent` (004 does not wait).

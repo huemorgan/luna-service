@@ -11,9 +11,21 @@ Wire every non-gateway cost surface into the ledger: trial gifts, expiry, per-Lu
 limits, the 999-credit hosting lifecycle, service/job/storage accrual, and marketplace
 purchases. After this phase every launch cost surface is metered, included, or disabled.
 
-## Deliverables
+## Amendments from phase 001 (2026-07-13)
 
-### Grants and expiry
+- Already implemented in 001's ledger — this phase wires products/workers onto them, not
+  new mechanics: debt repayment on grant (no double wallet movement), scheduled lots
+  (post only at activation; `activate_scheduled_grants` exists), expiration with
+  exclusive boundary, per-Luna daily/monthly limit periods with settle-time settlement
+  and release draining, `count_toward_limits=False` for hosting charges.
+- Grant `source_type` is check-constrained to `subscription_paid`, `subscription_bonus`,
+  `topup`, `free_recurring`, `gift`, `refund`, `admin` — it is not the visible category
+  (bonus/gift/free/paid/topup). Trial and migration gifts use `gift`; map explicitly.
+- Renewal-anchor and expiry math done in Python against DB-loaded datetimes must
+  normalize naive→aware (`_aware()` in ledger.py) — SQLite tests return naive values.
+- Provisioning and renewal jobs run as `billing_outbox` handlers on the 001 worker
+  (leases, backoff, dead-letter). Handler contract: `run_claimed_job` rolls back on
+  handler exception, so a handler must be re-runnable from its committed job row alone.
 
 - New-account creation atomically creates the billing account, commercial assignment,
   and one trial gift (1,800 credits, 28 days) in the same transaction — exactly once

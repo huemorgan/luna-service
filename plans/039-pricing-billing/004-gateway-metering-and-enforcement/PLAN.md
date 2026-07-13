@@ -10,9 +10,23 @@ Make every platform-keyed gateway request billing-grade: hold before upstream, o
 `billable_event` per provider attempt, rate per logical call with the snapshotted
 versions, settle or reconcile. Enforcement obeys `CLOUD_BILLING_MODE`.
 
-## Deliverables
+## Amendments from phase 001 (2026-07-13)
 
-### Deny-by-default route framework
+- The ledger already emits distinct typed failures: `InsufficientBalance` (posted
+  balance ≤ 0), `ExposureLimit` (single bounded overrun cap exceeded), `LimitExceeded`
+  (per-Luna daily/monthly). The gateway must map each to its own block code
+  (`credits_exhausted` / `exposure_limit` / `luna_daily_limit` / `luna_monthly_limit`) —
+  they are different customer situations. Note the overrun semantics: one hold *may*
+  exceed available balance within `overrun_cap_credits` (default 1,000) by design; only
+  balance ≤ 0 or cap breach blocks.
+- Hold/settle/release, `needs_reconciliation` stale-hold semantics, and idempotent
+  authorize (operation ID + canonical request hash; same ID + different hash =
+  `IdempotencyConflict`, never a dedupe) are implemented in `cloud/billing/ledger.py` —
+  build the gateway path on those functions, not new ledger code.
+- Durable settlement/reconciliation work goes through `cloud/billing/worker.py`
+  (`billing_outbox`); register handlers, never `asyncio.create_task` for financial work.
+- Any Python-side comparison of DB-loaded timestamps must normalize naive→aware
+  (`_aware()` pattern; SQLite returns naive, Postgres aware) or compare in SQL.
 
 The current gateway forwards arbitrary methods and paths under a real platform key —
 model checking alone does not stop expensive unsupported endpoints (batches, files,

@@ -9,6 +9,23 @@ Make pricing operable: draft/clone/validate/publish workflow, account assignment
 rollout engine, and the admin Pricing section. Still no Stripe money and no production
 debits.
 
+## Amendments from phase 001 (2026-07-13)
+
+- The version domain core already exists: `cloud/billing/versions.py` implements schema-v1
+  validation (recursive float rejection, fixed credit value, paid==payment invariant, dup
+  key checks), canonical sha256 hashing, draft→publish with tamper check, and
+  `assert_mutable`; `cloud/billing/seed.py` seeds version 1 and provider-cost v1. This
+  phase builds the admin API + UI + assignments/rollouts **on top of** that module — do
+  not reimplement validation in routes.
+- Published-version immutability and published→retired-only transitions are additionally
+  enforced by Postgres triggers from migration 0002. Admin routes must still return clean
+  400s from the service layer; the triggers are the backstop, not the error UX (trigger
+  errors surface at COMMIT as raw DB exceptions).
+- SQLite tests do not run the triggers — service-layer checks are the only enforcement
+  there, so every immutability rule needs an API-level test, not just a trigger test.
+- Test convention: no module-global asyncio pytestmark; mark async tests individually
+  (sync tests under a global mark emit warnings).
+
 ## Deliverables
 
 ### Version workflow

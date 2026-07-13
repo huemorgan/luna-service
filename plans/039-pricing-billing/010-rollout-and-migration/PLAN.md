@@ -8,7 +8,19 @@
 Turn the system on for real customers, in reversible steps, without deleting or
 rewriting financial history at any point.
 
-## Enforcement control
+## Amendments from phase 001 (2026-07-13)
+
+- Production schema adoption is already built and deploy-integrated: the Dockerfile CMD
+  runs `python -m cloud.db.migrate` before uvicorn. On the first deploy of this branch,
+  prod (pre-Alembic) is fingerprinted (table/column existence only), stamped `0001`, and
+  upgraded to `0002` automatically; a fingerprint mismatch aborts the deploy with no
+  writes and Render keeps the old instance serving. Known tolerated drift:
+  `users.is_admin` nullable in prod vs NOT NULL in the baseline.
+- Anything invoking Alembic against a non-default DB (ops scripts, restore drills) must
+  set `CLOUD_DATABASE_URL` — `alembic/env.py` prefers it over the ini/programmatic URL.
+- Migration gift grants use source key `migration:{account_id}:v1` with source_type
+  `gift`; idempotent reruns return the prior transaction via the ledger's
+  operation-ID + canonical-hash scheme.
 
 `CLOUD_BILLING_MODE` is global, and `selected_accounts` is a pricing-assignment
 audience — neither can enforce only internal accounts. Add a nullable per-account/cohort
