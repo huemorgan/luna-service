@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     scheduler_service_url: str = ""
     scheduler_service_admin_key: str = ""
 
+    # Plan 039: global billing mode — off | observe | shadow | enforce.
+    # Per-account enforcement overrides (039/010) resolve as the maximum of
+    # this global mode and the account override.
+    billing_mode: str = "off"
+
     model_config = {"env_prefix": "CLOUD_"}
 
 

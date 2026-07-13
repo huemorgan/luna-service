@@ -22,4 +22,6 @@ ENV PORT=8100
 # 2 workers (plan 037-SPEED101): isolates long LLM/proxy streams from the UI
 # API; RSS ~105 MB fits 2x in the 512 MB instance. Background loops are
 # advisory-lock guarded so they still run once (cloud/runtime/exclusive.py).
-CMD ["sh", "-c", "uvicorn cloud.main:app --host 0.0.0.0 --port ${PORT} --workers 2"]
+# Migrations run first (plan 039/001) and abort the deploy on failure — the
+# old app keeps serving because Render only swaps after a healthy start.
+CMD ["sh", "-c", "python -m cloud.db.migrate && uvicorn cloud.main:app --host 0.0.0.0 --port ${PORT} --workers 2"]

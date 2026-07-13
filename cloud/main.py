@@ -26,7 +26,6 @@ from cloud.api.whatsapp_agent_routes import router as whatsapp_agent_router
 from cloud.api.whatsapp_routes import relay_router as whatsapp_relay_router
 from cloud.api.whatsapp_routes import router as whatsapp_router
 from cloud.config import get_settings
-from cloud.db.models import Base
 from cloud.db.session import dispose_engine
 from cloud.observability import TimingMiddleware
 
@@ -50,92 +49,20 @@ class ImmutableStaticFiles(StaticFiles):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Schema is managed by Alembic; the deploy runs `python -m cloud.db.migrate`
+    # before uvicorn (plan 039/001). The lifespan only seeds data.
     from sqlalchemy import text
-    from cloud.db.session import _get_engine
-    engine = _get_engine()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        for col, coltype in [
-            ("error_message", "TEXT"),
-            ("error_at", "TIMESTAMPTZ"),
-            ("slug", "TEXT"),
-            ("cached_metrics", "JSONB"),
-            ("cached_metrics_at", "TIMESTAMPTZ"),
-            ("image_version", "TEXT"),
-            ("config_overrides", "JSONB"),
-            # Plan 025.5: per-agent persistent Fly volume.
-            ("volume_id", "TEXT"),
-            ("volume_region", "TEXT"),
-            ("volume_size_gb", "INTEGER"),
-            # Plan 038: card accent color.
-            ("color", "TEXT"),
-        ]:
-            await conn.execute(text(
-                f"ALTER TABLE agents ADD COLUMN IF NOT EXISTS {col} {coltype}"
-            ))
-        await conn.execute(text(
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false"
-        ))
-        await conn.execute(text(
-            "ALTER TABLE luna_images ADD COLUMN IF NOT EXISTS image_config JSONB"
-        ))
-        for col, coltype in [
-            ("actor_ip", "TEXT"),
-            ("before_state", "JSONB"),
-            ("after_state", "JSONB"),
-        ]:
-            await conn.execute(text(
-                f"ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS {col} {coltype}"
-            ))
-        await conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_audit_log_action ON audit_log (action)"
-        ))
-        await conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_audit_log_created_at ON audit_log (created_at DESC)"
-        ))
-        await conn.execute(text(
-            "ALTER TABLE luna_images ADD COLUMN IF NOT EXISTS cache_warmed_at TIMESTAMPTZ"
-        ))
-        await conn.execute(text(
-            "ALTER TABLE luna_images ADD COLUMN IF NOT EXISTS git_branch TEXT"
-        ))
-        for col, coltype in [
-            ("sdk_major", "INTEGER"),
-            ("sdk_min_major", "INTEGER"),
-            ("release_notes", "TEXT"),
-        ]:
-            await conn.execute(text(
-                f"ALTER TABLE luna_images ADD COLUMN IF NOT EXISTS {col} {coltype}"
-            ))
-        await conn.execute(text(
-            "ALTER TABLE gateway_services ADD COLUMN IF NOT EXISTS extra_env JSONB"
-        ))
-        await conn.execute(text(
-            "CREATE TABLE IF NOT EXISTS app_settings ("
-            "key TEXT PRIMARY KEY, value JSONB NOT NULL DEFAULT '{}'::jsonb, "
-            "updated_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-        ))
-        await conn.execute(text(
-            "UPDATE users SET is_admin = true WHERE email = 'vaselin@gmail.com' AND is_admin = false"
-        ))
-        # Backfill NULL slugs from account slug + agent name
-        await conn.execute(text("""
-            UPDATE agents SET slug = accounts.slug || '-' || LOWER(REGEXP_REPLACE(agents.name, '[^a-zA-Z0-9]+', '-', 'g'))
-            FROM accounts
-            WHERE agents.account_id = accounts.id AND agents.slug IS NULL
-        """))
-        # Clean up destroyed agents with no valid runtime
-        await conn.execute(text("""
-            DELETE FROM agents WHERE status IN ('error', 'provisioning') AND runtime_ref IS NULL AND slug IS NULL
-        """))
 
-    # Seed the credential-gateway service registry (insert-if-missing only)
     from cloud.db.session import get_session as _get_db
     from cloud.gateway.registry import seed_services
     from cloud.gateway.model_registry import seed_models
     async with _get_db() as db:
-        await seed_services(db)
+        await seed_services(db)  # credential-gateway registry (insert-if-missing)
         await seed_models(db)  # Plan 018: system model catalog
+        # Owner admin bootstrap so a fresh environment is never adminless.
+        await db.execute(text(
+            "UPDATE users SET is_admin = true WHERE email = 'vaselin@gmail.com' AND is_admin = false"
+        ))
         await db.commit()
 
     # Background loops run in exactly one worker (advisory-lock guarded —

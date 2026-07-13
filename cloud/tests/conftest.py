@@ -16,6 +16,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.types import JSON
 
+import cloud.billing.models  # noqa: F401 — billing tables join Base.metadata (039)
 from cloud.config import Settings
 from cloud.db.models import Base, User, Account, Membership, Agent, LunaImage
 
