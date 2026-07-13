@@ -35,6 +35,18 @@ def _emit_proxy_service(env: dict[str, str], svc: GatewayService, base: str, tok
         if luna_var.startswith("LUNA_"):
             env[luna_var.removeprefix("LUNA_")] = env[luna_var]
 
+
+def _emit_extra_env(env: dict[str, str], svc: GatewayService) -> None:
+    """Inject a service's extra_env — plain env vars a bound plugin needs on the
+    machine that aren't the proxy pair (e.g. OAuth app credentials like
+    LUNA_MONDAY_CLIENT_ID/_SECRET). Values are AES-GCM encrypted at rest; decrypt
+    on the way out. A bad value is logged and skipped, never sinks the machine."""
+    for var, enc in (svc.extra_env or {}).items():
+        try:
+            env[var] = decrypt_key(enc)
+        except Exception:  # noqa: BLE001 — one bad var must not block provisioning
+            log.error("gateway extra_env decrypt failed for %s.%s", svc.slug, var)
+
 # Services Luna can't route through the proxy yet (no base-url support on the
 # Luna side until 007.001 lands). The real key keeps being injected for these.
 LEGACY_REAL_KEY_VARS = ("LUNA_TAVILY_API_KEY", "LUNA_ELEVENLABS_API_KEY")
@@ -64,6 +76,7 @@ async def build_gateway_env(
     emitted: set[str] = set()
     for svc in services:
         _emit_proxy_service(env, svc, base, token)
+        _emit_extra_env(env, svc)
         emitted.add(svc.slug)
 
     # Plan 026 — membership-driven services: any plugin this agent effectively
@@ -75,9 +88,13 @@ async def build_gateway_env(
         svc = await get_service(db, binding.service_slug)
         if svc is None or not svc.enabled or svc.slug in emitted:
             continue
+        # OAuth app credentials (extra_env) are needed whenever the bound plugin
+        # runs — inject them independent of the data-key gate below (a tenant may
+        # run the OAuth handshake before any proxy key is provisioned).
+        _emit_extra_env(env, svc)
         # Key-gated: never provision a keyless proxy / env binding.
         if not await has_active_key(db, svc.slug, agent_id):
-            log.info("gateway binding %s → %s skipped: no active key", binding.plugin_name, svc.slug)
+            log.info("gateway binding %s → %s: no active key, extra_env only", binding.plugin_name, svc.slug)
             continue
         if binding.key_mode == "env":
             # Admin opt-in fallback: the real key lands on the machine (compromised)

@@ -530,6 +530,43 @@ async def test_build_gateway_env(db_session, sample_agent, monkeypatch):
     assert agent_id == sample_agent.id
 
 
+async def test_build_gateway_env_injects_extra_env(db_session, sample_agent):
+    """OAuth app creds (extra_env) land on the machine for a bound plugin even
+    with no data key provisioned — that's what makes plugin OAuth configurable."""
+    from cloud.db.models import PluginCatalogEntry
+
+    await _add_service(
+        db_session, "monday",
+        provision_by_default=False,
+        extra_env={
+            "LUNA_MONDAY_CLIENT_ID": encrypt_key("cid-123"),
+            "LUNA_MONDAY_CLIENT_SECRET": encrypt_key("secret-456"),
+        },
+    )
+    db_session.add(PluginCatalogEntry(
+        plugin_name="plugin-monday", display_name="Monday.com",
+        tier="supported", service_slug="monday", key_mode="proxy", enabled=True,
+    ))
+    await db_session.commit()
+
+    # Agent runs plugin-monday but no monday pool key exists yet.
+    env = await build_gateway_env(
+        db_session, sample_agent.id,
+        agent_overrides={"installed_plugins": ["plugin-monday"]},
+    )
+    await db_session.commit()
+
+    assert env["LUNA_MONDAY_CLIENT_ID"] == "cid-123"
+    assert env["LUNA_MONDAY_CLIENT_SECRET"] == "secret-456"
+    # Keyless → no proxy base-url override was emitted.
+    assert "LUNA_MONDAY_BASE_URL" not in env
+
+    # A plugin the agent does NOT run gets nothing.
+    env2 = await build_gateway_env(db_session, sample_agent.id)
+    await db_session.commit()
+    assert "LUNA_MONDAY_CLIENT_ID" not in env2
+
+
 # ── Admin API ────────────────────────────────────────────────────────────────
 
 async def test_admin_services_crud_and_key_write_only(admin_client, db_session):
@@ -571,6 +608,19 @@ async def test_admin_services_crud_and_key_write_only(admin_client, db_session):
     row = (await db_session.execute(select(GatewayKey))).scalars().first()
     assert "real-key-AAA" not in row.api_key_enc
     assert decrypt_key(row.api_key_enc) == "real-key-AAA"
+
+    # extra_env (OAuth app creds): write-only, encrypted at rest, masked on read
+    r = await admin_client.patch("/api/admin/gateway/services/echo-test", json={
+        "extra_env": {"LUNA_MONDAY_CLIENT_ID": "cid-xyz", "LUNA_MONDAY_CLIENT_SECRET": "sec-xyz"},
+    })
+    assert r.status_code == 200
+    assert "cid-xyz" not in r.text and "sec-xyz" not in r.text
+    assert set(r.json()["extra_env_keys"]) == {"LUNA_MONDAY_CLIENT_ID", "LUNA_MONDAY_CLIENT_SECRET"}
+    svc = (await db_session.execute(
+        select(GatewayService).where(GatewayService.slug == "echo-test")
+    )).scalar_one()
+    await db_session.refresh(svc)
+    assert decrypt_key(svc.extra_env["LUNA_MONDAY_CLIENT_ID"]) == "cid-xyz"
 
 
 async def test_admin_gateway_requires_admin(regular_client):

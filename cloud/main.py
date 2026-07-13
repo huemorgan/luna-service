@@ -108,6 +108,9 @@ async def lifespan(app: FastAPI):
                 f"ALTER TABLE luna_images ADD COLUMN IF NOT EXISTS {col} {coltype}"
             ))
         await conn.execute(text(
+            "ALTER TABLE gateway_services ADD COLUMN IF NOT EXISTS extra_env JSONB"
+        ))
+        await conn.execute(text(
             "CREATE TABLE IF NOT EXISTS app_settings ("
             "key TEXT PRIMARY KEY, value JSONB NOT NULL DEFAULT '{}'::jsonb, "
             "updated_at TIMESTAMPTZ NOT NULL DEFAULT now())"

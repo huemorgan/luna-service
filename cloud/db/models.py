@@ -149,6 +149,10 @@ class GatewayService(Base):
     luna_env_base_url_var: Mapped[str] = mapped_column(Text, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     provision_by_default: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Extra env vars injected on machines that run a plugin bound to this
+    # service (e.g. OAuth app credentials like LUNA_MONDAY_CLIENT_ID/_SECRET).
+    # Values are AES-GCM encrypted (gateway/crypto) — never stored in clear.
+    extra_env: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 

@@ -48,6 +48,10 @@ class ServiceCreate(BaseModel):
     luna_env_base_url_var: str | None = None
     enabled: bool = True
     provision_by_default: bool = False
+    # Plaintext {VAR: value} of plain env vars a bound plugin needs on the machine
+    # (e.g. OAuth app creds LUNA_MONDAY_CLIENT_ID/_SECRET). Encrypted at rest;
+    # never returned by any endpoint (only the var names are, via extra_env_keys).
+    extra_env: dict[str, str] | None = None
 
 
 class ServiceUpdate(BaseModel):
@@ -57,6 +61,9 @@ class ServiceUpdate(BaseModel):
     luna_credential_name: str | None = None
     enabled: bool | None = None
     provision_by_default: bool | None = None
+    # Full replacement of the extra_env map (plaintext in, encrypted at rest).
+    # {} clears it; None leaves it unchanged.
+    extra_env: dict[str, str] | None = None
 
 
 class KeyCreate(BaseModel):
@@ -83,6 +90,8 @@ def _service_dict(svc: GatewayService, key_count: int = 0) -> dict:
         "luna_env_base_url_var": svc.luna_env_base_url_var,
         "enabled": svc.enabled,
         "provision_by_default": svc.provision_by_default,
+        # Var names only — values are write-only, never returned.
+        "extra_env_keys": sorted((svc.extra_env or {}).keys()),
         "key_count": key_count,
     }
 
@@ -147,6 +156,7 @@ async def create_service(body: ServiceCreate, request: Request, admin: User = De
             luna_env_base_url_var=body.luna_env_base_url_var or names["luna_env_base_url_var"],
             enabled=body.enabled,
             provision_by_default=body.provision_by_default,
+            extra_env={k: encrypt_key(v) for k, v in (body.extra_env or {}).items()} or None,
         )
         db.add(svc)
         _audit(db, actor=admin, action="gateway.service.created", target=body.slug,
@@ -171,7 +181,15 @@ async def update_service(slug: str, body: ServiceUpdate, admin: User = Depends(r
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Service not found")
 
         changes = body.model_dump(exclude_none=True)
+        # extra_env is a full-replacement map: encrypt each value, store {}→None.
+        # Audit records only the var names, never the secret values.
+        if "extra_env" in changes:
+            plain = changes.pop("extra_env")
+            svc.extra_env = {k: encrypt_key(v) for k, v in plain.items()} or None
+            changes["extra_env_keys"] = sorted(plain.keys())
         for field_name, value in changes.items():
+            if field_name == "extra_env_keys":
+                continue
             setattr(svc, field_name, value.rstrip("/") if field_name == "upstream_url" else value)
         _audit(db, actor=admin, action="gateway.service.updated", target=slug, metadata=changes)
         await db.commit()
