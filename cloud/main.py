@@ -101,9 +101,15 @@ async def lifespan(app: FastAPI):
         import cloud.billing.assignments  # noqa: F401 — registers job handlers
         from cloud.billing.worker import worker_loop
         from cloud.db.session import get_session as billing_session_factory
+        from cloud.gateway.enforcement import stale_hold_reaper_loop
 
         async def billing_loop() -> None:
-            await worker_loop(billing_session_factory, worker_id=f"web-{os.getpid()}")
+            # Outbox worker + gateway stale-hold reaper (039/004) share the
+            # single-worker advisory lock.
+            await asyncio.gather(
+                worker_loop(billing_session_factory, worker_id=f"web-{os.getpid()}"),
+                stale_hold_reaper_loop(billing_session_factory),
+            )
 
         billing_worker_task = asyncio.create_task(
             run_exclusive(LOCK_BILLING_WORKER, "billing-worker", billing_loop)

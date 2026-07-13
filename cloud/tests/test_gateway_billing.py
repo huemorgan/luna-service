@@ -1,0 +1,781 @@
+"""039/004 — gateway metering & enforcement: route catalog, adapters, rating,
+mode matrix, holds/settlement, block contract, header hygiene."""
+
+from __future__ import annotations
+
+import json
+import uuid
+from datetime import datetime, timedelta, timezone
+
+import httpx
+import pytest
+from sqlalchemy import select
+
+from cloud.billing import ledger, rating
+from cloud.billing import worker as billing_worker
+from cloud.billing.models import (
+    AgentCreditLimit,
+    AgentHostingPeriod,
+    BillableEvent,
+    BillingHold,
+    RatedCharge,
+)
+from cloud.billing.rating import AttemptFacts
+from cloud.billing.seed import seed_billing
+from cloud.db.models import GatewayKey, GatewayModel, GatewayService
+from cloud.gateway import adapters, enforcement, route_catalog
+from cloud.gateway.crypto import encrypt_key
+from cloud.gateway.registry import default_names
+from cloud.gateway.tokens import issue_token
+
+pytestmark = pytest.mark.asyncio
+
+NOW = datetime(2026, 7, 14, 12, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_rating_caches():
+    rating.invalidate_rating_caches()
+    yield
+    rating.invalidate_rating_caches()
+
+
+@pytest.fixture(autouse=True)
+def _inline_key_bookkeeping(monkeypatch):
+    """The fire-and-forget mark_key_used task opens a DB session concurrently
+    with finalize's session. On the test engine (one shared in-memory SQLite
+    connection) those interleaved transactions clobber each other — a test
+    artifact only; Postgres gives every session its own connection."""
+    async def _noop(key_id):
+        return None
+    monkeypatch.setattr("cloud.api.gateway_proxy._mark_key_used_bg", _noop)
+
+
+# ── Route catalog ─────────────────────────────────────────────────────────────
+
+async def test_route_classification():
+    billed = route_catalog.classify("anthropic", "POST", "v1/messages")
+    assert billed.kind == "billed" and billed.adapter == "anthropic.messages"
+    assert billed.sku == "llm_call"
+
+    free = route_catalog.classify("anthropic", "POST", "v1/messages/count_tokens")
+    assert free.kind == "free"
+    assert route_catalog.classify("openai", "GET", "v1/models").kind == "free"
+    assert route_catalog.classify("openai", "GET", "v1/models/gpt-4o").kind == "free"
+
+    chat = route_catalog.classify("openai", "POST", "v1/chat/completions")
+    assert chat.adapter == "openai.chat"
+    emb = route_catalog.classify("openai", "POST", "v1/embeddings")
+    assert emb.adapter == "openai.embeddings"
+
+
+async def test_route_unknown_is_none():
+    assert route_catalog.classify("anthropic", "POST", "v1/complete") is None
+    assert route_catalog.classify("anthropic", "DELETE", "v1/messages") is None
+    assert route_catalog.classify("tavily", "POST", "search") is None
+    # Wildcard matches exactly one segment — deeper paths stay unknown.
+    assert route_catalog.classify("openai", "GET", "v1/models/a/b") is None
+
+
+async def test_route_path_normalization():
+    assert route_catalog.normalize_path("v1//messages/") == "/v1/messages"
+    assert route_catalog.classify("anthropic", "POST", "/v1//messages/").kind == "billed"
+
+
+# ── Adapters: Anthropic ──────────────────────────────────────────────────────
+
+def _feed_split(collector, payload: bytes, size: int = 7):
+    """Feed in tiny chunks so frames cross every chunk boundary."""
+    for i in range(0, len(payload), size):
+        collector.feed(payload[i:i + size])
+
+
+async def test_anthropic_sse_with_cache_and_chunk_splits():
+    c = adapters.make_collector("anthropic.messages", "text/event-stream")
+    start = json.dumps({
+        "type": "message_start",
+        "message": {"id": "msg_01", "model": "claude-opus-4-6", "usage": {
+            "input_tokens": 100, "output_tokens": 1,
+            "cache_creation_input_tokens": 40, "cache_read_input_tokens": 300,
+        }},
+    })
+    delta = json.dumps({"type": "message_delta", "usage": {"output_tokens": 55}})
+    payload = f"event: message_start\ndata: {start}\n\nevent: message_delta\ndata: {delta}\n\n"
+    _feed_split(c, payload.encode())
+    facts = c.finish(200, {"request-id": "req_abc"})
+    assert facts.dimensions == {
+        "input_tokens": 100, "output_tokens": 55,
+        "cache_creation_input_tokens": 40, "cache_read_input_tokens": 300,
+    }
+    assert facts.model == "claude-opus-4-6"
+    assert facts.provider_request_id == "req_abc"
+    assert facts.provider_response_id == "msg_01"
+    assert facts.usage_seen
+
+
+async def test_anthropic_duplicate_frames_never_double_count():
+    c = adapters.make_collector("anthropic.messages", "text/event-stream")
+    delta = f'data: {json.dumps({"type": "message_delta", "usage": {"output_tokens": 90}})}\n\n'
+    start = json.dumps({"type": "message_start", "message": {"usage": {"input_tokens": 10}}})
+    c.feed(f"data: {start}\n\n".encode())
+    c.feed(delta.encode())
+    c.feed(delta.encode())  # replayed cumulative frame
+    facts = c.finish(200, {})
+    assert facts.dimensions["output_tokens"] == 90  # max-merge, not sum
+
+
+async def test_anthropic_json_body():
+    c = adapters.make_collector("anthropic.messages", "application/json")
+    body = json.dumps({
+        "id": "msg_02", "model": "claude-haiku-4-5-20251001",
+        "usage": {"input_tokens": 12, "output_tokens": 34},
+        "content": [{"type": "text", "text": "SECRET-OUTPUT"}],
+    }).encode()
+    _feed_split(c, body)
+    facts = c.finish(200, {})
+    assert facts.dimensions == {"input_tokens": 12, "output_tokens": 34}
+    # Only counters/ids/model survive — never content.
+    assert "SECRET-OUTPUT" not in json.dumps(facts.dimensions)
+
+
+async def test_anthropic_missing_usage():
+    c = adapters.make_collector("anthropic.messages", "application/json")
+    c.feed(json.dumps({"type": "error", "error": {"message": "overloaded"}}).encode())
+    facts = c.finish(529, {})
+    assert facts.dimensions == {} and not facts.usage_seen
+
+
+async def test_anthropic_nested_cache_creation_object():
+    # Newer API shape: usage.cache_creation = {ephemeral_5m_input_tokens: N, ...}
+    c = adapters.make_collector("anthropic.messages", "application/json")
+    c.feed(json.dumps({"usage": {
+        "input_tokens": 5, "output_tokens": 6,
+        "cache_creation": {"ephemeral_5m_input_tokens": 70, "ephemeral_1h_input_tokens": 30},
+    }}).encode())
+    facts = c.finish(200, {})
+    assert facts.dimensions["cache_creation_input_tokens"] == 100
+
+
+# ── Adapters: OpenAI ─────────────────────────────────────────────────────────
+
+async def test_openai_chat_cached_tokens_not_double_billed():
+    c = adapters.make_collector("openai.chat", "application/json")
+    c.feed(json.dumps({
+        "id": "chatcmpl-1", "model": "gpt-4o",
+        "usage": {"prompt_tokens": 1000, "completion_tokens": 50,
+                  "prompt_tokens_details": {"cached_tokens": 800}},
+    }).encode())
+    facts = c.finish(200, {"x-request-id": "req_oai"})
+    assert facts.dimensions == {
+        "input_tokens": 200, "cached_input_tokens": 800, "output_tokens": 50,
+    }
+    assert facts.provider_request_id == "req_oai"
+
+
+async def test_openai_chat_sse_usage_final_frame():
+    c = adapters.make_collector("openai.chat", "text/event-stream")
+    chunk = json.dumps({"id": "chatcmpl-2", "model": "gpt-4o-mini",
+                        "choices": [{"delta": {"content": "hi"}}], "usage": None})
+    final = json.dumps({"id": "chatcmpl-2", "model": "gpt-4o-mini", "choices": [],
+                        "usage": {"prompt_tokens": 20, "completion_tokens": 9}})
+    payload = f"data: {chunk}\n\ndata: {final}\n\ndata: [DONE]\n\n"
+    _feed_split(c, payload.encode(), size=5)
+    facts = c.finish(200, {})
+    assert facts.dimensions == {"input_tokens": 20, "output_tokens": 9}
+    assert facts.model == "gpt-4o-mini"
+
+
+async def test_openai_embeddings_oversized_body_scan():
+    c = adapters.make_collector("openai.embeddings", "application/json")
+    # >2MB body: usage lives in the tail; the full-JSON parse is abandoned.
+    filler = '"' + "x" * (3 * 1024 * 1024) + '"'
+    body = ('{"object":"list","data":[' + filler +
+            '],"model":"text-embedding-3-small","usage":{"prompt_tokens":777,"total_tokens":777}}')
+    _feed_split(c, body.encode(), size=64 * 1024)
+    facts = c.finish(200, {})
+    assert facts.dimensions == {"input_tokens": 777}
+
+
+async def test_prepare_managed_body_injects_include_usage():
+    body_json = {"model": "gpt-4o", "stream": True, "messages": []}
+    out = adapters.prepare_managed_body("openai.chat", body_json, json.dumps(body_json).encode())
+    assert json.loads(out)["stream_options"] == {"include_usage": True}
+
+    # Non-stream and non-chat bodies pass through untouched.
+    plain = json.dumps({"model": "gpt-4o", "messages": []}).encode()
+    assert adapters.prepare_managed_body("openai.chat", json.loads(plain), plain) == plain
+    assert adapters.prepare_managed_body("anthropic.messages", body_json, b"raw") == b"raw"
+
+    # Existing stream_options keys survive the injection.
+    withopts = {"model": "gpt-4o", "stream": True, "stream_options": {"other": 1}}
+    out2 = adapters.prepare_managed_body("openai.chat", withopts, json.dumps(withopts).encode())
+    assert json.loads(out2)["stream_options"] == {"other": 1, "include_usage": True}
+
+
+async def test_estimate_dimensions():
+    est = adapters.estimate_dimensions("anthropic.messages", {"max_tokens": 100}, 400)
+    assert est == {"input_tokens": 100, "output_tokens": 100}
+    est = adapters.estimate_dimensions("openai.chat", {}, 40)
+    assert est == {"input_tokens": 10, "output_tokens": 8192}  # ceiling default
+    assert adapters.estimate_dimensions("openai.embeddings", {}, 400) == {"input_tokens": 100}
+
+
+# ── Rating math ──────────────────────────────────────────────────────────────
+
+def _rates():
+    return {
+        ("anthropic", "claude-opus-4-6", "input_tokens"): (5, 1),
+        ("anthropic", "claude-opus-4-6", "output_tokens"): (25, 1),
+        ("anthropic", "claude-opus-4-6", "cache_read_input_tokens"): (1, 2),
+    }
+
+
+async def test_rate_call_single_ceil_and_margin():
+    result = rating.rate_call(
+        _rates(), margin_micro=20_000,
+        attempts=[AttemptFacts(provider="anthropic", model="claude-opus-4-6",
+                               dimensions={"input_tokens": 1000, "output_tokens": 500,
+                                           "cache_read_input_tokens": 100},
+                               billable=True)],
+    )
+    # 1000*5 + 500*25 + 100*(1/2) = 17,550 vendor + 20,000 margin = 37,550 → 4 credits
+    assert result.vendor_micro_usd == 17_550
+    assert result.credits == 4
+    assert result.rounding_micro_usd == 40_000 - 37_550
+    assert result.luna_absorbed_micro_usd == 0
+    assert result.unrated_dimensions == []
+
+
+async def test_rate_call_failed_attempt_absorbed_one_margin():
+    result = rating.rate_call(
+        _rates(), margin_micro=20_000,
+        attempts=[
+            AttemptFacts(provider="anthropic", model="claude-opus-4-6",
+                         dimensions={"input_tokens": 1000}, billable=False, attempt_number=1),
+            AttemptFacts(provider="anthropic", model="claude-opus-4-6",
+                         dimensions={"input_tokens": 1000, "output_tokens": 100},
+                         billable=True, attempt_number=2),
+        ],
+    )
+    # Billable: 5,000 + 2,500 = 7,500 + one margin → 3 credits. Failed attempt absorbed.
+    assert result.vendor_micro_usd == 7_500
+    assert result.credits == 3
+    assert result.luna_absorbed_micro_usd == 5_000
+
+
+async def test_rate_call_unrated_dimension_recorded_never_guessed():
+    result = rating.rate_call(
+        _rates(), margin_micro=0,
+        attempts=[AttemptFacts(provider="anthropic", model="claude-opus-4-6",
+                               dimensions={"input_tokens": 10, "mystery_tokens": 5},
+                               billable=True)],
+    )
+    assert result.unrated_dimensions == ["anthropic:claude-opus-4-6:mystery_tokens"]
+    assert result.vendor_micro_usd == 50
+
+
+async def test_model_tier_explicit_lists_only():
+    config = {"top_tier_models": ["a"], "mid_tier_models": ["b"]}
+    assert rating.model_tier(config, "a") == "top"
+    assert rating.model_tier(config, "b") == "mid"
+    assert rating.model_tier(config, "c") is None
+    assert rating.model_tier(config, None) is None
+
+
+# ── Integration fixtures ─────────────────────────────────────────────────────
+
+def _anthropic_upstream(*, usage=True, rejected=frozenset()):
+    """MockTransport imitating the Anthropic messages endpoint."""
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append({
+            "url": str(request.url),
+            "headers": dict(request.headers),
+            "body": request.content.decode() if request.content else "",
+        })
+        key = request.headers.get("x-api-key", "")
+        if key in rejected:
+            return httpx.Response(401, json={"error": "bad key"})
+        if request.url.path.endswith("/v1/models"):
+            return httpx.Response(200, json={"data": []})
+        payload = {"id": "msg_x", "model": "claude-opus-4-6",
+                   "content": [{"type": "text", "text": "TOPSECRET-COMPLETION"}]}
+        if usage:
+            payload["usage"] = {"input_tokens": 1000, "output_tokens": 500}
+        return httpx.Response(200, json=payload, headers={"request-id": "req_up1"})
+
+    return httpx.MockTransport(handler), calls
+
+
+@pytest.fixture
+def anthropic_upstream(monkeypatch):
+    transport, calls = _anthropic_upstream()
+    client = httpx.AsyncClient(transport=transport)
+    monkeypatch.setattr("cloud.api.gateway_proxy._get_client", lambda: client)
+    return calls
+
+
+async def _seed_billing_gateway(db, sample_agent, *, credits=100):
+    """Anthropic service + key + token + catalog model + published pricing
+    versions + funded wallet. Returns the tenant token."""
+    db.add(GatewayService(
+        slug="anthropic", display_name="Anthropic",
+        upstream_url="http://upstream.test", auth_style="header:x-api-key",
+        **default_names("anthropic"),
+    ))
+    db.add(GatewayKey(
+        service_slug="anthropic", scope="global", priority=1,
+        api_key_enc=encrypt_key("REAL-ANT-1"), label="main", is_active=True,
+    ))
+    db.add(GatewayModel(provider="anthropic", model="claude-opus-4-6",
+                        kinds=["reasoning"], aliases=["opus"], enabled=True))
+    await db.flush()
+    await seed_billing(db)
+    await ledger.ensure_billing_account(db, sample_agent.account_id)
+    if credits:
+        await ledger.create_grant(
+            db, account_id=sample_agent.account_id, source_type="gift",
+            source_key=f"test:{uuid.uuid4()}", credits=credits,
+            visible_category="gift", effective_at=NOW - timedelta(days=1),
+            expires_at=None, now=NOW,
+        )
+    token = await issue_token(db, sample_agent.id)
+    await db.commit()
+    return token
+
+
+def _set_mode(monkeypatch, mode: str):
+    monkeypatch.setattr("cloud.gateway.enforcement.billing_mode", lambda: mode)
+
+
+_MSG_BODY = json.dumps({
+    "model": "claude-opus-4-6", "max_tokens": 100,
+    "messages": [{"role": "user", "content": "TOPSECRET-PROMPT"}],
+})
+
+
+async def _call_messages(client, token, *, body=_MSG_BODY, headers=None):
+    return await client.post(
+        "/proxy/anthropic/v1/messages",
+        content=body,
+        headers={"x-api-key": token, "content-type": "application/json", **(headers or {})},
+    )
+
+
+async def _rows(db, model):
+    return (await db.execute(select(model))).scalars().all()
+
+
+# ── Mode matrix ──────────────────────────────────────────────────────────────
+
+async def test_mode_off_no_billing_rows(anon_client, db_session, sample_agent, anthropic_upstream):
+    token = await _seed_billing_gateway(db_session, sample_agent, credits=0)
+    r = await _call_messages(anon_client, token)  # default mode is off
+    assert r.status_code == 200
+    assert await _rows(db_session, BillableEvent) == []
+    assert await _rows(db_session, RatedCharge) == []
+    assert await _rows(db_session, BillingHold) == []
+
+
+async def test_mode_observe_records_no_wallet_effect(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    _set_mode(monkeypatch, "observe")
+    token = await _seed_billing_gateway(db_session, sample_agent, credits=0)  # empty wallet
+    r = await _call_messages(anon_client, token)
+    assert r.status_code == 200  # observe never blocks
+
+    events = await _rows(db_session, BillableEvent)
+    charges = await _rows(db_session, RatedCharge)
+    assert len(events) == 1 and len(charges) == 1
+    assert events[0].quantity_json == {"input_tokens": 1000, "output_tokens": 500}
+    assert events[0].provider_request_id == "req_up1"
+    assert charges[0].charge_status == "observed"
+    # vendor 1000*5 + 500*25 = 17,500 + agent/top margin 20,000 → 4 credits
+    assert charges[0].vendor_cost_micro_usd == 17_500
+    assert charges[0].margin_micro_usd == 20_000
+    assert charges[0].credits == 4
+    assert await _rows(db_session, BillingHold) == []
+    assert await ledger.posted_balance(db_session, sample_agent.account_id) == 0
+
+
+async def test_mode_shadow_records_would_block_no_customer_effect(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    _set_mode(monkeypatch, "shadow")
+    token = await _seed_billing_gateway(db_session, sample_agent, credits=0)
+    r = await _call_messages(anon_client, token)
+    assert r.status_code == 200  # shadow never blocks
+
+    charges = await _rows(db_session, RatedCharge)
+    assert len(charges) == 1 and charges[0].charge_status == "shadow"
+    assert charges[0].rule_snapshot["would_block"] == "credits_exhausted"
+    assert await _rows(db_session, BillingHold) == []  # savepoint rolled back
+    assert await ledger.posted_balance(db_session, sample_agent.account_id) == 0
+
+
+async def test_mode_enforce_blocks_empty_wallet(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    _set_mode(monkeypatch, "enforce")
+    token = await _seed_billing_gateway(db_session, sample_agent, credits=0)
+    r = await _call_messages(anon_client, token)
+    assert r.status_code == 402
+    err = r.json()["error"]
+    assert err["code"] == "credits_exhausted" and err["type"] == "billing"
+    assert err["retryable"] is False
+    assert anthropic_upstream == []  # blocked before any provider contact
+
+
+async def test_mode_enforce_happy_path_holds_and_settles(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    _set_mode(monkeypatch, "enforce")
+    token = await _seed_billing_gateway(db_session, sample_agent, credits=100)
+    r = await _call_messages(anon_client, token)
+    assert r.status_code == 200
+
+    holds = await _rows(db_session, BillingHold)
+    assert len(holds) == 1 and holds[0].status == "open"
+
+    # Durable settlement runs through the outbox worker.
+    ran = await billing_worker.run_once(db_session, worker_id="test")
+    await db_session.commit()
+    assert ran == 1
+    await db_session.refresh(holds[0])
+    assert holds[0].status == "settled"
+    charges = await _rows(db_session, RatedCharge)
+    assert charges[0].charge_status == "settled"
+    assert charges[0].credits == 4
+    assert await ledger.posted_balance(db_session, sample_agent.account_id) == 96
+
+
+# ── Deny-by-default classification ───────────────────────────────────────────
+
+async def test_enforce_unknown_route_blocked_before_upstream(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    _set_mode(monkeypatch, "enforce")
+    token = await _seed_billing_gateway(db_session, sample_agent)
+    r = await anon_client.post(
+        "/proxy/anthropic/v1/complete", content=b"{}",
+        headers={"x-api-key": token, "content-type": "application/json"},
+    )
+    assert r.status_code == 402
+    assert r.json()["error"]["code"] == "sku_unpriced"
+    assert anthropic_upstream == []
+
+
+async def test_observe_unknown_route_passes_with_would_block(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    _set_mode(monkeypatch, "observe")
+    token = await _seed_billing_gateway(db_session, sample_agent)
+    r = await anon_client.post(
+        "/proxy/anthropic/v1/complete", content=b"{}",
+        headers={"x-api-key": token, "content-type": "application/json"},
+    )
+    assert r.status_code == 200  # fails closed only in enforce
+    events = await _rows(db_session, BillableEvent)
+    assert len(events) == 1 and events[0].status == "would_block"
+    assert events[0].quantity_json == {"would_block": "sku_unpriced"}
+
+
+async def test_free_route_never_billed_even_broke(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    _set_mode(monkeypatch, "enforce")
+    token = await _seed_billing_gateway(db_session, sample_agent, credits=0)
+    r = await anon_client.get("/proxy/anthropic/v1/models", headers={"x-api-key": token})
+    assert r.status_code == 200
+    assert await _rows(db_session, BillableEvent) == []
+    assert await _rows(db_session, BillingHold) == []
+
+
+async def test_uncovered_model_fails_closed_enforce_only(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    _set_mode(monkeypatch, "enforce")
+    token = await _seed_billing_gateway(db_session, sample_agent)
+    # Enabled in the catalog AFTER publish — uncovered by the active version.
+    db_session.add(GatewayModel(provider="anthropic", model="claude-new-1",
+                                kinds=["reasoning"], aliases=[], enabled=True))
+    await db_session.commit()
+    body = json.dumps({"model": "claude-new-1", "max_tokens": 5, "messages": []})
+    r = await _call_messages(anon_client, token, body=body)
+    assert r.status_code == 402
+    assert r.json()["error"]["code"] == "sku_unpriced"
+    assert anthropic_upstream == []
+
+
+# ── Header hygiene & attribution ─────────────────────────────────────────────
+
+async def test_x_luna_headers_stripped_and_attribution_unspoofable(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    _set_mode(monkeypatch, "observe")
+    token = await _seed_billing_gateway(db_session, sample_agent)
+    r = await _call_messages(anon_client, token, headers={
+        "x-luna-call-id": "call-77",
+        "x-luna-root-action-id": "act-9",
+        "x-luna-root-action-type": "chat",
+        "x-luna-account-id": str(uuid.uuid4()),  # spoof attempt — ignored
+    })
+    assert r.status_code == 200
+    upstream_headers = anthropic_upstream[0]["headers"]
+    assert not any(h.startswith("x-luna-") for h in upstream_headers)
+
+    ev = (await _rows(db_session, BillableEvent))[0]
+    # Attribution comes from the authenticated token, never headers.
+    assert ev.account_id == sample_agent.account_id
+    assert ev.agent_id == sample_agent.id
+    # Tenant call id is namespaced by agent — it can never dedupe across tenants.
+    assert ev.call_id == f"{sample_agent.id}:call-77"
+    assert ev.root_action_id == "act-9" and ev.root_action_type == "chat"
+
+
+async def test_same_call_id_never_dedupes_a_charge(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    _set_mode(monkeypatch, "observe")
+    token = await _seed_billing_gateway(db_session, sample_agent)
+    for _ in range(2):
+        r = await _call_messages(anon_client, token, headers={"x-luna-call-id": "same-id"})
+        assert r.status_code == 200
+    charges = await _rows(db_session, RatedCharge)
+    events = await _rows(db_session, BillableEvent)
+    assert len(charges) == 2 and len(events) == 2  # correlation only, never dedup
+    assert len({c.logical_call_id for c in charges}) == 2
+
+
+async def test_direct_context_is_bounded_margin_discount_only(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    _set_mode(monkeypatch, "observe")
+    token = await _seed_billing_gateway(db_session, sample_agent)
+    r = await _call_messages(anon_client, token, headers={"x-luna-context": "direct"})
+    assert r.status_code == 200
+    charge = (await _rows(db_session, RatedCharge))[0]
+    # direct/top margin (10,000) instead of agent/top (20,000): the only
+    # tenant-influenced input, bounded by the constant spread. Vendor unchanged.
+    assert charge.margin_micro_usd == 10_000
+    assert charge.vendor_cost_micro_usd == 17_500
+    assert charge.rule_snapshot["context"] == "direct"
+
+
+async def test_no_prompt_or_output_in_billing_rows(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    _set_mode(monkeypatch, "observe")
+    token = await _seed_billing_gateway(db_session, sample_agent)
+    await _call_messages(anon_client, token)
+    for ev in await _rows(db_session, BillableEvent):
+        blob = json.dumps({"q": ev.quantity_json, "m": ev.model, "ids": [
+            ev.provider_request_id, ev.provider_response_id, ev.call_id]})
+        assert "TOPSECRET" not in blob and "REAL-ANT-1" not in blob
+    for ch in await _rows(db_session, RatedCharge):
+        blob = json.dumps(ch.rule_snapshot)
+        assert "TOPSECRET" not in blob and "REAL-ANT-1" not in blob
+
+
+# ── Alias canonicalization ───────────────────────────────────────────────────
+
+async def test_alias_resolves_to_canonical_model_and_tier(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    _set_mode(monkeypatch, "observe")
+    token = await _seed_billing_gateway(db_session, sample_agent)
+    body = json.dumps({"model": "opus", "max_tokens": 100, "messages": []})
+    r = await _call_messages(anon_client, token, body=body)
+    assert r.status_code == 200
+    charge = (await _rows(db_session, RatedCharge))[0]
+    assert charge.rule_snapshot["requested_model"] == "opus"
+    assert charge.rule_snapshot["canonical_model"] == "claude-opus-4-6"
+    assert charge.rule_snapshot["tier"] == "top"
+    assert charge.credits == 4  # rated at the canonical model's tariff
+
+
+# ── Blocked identities ───────────────────────────────────────────────────────
+
+async def test_payment_due_blocks_in_enforce(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    _set_mode(monkeypatch, "enforce")
+    token = await _seed_billing_gateway(db_session, sample_agent)
+    db_session.add(AgentHostingPeriod(
+        agent_id=sample_agent.id, account_id=sample_agent.account_id,
+        starts_at=NOW - timedelta(days=30), ends_at=NOW, price_credits=999,
+        state="payment_due",
+    ))
+    await db_session.commit()
+    r = await _call_messages(anon_client, token)
+    assert r.status_code == 402
+    assert r.json()["error"]["code"] == "hosting_payment_due"
+    assert anthropic_upstream == []
+
+
+async def test_luna_daily_limit_blocks_in_enforce(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    _set_mode(monkeypatch, "enforce")
+    token = await _seed_billing_gateway(db_session, sample_agent, credits=1_000)
+    db_session.add(AgentCreditLimit(agent_id=sample_agent.id, daily_limit_credits=1))
+    await db_session.commit()
+    r = await _call_messages(anon_client, token)
+    assert r.status_code == 402
+    assert r.json()["error"]["code"] == "luna_daily_limit"
+    assert anthropic_upstream == []
+
+
+async def test_revoked_token_cannot_spend(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    _set_mode(monkeypatch, "enforce")
+    await _seed_billing_gateway(db_session, sample_agent)
+    revoked = await issue_token(db_session, sample_agent.id)  # old token…
+    await issue_token(db_session, sample_agent.id)            # …revoked by reissue
+    await db_session.commit()
+    r = await _call_messages(anon_client, revoked)
+    assert r.status_code == 401
+    assert anthropic_upstream == []
+    assert await _rows(db_session, BillingHold) == []
+
+
+async def test_exposure_limit_second_uncovered_hold_blocked(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    _set_mode(monkeypatch, "enforce")
+    # Balance 1 credit: the first hold (estimate ≫ 1) is the single allowed
+    # uncovered overrun; a second concurrent call must not stack exposure.
+    token = await _seed_billing_gateway(db_session, sample_agent, credits=1)
+    r1 = await _call_messages(anon_client, token)
+    assert r1.status_code == 200  # hold open (worker not run yet)
+    r2 = await _call_messages(anon_client, token)
+    assert r2.status_code == 402
+    err = r2.json()["error"]
+    assert err["code"] == "exposure_limit" and err["retryable"] is True
+
+
+# ── Failure states: exactly one explainable outcome ──────────────────────────
+
+async def test_billing_store_failure_fails_closed_only_in_enforce(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    async def _boom(*a, **k):
+        raise RuntimeError("billing db down")
+
+    token = await _seed_billing_gateway(db_session, sample_agent)
+    monkeypatch.setattr("cloud.billing.rating.resolve_commercial_version", _boom)
+
+    _set_mode(monkeypatch, "observe")
+    r = await _call_messages(anon_client, token)
+    assert r.status_code == 200  # observe degrades open
+
+    _set_mode(monkeypatch, "enforce")
+    r = await _call_messages(anon_client, token)
+    assert r.status_code == 402
+    assert r.json()["error"]["code"] == "billing_temporarily_unavailable"
+
+
+async def test_usage_missing_goes_needs_reconciliation(
+    anon_client, db_session, sample_agent, monkeypatch,
+):
+    _set_mode(monkeypatch, "enforce")
+    transport, _ = _anthropic_upstream(usage=False)
+    client = httpx.AsyncClient(transport=transport)
+    monkeypatch.setattr("cloud.api.gateway_proxy._get_client", lambda: client)
+
+    token = await _seed_billing_gateway(db_session, sample_agent)
+    r = await _call_messages(anon_client, token)
+    assert r.status_code == 200
+
+    # No settle/release was enqueued — provider spend is never silently dropped.
+    assert await billing_worker.run_once(db_session, worker_id="test") == 0
+    charge = (await _rows(db_session, RatedCharge))[0]
+    assert charge.charge_status == "needs_reconciliation"
+    ev = (await _rows(db_session, BillableEvent))[0]
+    assert ev.cost_source == "estimated"
+    est_input = -(-len(_MSG_BODY) // 4)
+    assert ev.quantity_json == {"input_tokens": est_input, "output_tokens": 100}
+
+    # The stale-hold reaper is the backstop: expired open hold → reconciliation.
+    hold = (await _rows(db_session, BillingHold))[0]
+    assert hold.status == "open"
+    hold.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    await db_session.commit()
+    assert await enforcement.reap_stale_holds_once(db_session) == 1
+    await db_session.refresh(hold)
+    assert hold.status == "needs_reconciliation"
+
+
+async def test_upstream_unreachable_releases_hold(
+    anon_client, db_session, sample_agent, monkeypatch,
+):
+    _set_mode(monkeypatch, "enforce")
+
+    def _handler(request):
+        raise httpx.ConnectError("nope")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(_handler))
+    monkeypatch.setattr("cloud.api.gateway_proxy._get_client", lambda: client)
+
+    token = await _seed_billing_gateway(db_session, sample_agent)
+    r = await _call_messages(anon_client, token)
+    assert r.status_code == 502
+
+    assert await billing_worker.run_once(db_session, worker_id="test") == 1
+    await db_session.commit()
+    hold = (await _rows(db_session, BillingHold))[0]
+    await db_session.refresh(hold)
+    assert hold.status == "released"
+    charge = (await _rows(db_session, RatedCharge))[0]
+    assert charge.charge_status == "released"
+    assert await ledger.posted_balance(db_session, sample_agent.account_id) == 100
+
+
+async def test_fallback_attempt_absorbed_single_margin(
+    anon_client, db_session, sample_agent, monkeypatch,
+):
+    _set_mode(monkeypatch, "enforce")
+    transport, calls = _anthropic_upstream(rejected=frozenset({"REAL-ANT-1"}))
+    client = httpx.AsyncClient(transport=transport)
+    monkeypatch.setattr("cloud.api.gateway_proxy._get_client", lambda: client)
+
+    token = await _seed_billing_gateway(db_session, sample_agent)
+    db_session.add(GatewayKey(
+        service_slug="anthropic", scope="global", priority=2,
+        api_key_enc=encrypt_key("REAL-ANT-2"), label="backup", is_active=True,
+    ))
+    await db_session.commit()
+
+    r = await _call_messages(anon_client, token)
+    assert r.status_code == 200
+    assert len(calls) == 2  # 401 on key 1, success on key 2
+
+    events = await _rows(db_session, BillableEvent)
+    assert len(events) == 2
+    by_attempt = {e.attempt_number: e for e in events}
+    assert by_attempt[1].quantity_json == {}          # failed attempt: no usage
+    assert by_attempt[2].quantity_json["output_tokens"] == 500
+
+    charges = await _rows(db_session, RatedCharge)
+    assert len(charges) == 1
+    assert charges[0].margin_micro_usd == 20_000      # exactly one margin
+    assert charges[0].credits == 4
+
+    assert await billing_worker.run_once(db_session, worker_id="test") == 1
+    await db_session.commit()
+    assert await ledger.posted_balance(db_session, sample_agent.account_id) == 96
+
+
+async def test_byok_never_billed(anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch):
+    _set_mode(monkeypatch, "enforce")
+    await _seed_billing_gateway(db_session, sample_agent, credits=0)
+    # A real provider key (not lsv1-) is BYOK passthrough — never classified,
+    # never blocked, never billed, even with an empty wallet in enforce.
+    r = await _call_messages(anon_client, "sk-ant-users-own-key")
+    assert r.status_code == 200
+    assert anthropic_upstream[0]["headers"]["x-api-key"] == "sk-ant-users-own-key"
+    assert await _rows(db_session, BillableEvent) == []
+    assert await _rows(db_session, BillingHold) == []

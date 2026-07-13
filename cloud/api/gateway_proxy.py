@@ -17,8 +17,11 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from cloud.billing.rating import AttemptFacts
 from cloud.db import session as db_session
 from cloud.db.models import GatewayKey, GatewayService
+from cloud.gateway import adapters as usage_adapters
+from cloud.gateway import enforcement
 from cloud.gateway import keys as key_pool
 from cloud.gateway import policy
 from cloud.gateway import tokens as token_svc
@@ -83,9 +86,13 @@ def _requested_model(body: bytes) -> str | None:
 
 
 def _upstream_headers(request: Request, auth: AuthStyle, credential: str) -> dict[str, str]:
+    # X-Luna-* headers are internal correlation metadata (039/004) — they
+    # must never reach a provider, managed or BYOK.
     headers = {
         k: v for k, v in request.headers.items()
-        if k.lower() not in _DROP_REQUEST_HEADERS and k.lower() != auth.header.lower()
+        if k.lower() not in _DROP_REQUEST_HEADERS
+        and k.lower() != auth.header.lower()
+        and not k.lower().startswith("x-luna-")
     }
     if not auth.is_query:
         headers[auth.header] = auth.render(credential)
@@ -131,9 +138,17 @@ def _stream_response(
     agent_id: uuid.UUID | None,
     billable: bool,
     key_id: uuid.UUID | None,
+    billing: enforcement.BillingContext | None = None,
+    attempts: list[AttemptFacts] | None = None,
+    attempt_number: int = 1,
 ) -> StreamingResponse:
     content_type = resp.headers.get("content-type", "")
     scanner = UsageScanner(content_type)
+    # 039/004: billing-grade usage collection for metered routes. The legacy
+    # UsageScanner dual-write above stays as telemetry only.
+    collector = None
+    if billing is not None and billing.active:
+        collector = usage_adapters.make_collector(billing.adapter, content_type)
     # Plan 018: a failed upstream call (4xx/5xx) is recorded for visibility but is
     # never billable — kills the phantom input-only rows.
     billable = billable and resp.status_code < 400
@@ -155,6 +170,8 @@ def _stream_response(
         try:
             async for chunk in resp.aiter_bytes():
                 scanner.feed(chunk)
+                if collector is not None:
+                    collector.feed(chunk)
                 if capture_composio and len(capture_buf) <= composio_capture.MAX_CAPTURE_BYTES:
                     capture_buf.extend(chunk)
                 yield chunk
@@ -172,6 +189,30 @@ def _stream_response(
                 )
             except Exception:  # noqa: BLE001 — metering must never break the response
                 log.exception("usage_event write failed for %s", service_slug)
+            if collector is not None:
+                # Financial settlement: persist attempt facts + rated charge
+                # and enqueue the durable settle/release job. Shielded so a
+                # client disconnect cannot cancel the write mid-flight; if the
+                # process dies first, the stale-hold reaper reconciles.
+                facts = collector.finish(resp.status_code, resp.headers)
+                attempts.append(AttemptFacts(
+                    provider=billing.provider,
+                    model=facts.model or billing.canonical_model,
+                    dimensions=facts.dimensions,
+                    billable=resp.status_code < 400,
+                    attempt_number=attempt_number,
+                    cost_source="provider_usage" if facts.usage_seen else "estimated",
+                    provider_request_id=facts.provider_request_id,
+                    provider_response_id=facts.provider_response_id,
+                ))
+                try:
+                    await asyncio.shield(
+                        enforcement.finalize(billing, attempts, resp.status_code)
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception:  # noqa: BLE001 — reaper is the backstop
+                    log.exception("billing finalize failed for %s", service_slug)
             if capture_composio:
                 # Best-effort; never breaks the response (same rule as metering).
                 await composio_capture.capture_from_gateway_response(
@@ -255,6 +296,7 @@ async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
             # Off-catalog model → 404 BEFORE spending a pool key. Aliases
             # resolve. Only LLM providers are gated; non-LLM services and
             # bodyless/GET paths skip.
+            catalog = None
             if service_slug in _MODEL_GATED_PROVIDERS:
                 model = _requested_model(body)
                 if model is not None:
@@ -283,9 +325,39 @@ async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
                                 ),
                             }},
                         )
+
+            # ── Billing pre-flight (039/004, managed flow only) ───────────
+            # Classify the route, snapshot pricing versions, and in enforce
+            # mode open the ledger hold BEFORE any provider contact. BYOK
+            # traffic never reaches this point.
+            try:
+                body_json = json.loads(body) if body else None
+            except (ValueError, TypeError):
+                body_json = None
+            if not isinstance(body_json, dict):
+                body_json = None
+            billing = await enforcement.prepare(
+                db,
+                request=request,
+                service_slug=service_slug,
+                method=request.method,
+                path=path,
+                body=body,
+                body_json=body_json,
+                agent_id=agent_id,
+                catalog=catalog,
+            )
+            if billing.block is not None:
+                await record_usage(
+                    agent_id=agent_id, service_slug=service_slug, billable=False,
+                    key_id=None, status_code=402, input_tokens=0, output_tokens=0,
+                )
+                return enforcement.block_response(billing.block)
+            body = billing.body or body
         else:
             agent_id = None
             candidates = None
+            billing = None
 
     # ── BYOK passthrough ─────────────────────────────────────────────────
     if candidates is None:
@@ -305,10 +377,28 @@ async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
         )
 
     # ── Managed flow with one fallback retry ─────────────────────────────
+    billing_attempts: list[AttemptFacts] = []
+
+    def _failed_attempt(attempt_number: int) -> None:
+        """Record a provider attempt that produced no usable result — its
+        cost (if any usage ever surfaces) is Luna-absorbed, never charged."""
+        if billing is not None and billing.active:
+            billing_attempts.append(AttemptFacts(
+                provider=billing.provider,
+                model=billing.canonical_model,
+                dimensions={},
+                billable=False,
+                attempt_number=attempt_number,
+            ))
+
     for attempt, (key_id, real_key) in enumerate(candidates):
         try:
             resp = await _send_upstream(request, service, path, auth, real_key, body)
         except httpx.HTTPError as exc:
+            # No provider result at all — release the hold (nothing accepted).
+            if billing is not None and billing.active:
+                _failed_attempt(attempt + 1)
+                await enforcement.finalize(billing, billing_attempts, status_code=502)
             raise HTTPException(
                 status.HTTP_502_BAD_GATEWAY,
                 f"Upstream '{service_slug}' unreachable: {type(exc).__name__}",
@@ -316,6 +406,7 @@ async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
         if resp.status_code in _FALLBACK_STATUSES and attempt + 1 < len(candidates):
             await resp.aread()
             await resp.aclose()
+            _failed_attempt(attempt + 1)
             async with db_session.get_session() as db:
                 await key_pool.mark_key_failure(db, key_id, resp.status_code)
                 await db.commit()
@@ -338,6 +429,9 @@ async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
             agent_id=agent_id,
             billable=True,
             key_id=key_id,
+            billing=billing,
+            attempts=billing_attempts,
+            attempt_number=attempt + 1,
         )
 
     # Unreachable in practice (loop always returns), kept for type-safety.

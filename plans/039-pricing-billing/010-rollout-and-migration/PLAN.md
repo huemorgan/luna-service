@@ -142,3 +142,21 @@ separately approved retention/deletion policy exists.
   runs `CREATE EXTENSION IF NOT EXISTS btree_gist`). The first prod deploy
   fingerprints, stamps `0001`, and upgrades through `0003` — the deploy DB
   role must be allowed to create extensions (Render Postgres permits it).
+
+## Amendments from phase 004 (2026-07-14)
+
+- The enforcement rollout is pure configuration: `CLOUD_BILLING_MODE`
+  off → observe → shadow → enforce, each a per-key env PUT + deploy. The full
+  mode matrix is tested (fails closed only in enforce; observe/shadow never
+  block even with the billing store down), so each stage's verification is
+  running the 004 dojo scenario set against staging plus watching shadow's
+  `would_block` rates (see 009 amendments) before flipping to enforce.
+- Holds are self-healing: the stale-hold reaper (wired into the main lifespan
+  beside the outbox worker) converts expired holds to `needs_reconciliation`
+  — nothing silently leaks exposure. Pre-enforce checklist: dead billing
+  jobs = 0, open holds settle within worker cadence, reconciliation queue
+  drained.
+- `x-luna-*` stripping and token-only attribution are verified — no rollout
+  dependency on Luna image versions for billing correctness (headers are
+  best-effort hints; missing headers default to `agent` context, which never
+  undercharges).

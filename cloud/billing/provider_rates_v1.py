@@ -33,6 +33,25 @@ PROVIDER_RATES_V1: list[tuple[str, str, str, str, int, int, str]] = [
      "https://docs.anthropic.com/en/docs/about-claude/pricing"),
     ("anthropic", "claude-haiku-4-5-20251001", "output_tokens", "token", 5, 1,
      "https://docs.anthropic.com/en/docs/about-claude/pricing"),
+    # Anthropic prompt caching (039/004): reads = 0.1× input, 5m writes =
+    # 1.25× input. Billed as their own dimensions — the adapters report
+    # uncached input, cache reads and cache writes disjointly.
+    ("anthropic", "claude-opus-4-6", "cache_read_input_tokens", "token", 1, 2,
+     "https://docs.anthropic.com/en/docs/about-claude/pricing"),
+    ("anthropic", "claude-opus-4-6", "cache_creation_input_tokens", "token", 25, 4,
+     "https://docs.anthropic.com/en/docs/about-claude/pricing"),
+    ("anthropic", "claude-sonnet-4-5-20250929", "cache_read_input_tokens", "token", 3, 10,
+     "https://docs.anthropic.com/en/docs/about-claude/pricing"),
+    ("anthropic", "claude-sonnet-4-5-20250929", "cache_creation_input_tokens", "token", 15, 4,
+     "https://docs.anthropic.com/en/docs/about-claude/pricing"),
+    ("anthropic", "claude-sonnet-4-20250514", "cache_read_input_tokens", "token", 3, 10,
+     "https://docs.anthropic.com/en/docs/about-claude/pricing"),
+    ("anthropic", "claude-sonnet-4-20250514", "cache_creation_input_tokens", "token", 15, 4,
+     "https://docs.anthropic.com/en/docs/about-claude/pricing"),
+    ("anthropic", "claude-haiku-4-5-20251001", "cache_read_input_tokens", "token", 1, 10,
+     "https://docs.anthropic.com/en/docs/about-claude/pricing"),
+    ("anthropic", "claude-haiku-4-5-20251001", "cache_creation_input_tokens", "token", 5, 4,
+     "https://docs.anthropic.com/en/docs/about-claude/pricing"),
     # OpenAI — https://platform.openai.com/docs/pricing
     ("openai", "gpt-4o", "input_tokens", "token", 5, 2,           # $2.50/Mtok
      "https://platform.openai.com/docs/pricing"),
@@ -41,6 +60,12 @@ PROVIDER_RATES_V1: list[tuple[str, str, str, str, int, int, str]] = [
     ("openai", "gpt-4o-mini", "input_tokens", "token", 3, 20,     # $0.15/Mtok
      "https://platform.openai.com/docs/pricing"),
     ("openai", "gpt-4o-mini", "output_tokens", "token", 3, 5,     # $0.60/Mtok
+     "https://platform.openai.com/docs/pricing"),
+    # OpenAI cached input (039/004): prompt_tokens_details.cached_tokens,
+    # billed at the provider's cached-input rate (0.5× list input).
+    ("openai", "gpt-4o", "cached_input_tokens", "token", 5, 4,    # $1.25/Mtok
+     "https://platform.openai.com/docs/pricing"),
+    ("openai", "gpt-4o-mini", "cached_input_tokens", "token", 3, 40,  # $0.075/Mtok
      "https://platform.openai.com/docs/pricing"),
     ("openai", "text-embedding-3-small", "input_tokens", "token", 1, 50,   # $0.02/Mtok
      "https://platform.openai.com/docs/pricing"),

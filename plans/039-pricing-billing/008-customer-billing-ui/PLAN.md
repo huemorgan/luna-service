@@ -112,3 +112,20 @@ once the offer/purchase/entitlement schema exists (see 005/010).
 - Customer billing mutation routes must take `Depends(enforce_same_origin)`
   like the admin pricing router — the dependency exists in `cloud/auth/deps.py`
   and absent-header (non-browser) clients still pass.
+
+## Amendments from phase 004 (2026-07-14)
+
+- Customer-visible usage reads `rated_charges` (+ `billable_events` for
+  attempt detail). The `rule_snapshot` field set is now stable:
+  context/tier/sku/margin/models/estimated_credits/status_code/usage_missing/
+  would_block/unrated_dimensions. **Never expose context, tier, margin, or
+  micro-USD fields to customers — credits and model names only** (billing
+  rows themselves contain no prompts/outputs/keys; tested).
+- Block-state UX must match the frozen 402 contract (codes + `retryable`
+  flag; see 003 amendments). `credits_exhausted`, `luna_daily_limit`,
+  `luna_monthly_limit`, `hosting_payment_due` are customer-actionable;
+  `sku_unpriced`, `exposure_limit`, `billing_temporarily_unavailable` are
+  operator states and must be labeled honestly as such.
+- For dojo scenarios that need real gateway traffic (usage rows, blocks),
+  reuse `dojo_gateway_billing.py`'s mock-upstream + per-mode app boot instead
+  of a live provider; drive the browser against the same scratch PG.

@@ -102,3 +102,10 @@ and metadata only, never credit amounts as a source of truth.
   endpoint + secret configured once 007's route is deployed.
 - Every version-1 paid product has a test-environment Stripe binding recorded — 002 then
   publishes version 1, and environment activation/checkout is unblocked for 007.
+
+## Amendments from phase 004 (2026-07-14)
+
+- No scope changes — 004 (gateway metering/enforcement) touches nothing in
+  Stripe account setup. Noted for the record: dunning's enforcement lever
+  (`hosting_payment_due` at the gateway) already exists, so this phase's
+  webhook/key scope needs no additions for it.

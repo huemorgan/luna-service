@@ -1,0 +1,9 @@
+PASS  0 scratch DB created and migrated to head
+PASS  1 observe: broke account passes; observed charge recorded; wallet untouched
+PASS  2 shadow: real decision recorded (would_block=credits_exhausted), zero customer effect
+PASS  3 enforce: empty wallet → 402 credits_exhausted, no provider contact
+PASS  4 enforce: JSON call held, worker settled 4 credits (100 → 96)
+PASS  5 enforce: SSE stream usage parsed on the wire; alias canonicalized
+PASS  6 enforce: unknown route → sku_unpriced; free route passes even broke
+PASS  7 enforce: x-luna-* stripped upstream; correlation recorded namespaced
+PASS  8 all holds terminal: {'settled': 3}

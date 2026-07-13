@@ -144,3 +144,19 @@ refunds/disputes. Test mode first; live mode is flipped during rollout (010).
   assignments immediately (002); moving a subscriber to the new version's
   products at next renewal is 007's job — honor the recorded intent at invoice
   time.
+
+## Amendments from phase 004 (2026-07-14)
+
+- Dunning's enforcement lever exists: setting `payment_due` on the current
+  hosting period makes the gateway 402 `hosting_payment_due` immediately
+  (tested). 007's dunning state machine only writes the flag; recovery clears
+  it. Per the M6 decision there are no grace credits.
+- `usage_missing` reconciliation queue: a 2xx upstream response with no
+  parseable usage leaves a `needs_reconciliation` rated charge and a hold the
+  reaper expires into `needs_reconciliation`. 007-era ops (or 009) must drain
+  this queue — settlement at estimate is a deliberate manual/ops action,
+  never automatic.
+- Settlement jobs follow the 004 pattern: `gateway_finalize` outbox jobs with
+  dedupe key `gwfin:{operation_id}`. Stripe money-in handlers should keep the
+  same shape (handler registered at import, dedupe key per external event id,
+  restart-idempotent).

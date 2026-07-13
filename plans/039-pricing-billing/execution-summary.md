@@ -249,3 +249,152 @@ All seven remaining phase plans amended with dated sections
   plus gifts; `migration_gift` is publish-configurable in the UI; Alembic
   head is now 0003 (needs `btree_gist`, prod role must be able to create
   extensions).
+
+## Phase 004 — Gateway metering and enforcement (2026-07-14)
+
+Note: phase 003 (Luna core metering) is deferred — the Luna repo is mid-flight
+on branch 037, and 3.3 depends on the block contract this phase freezes. 004
+has no dependency on 003, so it ran first.
+
+### What was done
+
+- **`cloud/gateway/route_catalog.py`** (new) — deny-by-default route
+  classification: an explicit `(service, METHOD, path)` table maps each
+  gateway route to `metered` (with SKU + adapter) or `free`; `*` matches
+  exactly one path segment. Anything not in the table is `unknown` and fails
+  closed as `sku_unpriced` in enforce mode.
+- **`cloud/gateway/adapters.py`** (new) — per-provider usage collectors that
+  observe response bytes as they stream through the proxy: Anthropic JSON +
+  SSE (usage frames may be split across wire chunks and repeated —
+  values are **max-merged** per dimension, including nested
+  `cache_creation`), OpenAI JSON + SSE (`cached_tokens` subtracted from
+  input), with a scan cap for oversized non-LLM bodies (embeddings). Also
+  `prepare_managed_body` (injects `stream_options.include_usage` where the
+  provider needs it) and pre-flight dimension estimation for hold sizing.
+- **`cloud/billing/rating.py`** (new) — snapshotted version resolution
+  (commercial version from the account's assignment-interval chain at call
+  start; provider-cost version = newest published effective at call start;
+  immutable published configs cached per version id) and credit math:
+  exact rational vendor parts per attempt, failed attempts Luna-absorbed,
+  exactly one margin and one final ceil per logical call
+  (`rate_logical_call_credits`). Unrated dimensions are recorded in the rule
+  snapshot, never guessed.
+- **`cloud/gateway/enforcement.py`** (new) — the mode matrix around each
+  managed call. `prepare()`: attribution from the authenticated token only,
+  route classification, version snapshots, unpriced fail-closed, hosting
+  `payment_due` check, hold estimate; enforce authorizes a real hold,
+  shadow runs the same authorize inside a rolled-back savepoint
+  (`begin_nested()`) and records `would_block`, observe records only, off
+  bypasses. `finalize()`: one BillableEvent per provider attempt
+  (idempotency `{operation_id}:{attempt_number}`), one RatedCharge per
+  logical call with a full rule snapshot; enforce enqueues a durable
+  `gateway_finalize` outbox job (settle or release); a 2xx with no parseable
+  usage (`usage_missing`) marks the charge `needs_reconciliation` and leaves
+  the hold for the reaper — never a silent release. `stale_hold_reaper_loop`
+  (60 s) is the backstop that moves expired holds to `needs_reconciliation`.
+- **Block contract frozen** (what 003's Luna-side UX will consume): 402 with
+  `{error: {type: "billing_blocked", code, message, retryable}}`; codes
+  `credits_exhausted`, `luna_daily_limit`, `luna_monthly_limit`,
+  `hosting_payment_due`, `sku_unpriced`, `exposure_limit`,
+  `billing_temporarily_unavailable` (last two retryable). Fails closed
+  **only** in enforce mode; observe/shadow never affect the customer even if
+  the billing store is down.
+- **`cloud/api/gateway_proxy.py`** — billing woven around the existing
+  managed flow: pre-flight `prepare` (blocks before any provider contact),
+  `x-luna-*` headers stripped from upstream requests, shared
+  `billing_attempts` across fallback retries (failed attempts recorded
+  non-billable so one logical call gets exactly one margin), streaming
+  finalize in the response generator's `finally` under `asyncio.shield`,
+  502-path finalize releases the hold. BYOK is never billed.
+- **`cloud/main.py`** — the stale-hold reaper now actually runs: it shares
+  the billing-worker advisory lock via `asyncio.gather` in the lifespan.
+- **Tests** — `cloud/tests/test_gateway_billing.py`, 40 new (unit: route
+  table, adapters incl. chunk-split/duplicate-frame SSE, rating single-ceil
+  and absorption; integration over a mocked Anthropic upstream: full mode
+  matrix, settle-via-worker balance 100 → 96, unspoofable attribution +
+  header stripping, alias → canonical tier, daily-limit and payment-due and
+  exposure-limit blocks, billing-store failure open in observe / closed in
+  enforce, usage_missing + reaper backstop, upstream connect-error hold
+  release, fallback single-margin, BYOK bypass, no prompts/outputs/keys in
+  billing rows). Full regression: **399 passed, 1 pre-existing skip**
+  (359 + 40).
+- **Dojo** — `tests/039-pricing/dojo_gateway_billing.py`: scratch Postgres
+  `dojo039gw`, real uvicorn booted per mode, mock Anthropic upstream on a
+  real port serving JSON + chunked SSE, live 5 s outbox worker. 9/9
+  scenarios passed (SCENARIOS.md §039/004), including a real worker
+  settlement and every hold terminal. Evidence:
+  `tests/039-pricing/results/2026-07-14-local/REPORT-gateway.txt`.
+
+### What was learned
+
+1. **Shadow mode = rolled-back savepoint, not a shadow wallet.** Running the
+   real `ledger.authorize` inside `begin_nested()` and rolling it back gives
+   byte-identical decision logic to enforce with zero balance effect and no
+   parallel bookkeeping. The PG dojo proved savepoints behave identically to
+   the SQLite tests. This is a deviation from the plan's sketch (isolated
+   shadow ledger) — simpler and strictly more faithful.
+2. **ORM column names must be checked, not assumed**: the only real
+   implementation bug found by the tests was `version.config` vs the actual
+   column `config_json`. Cheap habit: open `cloud/billing/models.py` before
+   writing accessors.
+3. **The aiosqlite `:memory:` StaticPool is a single shared connection** —
+   a fire-and-forget task (`_mark_key_used_bg`) opening its own session
+   interleaves transactions with a concurrent finalize and silently clobbers
+   commits (~80 % flake, no error). Production Postgres is unaffected
+   (separate pooled connections; the live dojo confirmed). Fix: autouse
+   fixture patches the background task to a no-op, documented as a
+   test-environment artifact. **Rule for later phases: any test asserting on
+   rows written concurrently with a background task must neutralize that
+   task under SQLite.**
+4. **`stale_hold_reaper_loop` existed but nothing started it** — writing the
+   dojo (which watches holds reach terminal states) exposed that main.py
+   never ran the reaper. Lesson: every background loop needs a startup-wiring
+   test or a dojo scenario that would fail without it; 005's renewal loops
+   get the same scrutiny.
+5. **`usage_missing` must not settle**: a 2xx with unparseable usage settles
+   at the estimate only via *reconciliation*, never automatically — the hold
+   is deliberately left for the reaper so the gap is always visible. Rated
+   charges carry `cost_source="estimated"` for this case.
+6. **SSE usage frames arrive split and duplicated on the real wire** — the
+   40-byte-chunk dojo scenario validated the max-merge design; a last-frame-
+   wins or sum-merge adapter would misbill.
+7. **Wall-clock vs frozen-clock mismatches bite in both directions**:
+   a reaper test set `expires_at` from the suite's fixed NOW while
+   `mark_stale_holds` compares real time. Timestamps that SQL compares
+   against `now()` must be derived from real wall clock in tests.
+8. **Dojo-as-live-network-script** is the right shape for proxy-plane
+   phases: no browser UI exists, but booting the real app per mode against
+   scratch Postgres with a mock upstream on a real socket caught what
+   in-process tests can't (worker settlement timing, PG savepoints, on-wire
+   chunking). Scenario 8 needed a settle-poll (the 5 s worker is genuinely
+   async) — assert on *terminal states with a timeout*, not immediacy.
+
+### Reassessment of future phases
+
+All remaining phase plans amended with dated sections
+("Amendments from phase 004 (2026-07-14)"):
+
+- **003 (deferred, runs later)**: the block contract above is now frozen —
+  Luna core consumes it verbatim; 402 handling can be built against the dojo
+  mock. Interval-snapshotting confirmed working under load.
+- **005**: new non-LLM gateway services must ship a `route_catalog` entry +
+  adapter or they 402 `sku_unpriced` in enforce (deny-by-default is live);
+  renewal/expiry loops follow the reaper pattern and must be wired in
+  main.py's lifespan with a dojo scenario proving they run; hosting
+  `payment_due` is already enforced at the gateway — 005 sets/clears the
+  flag; SQLite background-task rule applies to renewal tests.
+- **006**: no scope changes (noted in the plan for the record).
+- **007**: `needs_reconciliation` charges from `usage_missing` are a queue
+  Stripe-era ops must drain; dunning sets `payment_due`, the gateway already
+  blocks on it (no new enforcement code).
+- **008**: customer-visible usage reads `rated_charges` + rule snapshots —
+  snapshot fields (context/tier/sku/margin/models/status) are now stable;
+  never expose context/tier/margin fields themselves, only credits.
+- **009**: the simulator replays `billable_events` through `rating.rate_call`
+  under candidate configs — the AttemptFacts shape is now the stable replay
+  input; ops page gets counters for `needs_reconciliation` charges and
+  stale-hold reaper activity.
+- **010**: enforce rollout = flip `CLOUD_BILLING_MODE` env per stage
+  (off → observe → shadow → enforce), each stage verified with the 004 dojo
+  run against staging; the mode matrix is already tested so the runbook is
+  configuration, not code.

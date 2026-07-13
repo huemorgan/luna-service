@@ -152,3 +152,29 @@ usable without any entitlement check — that check lands with the entitlement s
   `pricing_rollout:{id}`, and restart idempotency proven by re-running the
   handler against committed audit/state (`audit_ref`) rather than in-memory
   progress.
+
+## Amendments from phase 004 (2026-07-14)
+
+- **Deny-by-default routing is live**: `cloud/gateway/route_catalog.py` maps
+  every gateway route to metered (SKU + usage adapter) or free; anything
+  unlisted 402s `sku_unpriced` in enforce mode. Any non-LLM service surface
+  005 enables (or explicitly disables) must get a route_catalog entry and,
+  if metered, an adapter in `cloud/gateway/adapters.py` — "disabled" means
+  the SKU stays disabled in the version config, which the gateway already
+  fails closed on.
+- Hosting `payment_due` is already enforced at the gateway (402
+  `hosting_payment_due` before provider contact). 005 owns setting/clearing
+  the flag on hosting periods; no new enforcement code.
+- **Background loops must be provably wired**: 004 found
+  `stale_hold_reaper_loop` implemented but never started — main.py now runs
+  it beside the outbox worker via `asyncio.gather` under the billing advisory
+  lock. Add 005's renewal/expiry loops to that same composition and include a
+  dojo scenario that fails if the loop isn't running.
+- SQLite test artifact rule: the aiosqlite `:memory:` StaticPool is one
+  shared connection — a fire-and-forget task opening its own session clobbers
+  concurrent commits (~80 % silent flake). Any 005 test asserting on rows
+  written while a background task runs must neutralize that task under
+  SQLite (see `_inline_key_bookkeeping` in `cloud/tests/test_gateway_billing.py`).
+- Agent daily/monthly limit enforcement (`luna_daily_limit`/
+  `luna_monthly_limit`) is verified end to end at the gateway; 005 only
+  creates/updates `agent_credit_limits` rows from the trial config.

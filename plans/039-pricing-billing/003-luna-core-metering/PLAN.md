@@ -109,3 +109,23 @@ typed blocked result to headless callers.
   gateway fails closed with `sku_unpriced`. Treat `sku_unpriced` as an
   expected runtime state during model rollouts in 3.3's block handling, not an
   operator-only anomaly.
+
+## Amendments from phase 004 (2026-07-14)
+
+- **The block contract is frozen** — build 3.3 against it verbatim. The gateway
+  returns 402 with `{"error": {"type": "billing_blocked", "code": <code>,
+  "message": <customer-safe text>, "retryable": <bool>}}`. Codes:
+  `credits_exhausted`, `luna_daily_limit`, `luna_monthly_limit`,
+  `hosting_payment_due`, `sku_unpriced`, `exposure_limit`,
+  `billing_temporarily_unavailable`. Only the last two are retryable — Luna
+  must not retry the others (no provider fallback on a billing block; the
+  gateway blocks before any provider contact).
+- Attribution facts confirmed by tests: `x-luna-call-id` is correlation only
+  (namespaced server-side as `{agent_id}:{tenant_id}`, never deduplicates
+  billing) and `x-luna-context: direct` is the only tenant-influenced input —
+  it can only lower the margin. All `x-luna-*` headers are stripped before the
+  upstream. Luna-side code may send them best-effort; nothing breaks if they
+  are missing (defaults to `agent` context).
+- The 004 dojo (`tests/039-pricing/dojo_gateway_billing.py`) boots a real
+  gateway with a mock Anthropic upstream in any billing mode — reuse it as the
+  test bench for 3.3's block rendering instead of building a new harness.

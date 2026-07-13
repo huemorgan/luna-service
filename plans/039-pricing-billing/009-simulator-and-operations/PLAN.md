@@ -94,3 +94,20 @@ touching production records, and operate the system: reconciliation, invariants,
   admin API. Provider-cost bases map to 002's global effective-dated
   `provider_cost_versions` (rational rates, `quality` estimated/reconciled,
   publish requires a reason and is audited).
+
+## Amendments from phase 004 (2026-07-14)
+
+- The simulator's replay input is now concrete: `billable_events` rows map
+  1:1 to `rating.AttemptFacts` (provider, model, dimensions, billable,
+  attempt_number, cost_source), and candidate configs replay through
+  `rating.rate_call` — same single-margin single-ceil path production uses.
+  No parallel rating implementation.
+- New ops counters to surface on the overview/drill-downs:
+  `needs_reconciliation` rated charges (usage_missing cases), stale-hold
+  reaper conversions, `would_block` frequency by code from shadow mode
+  (shadow is the pre-enforce dress rehearsal — its would_block rates are the
+  go/no-go signal for 010's enforce flip), and unrated-dimension occurrences
+  (rate-table gaps recorded by rating).
+- Provider-rate gaps are visible data: rating records unrated dimensions in
+  the rule snapshot instead of guessing — the ops page should list distinct
+  `provider:model:dimension` gaps so the cost table can be completed.

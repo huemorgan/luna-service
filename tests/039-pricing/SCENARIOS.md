@@ -43,3 +43,47 @@ Cross-origin mutation rejection (Origin/Referer vs base_url) is covered by
 coded tests in `cloud/tests/test_billing_admin_api.py` — it needs forged
 headers, which a real browser page can't produce, so it is intentionally not a
 browser scenario.
+
+---
+
+# 039/004 — Gateway metering & enforcement dojo scenarios
+
+Environment: dedicated Postgres database (`dojo039gw` on the docker PG,
+migrated to head), real uvicorn app booted once per billing mode
+(`CLOUD_BILLING_MODE` = observe / shadow / enforce, port 8103), billing outbox
+worker on (real 5 s poll settles holds live), relay forwarder and reconciler
+off. A local mock Anthropic upstream (port 8109) returns real JSON and SSE
+`/v1/messages` responses with usage, so the full network path — client → luna
+gateway → upstream — is exercised on the wire. Two funded states: `funded`
+(100 credits) and `broke` (0 credits), each with its own agent + gateway token.
+
+Run: `python3 tests/039-pricing/dojo_gateway_billing.py`. Evidence:
+`results/<date>-local/REPORT-gateway.txt` + per-mode app logs. No browser UI
+exists for this phase (proxy plane only), so the dojo is live-network + SQL
+assertions rather than Playwright.
+
+## Scenarios
+
+0. **Scratch DB** — dropped/recreated `dojo039gw`, `python -m cloud.db.migrate`
+   to head, seeded services/models/billing v1 + accounts/agents/tokens.
+1. **Observe mode** — broke account's call passes through; a BillableEvent and
+   a RatedCharge (`charge_status=observed`) are recorded; wallet untouched, no
+   hold created.
+2. **Shadow mode** — broke account passes through, but the real authorize
+   decision runs inside a rolled-back savepoint and records
+   `would_block=credits_exhausted` in the rule snapshot; zero customer effect.
+3. **Enforce, empty wallet** — 402 `credits_exhausted` before any provider
+   contact (upstream saw no request).
+4. **Enforce, JSON happy path** — call held pre-flight, upstream JSON usage
+   (1000 in / 500 out on the top tier) rated to 4 credits, the live outbox
+   worker settled the hold: balance 100 → 96.
+5. **Enforce, SSE** — `stream:true` response parsed on the wire in 40-byte
+   chunks (usage split across frames, max-merged); alias `opus` canonicalized
+   to `claude-opus-4-6` in the billing rows.
+6. **Enforce, routing** — unknown route → 402 `sku_unpriced` (deny by
+   default); a free route passes even for the broke account.
+7. **Enforce, attribution** — `x-luna-call-id` / `x-luna-context` stripped
+   before the upstream (mock upstream asserts absence); correlation id
+   recorded namespaced `{agent_id}:{tenant_id}`.
+8. **Terminal holds** — after a settle-poll window every hold is terminal
+   (`settled`), none stuck `open`, none `needs_reconciliation`.
