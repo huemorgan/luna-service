@@ -779,3 +779,104 @@ Suite grew 462 → 536 passed across the phase.
   ten products via the admin bindings API, verify payments_enabled flips,
   then repeat in live mode. Noted in the phase file.
 
+## Phase 003 — Luna core metering (2026-07-15, luna repo)
+
+Executed in the luna repo (worktree `luna-039-metering`, branch
+`039-metering`, plan `plans/039-luna-metering/PLAN.md` there). Three
+commits — `716c444` (03910), `6722c5a` (03920), `f93f755` (03930) —
+plus a merge of luna main (038 condense work landed mid-phase);
+version `0.36.006`.
+
+### What was done
+
+- **03910 — header transport + typed blocks** (`716c444`, 0.36.001):
+  `llm_call_scope` context (contextvar) carrying `kind`
+  (`agent`/`direct`), `logical_call_id`, `root_action_id`,
+  `root_action_type`; a hooked httpx transport injects `x-luna-context`,
+  `x-luna-call-id`, `x-luna-root-action-id`, `x-luna-root-action-type`
+  on every provider request. `ProviderPolicyBlockedError` (LLMError,
+  `retryable=False`, carries `block_code`/`block_retryable`) +
+  `policy_block_from_body()` parsing the frozen 402 contract body
+  defensively (str/bytes/dict-with-error/dict-with-code/garbage — the
+  openai SDK unwraps the `{"error": ...}` envelope before Luna sees it).
+  Router `should_fallback` returns False for policy blocks FIRST — a 402
+  never tries another provider and never records provider cooldown, under
+  every policy (strict/availability/resilient).
+- **03920 — call-site classification + lifecycle events** (`6722c5a`,
+  0.36.002): `MeteringModel` (pydantic-ai WrapperModel, wraps the
+  reasoning model per turn) and inline router emits produce
+  `llm.call.started/completed/failed` bus events with the scope ids,
+  provider/model, input/output tokens, **cache read/write tokens**
+  (anthropic `message_start` usage; openai
+  `prompt_tokens_details.cached_tokens`), `cost_usd` on the router path
+  and `embed_texts` on embeds. Each request opens a fresh nested scope
+  (fresh `logical_call_id`, inherits kind/root action from the outer
+  scope; outer kind wins). `utility_complete` and bare `embed()` open
+  DIRECT scopes. All emits best-effort — telemetry never blocks a call.
+  16 tests.
+- **03930 — policy-block propagation to the user** (`f93f755`, 0.36.003):
+  one classifier (`_policy_block_notice`) covers both exception surfaces
+  (typed error, `ModelHTTPError` 402); `LunaAgent.stream()` yields
+  `AgentEvent(kind="policy_blocked", notice={code,message,retryable})`
+  then `done` — no fake prose, turn stamped failed, `llm.policy_blocked`
+  on the bus. SSE layer forwards a `policy_blocked` event and persists a
+  marker row (`extra.kind="policy_blocked"`) so the void is explained on
+  reload; both live and persisted paths render one red
+  `PolicyBlockedBanner` ("Message not processed"). Non-402 errors keep
+  the existing friendly-error path. 8 tests.
+- **Dojo** (`dojo/tests/039-policy-block/`, results committed): real
+  server on an isolated Postgres DB, anthropic base URL pointed at a mock
+  gateway that 402s everything AND records `x-luna-*` headers; the real
+  openai key deliberately left configured as the fallback entry. 8/8
+  PASS: banner live, banner after reload, no fallback prose row (API
+  check), gateway saw `context=agent` + call id + root action id ==
+  conversation id + `root_action_type=chat_turn`.
+- **Regression**: full luna suite on the merged tree — 1675 passed, every
+  failure accounted for as pre-existing: the branch baseline (30) minus
+  one 038 fixed, plus two avatar tests reproduced on clean main, plus 13
+  live-API tests that only executed because the dojo `.env` supplied a
+  dummy anthropic key (they skip without one, as at baseline). Zero
+  regressions from 039. UI: tsc clean, vitest 61/61, vite build ok.
+
+### What was learned
+
+1. **pydantic-ai 1.103 made `StreamedResponse.usage` a property** (was a
+   method); metering reads it with a `callable()` back-compat check.
+   Wrapper-layer code must tolerate both across pydantic-ai upgrades.
+2. **The openai SDK unwraps the error envelope**: handlers never see the
+   wire body shape, they see `APIStatusError.body` which may be the inner
+   error dict. Contract parsers must accept every plausible shape, so
+   `policy_block_from_body` is deliberately promiscuous with a safe
+   fallback message.
+3. **"Retryable" required freezing semantics**: retryable means "retry
+   later, same provider" — never "try another provider". Encoding that in
+   `should_fallback` (checked before any status-code heuristics) plus a
+   no-cooldown assertion is what makes the live no-fallback dojo pass.
+4. **The strongest dojo assertion is a real key that must NOT be used**:
+   leaving the genuine openai key configured while the primary 402s makes
+   wrongful fallback visible as an actual gpt-4o reply. Absence of that
+   reply is live proof no code path leaks around the policy block.
+5. **A mock gateway doubles as a transport verifier**: having it record
+   `x-luna-*` request headers to JSONL turned the UX dojo into an
+   end-to-end header-transport test for free (and confirmed
+   root_action_id == conversation id on chat turns).
+6. **Body-text assertions in browser walkthroughs false-fail**: the word
+   "haiku" from the user's own message echoed in the sidebar title;
+   asserting via the messages API (no assistant row without the marker
+   kind) is exact. Same lesson family as 008's locator notes.
+7. **Merging a moved main mid-phase was cheap because surfaces barely
+   overlap**: 038 touched runtime/app.py/ChatPanel too, but only
+   `__version__` conflicted. `uv sync` after merge (new pillow dep) —
+   worktrees don't share the venv.
+
+### Reassessment of future phases
+
+- **009**: gateway↔Luna context reconciliation is now a join on
+  `logical_call_id` (Luna emits it in lifecycle events; the gateway
+  records it from headers); Luna events are telemetry only — simulator
+  inputs stay `billable_events`. Amended.
+- **010**: the block-aware image gate is satisfied (luna main 0.36.006);
+  the 003 dojo is the canary-stage verification tool (rerun it against
+  staging); context-differentiated constants unblocked once canaries run
+  the new image. Amended.
+

@@ -209,3 +209,27 @@ live):
 - Dunning does NOT suspend hosting by itself: `past_due` only flags the
   account; hosting stops via the existing payment_due renewal sweep when
   credits run out. Rollout comms should describe it that way.
+
+## Amendments from phase 003 (2026-07-15)
+
+- **The block-aware Luna image exists**: luna `main` @ 0.36.006 (plan
+  039-luna-metering, three commits + merge). It consumes the frozen 402
+  contract verbatim: typed `policy_blocked` agent event → SSE event +
+  persisted marker row → red "Message not processed" banner (live and
+  after reload). Rollout step "block-aware image before any enforced
+  account" is now a deploy of current main, not pending work.
+- **No-fallback under policy block is proven live**, not just unit-tested:
+  the 003 dojo ran a real server whose anthropic base URL 402'd every
+  call while a REAL openai key stayed configured as the fallback chain
+  entry — no fallback reply appeared, no cooldown was recorded. The
+  same dojo (`dojo/tests/039-policy-block/` in the luna repo: mock 402
+  gateway that records `x-luna-*` headers + playwright walkthrough) is
+  the canary-stage verification tool for step 3/7 — point a canary Luna
+  at staging and rerun it.
+- **Header transport verified on-wire**: `x-luna-context: agent`,
+  `x-luna-call-id`, `x-luna-root-action-id` (= conversation id for chat
+  turns), `x-luna-root-action-type: chat_turn` all observed at the
+  gateway side. Context-differentiated constants are unblocked once the
+  image is deployed to canaries (rollout step 3).
+- Luna `model_override` paths (dev/test convenience) bypass the metering
+  wrapper by design — irrelevant to hosted images, which never set it.

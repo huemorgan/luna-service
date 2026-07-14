@@ -163,3 +163,21 @@ touching production records, and operate the system: reconciliation, invariants,
   dedupe + durable-job path is where production bugs live.
 - The `payments_enabled` derivation (settings + full binding coverage) is
   itself worth an ops check: show WHICH product keys are unbound per mode.
+
+## Amendments from phase 003 (2026-07-15)
+
+- The Luna-side correlation stream now exists: Luna 0.36.006 emits
+  `llm.call.started/completed/failed` bus events carrying
+  `logical_call_id`, `kind` (`agent`/`direct`), `root_action_id`,
+  `root_action_type`, token/cache usage, and (router path) `cost_usd` —
+  the same identifiers the gateway records from the `x-luna-*` headers.
+  Context-coverage reconciliation (gateway `context` vs Luna `kind` per
+  logical call) is therefore a join on `logical_call_id`, not an
+  estimate. Ops checks comparing gateway BillableEvents against Luna
+  lifecycle events should treat a missing-header default (`agent`) that
+  disagrees with Luna's own `kind=direct` as a coverage gap to surface,
+  never a billing error (agent-context defaulting never undercharges).
+- Simulator note: Luna-side events are best-effort telemetry (emits are
+  wrapped, never block the call) — the gateway's `billable_events`
+  remain the only rating/replay input. Do not build simulator inputs on
+  Luna lifecycle events.
