@@ -281,13 +281,16 @@ def main() -> None:
             page = ctx.new_page()
 
             # 1 — public pricing page renders packages from the API (no auth).
-            page.goto(f"{BASE}/pricing")
+            page.goto(f"{BASE}/pricing", wait_until="domcontentloaded")
             expect(page.get_by_text("Free trial")).to_be_visible()
             for name in ("Hobby", "Pro", "Power"):
                 expect(page.locator(".card.price .tier", has_text=name)).to_be_visible()
             expect(page.get_by_text("1,800 credits included")).to_be_visible()
             expect(page.get_by_text("1,900 credits every month")).to_be_visible()
-            expect(page.get_by_text("+1,000 bonus credits monthly")).to_be_visible()
+            expect(page.get_by_text("+1,100 bonus credits monthly")).to_be_visible()
+            # Bonus makes the credit value exceed the price → struck-out value.
+            expect(page.locator(".amt .was", has_text="$110")).to_be_visible()
+            expect(page.locator(".amt .was", has_text="$250")).to_be_visible()
             expect(page.get_by_text("$10 → 1,000 credits")).to_be_visible()
             expect(page.get_by_text("999 credits per Luna / monthly")).to_be_visible()
             assert "degrade gracefully" not in page.content().lower()
@@ -297,7 +300,8 @@ def main() -> None:
             # 2 — yearly toggle switches to yearly lots + gift credits.
             page.get_by_role("button", name="Yearly").click()
             expect(page.get_by_text("/mo billed yearly").first).to_be_visible()
-            expect(page.get_by_text("+10,000 gift credits each year")).to_be_visible()
+            # Yearly gift = two months of the package's paid monthly credits.
+            expect(page.get_by_text("+19,800 gift credits each year")).to_be_visible()
             shot(page, "11-marketing-pricing-yearly.png")
             ok("2 yearly toggle shows billed-yearly pricing with yearly gift credits")
 
@@ -307,7 +311,7 @@ def main() -> None:
                               "url": BASE}])
 
             # 3 — dashboard header links to Billing.
-            page.goto(f"{BASE}/dashboard")
+            page.goto(f"{BASE}/dashboard", wait_until="domcontentloaded")
             billing_link = page.get_by_role("link", name="Billing")
             expect(billing_link).to_be_visible()
             billing_link.click()
@@ -383,6 +387,10 @@ def main() -> None:
             expect(coming).to_have_count(3)
             for i in range(3):
                 expect(coming.nth(i)).to_be_disabled()
+            # $99 tier: 9,900 paid + 1,100 bonus = $110 value struck out.
+            # ("9,900 credits monthly" alone is a substring of the 19,900 row)
+            expect(page.get_by_text("9,900 credits monthly + 1,100 bonus", exact=True)).to_be_visible()
+            expect(page.locator("s", has_text="$110")).to_be_visible()
             expect(page.get_by_text("Statement")).to_be_visible()
             expect(page.get_by_text("+1,800")).to_be_visible()
             expect(page.get_by_text("trial gift")).to_be_visible()
@@ -403,7 +411,7 @@ def main() -> None:
             ok("11 limit editor PUTs daily 75→100; UI and DB agree")
 
             # 12 — AgentDetail Spend card shows real usage + hosting.
-            page.goto(f"{BASE}/dashboard/agents/{ids['agent_id']}")
+            page.goto(f"{BASE}/dashboard/agents/{ids['agent_id']}", wait_until="domcontentloaded")
             spend = page.locator("section", has_text="Spend").last
             expect(spend.get_by_text("This month")).to_be_visible()
             expect(spend.get_by_text("of 800 cr limit")).to_be_visible()

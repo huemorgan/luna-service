@@ -178,12 +178,13 @@ the tab bar on every tab.
 ## Scenarios
 
 1. **Marketing /pricing from the API** — trial card ($0, 1,800 credits,
-   28 days, 75/day, 1 active Luna), Hobby/Pro/Power from
-   `/api/public/pricing`, top-ups card and always-on hosting card;
-   no "degrade gracefully" copy anywhere.
+   28 days, 75/day, 1 active Luna), Hobby $19 / Pro $99 / Power $199 from
+   `/api/public/pricing` with the credit value struck out where the bonus
+   exceeds the price (~~$110~~ $99, ~~$250~~ $199), top-ups card and
+   always-on hosting card; no "degrade gracefully" copy anywhere.
 2. **Yearly toggle** — prices become per-month billed-yearly
-   ($100/mo billed yearly for Pro) and yearly gift credits appear
-   ("+10,000 gift credits each year").
+   ($99/mo billed yearly for Pro) and yearly gift credits appear
+   ("+19,800 gift credits each year" — two months of paid monthly credits).
 3. **Dashboard nav** — header Billing link routes to /dashboard/billing.
 4. **Status tab (default)** — trial banner (days left, active-Luna cap),
    balance 1,678 cr, in-flight 0, debt 0, next expiry date; Credit sources
@@ -203,7 +204,8 @@ the tab bar on every tab.
 9. **CSV export** — `/api/billing/usage/actions.csv` honours the session
    cookie, 6 data rows, frozen header `time,luna,action,service,status,credits`.
 10. **Billing tab** — three package cards render disabled "Coming soon"
-    buttons (payments_enabled false until 007); statement lists the trial
+    buttons (payments_enabled false until 007) with the credit value
+    struck out next to the price (~~$110~~ $99); statement lists the trial
     gift +1,800 row and a correct per-row running balance ending at 1,678
     (screenshot 18).
 11. **Limit editor (Usage tab)** — owner edits daily 75→100 through the

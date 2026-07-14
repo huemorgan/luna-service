@@ -285,6 +285,7 @@
 .mkt .price .tier{font-family:var(--font-display);font-weight:600;font-size:15px;color:var(--text-dim)}
 .mkt .price .amt{font-family:var(--font-display);font-weight:700;font-size:38px;letter-spacing:-.02em;color:var(--text)}
 .mkt .price .amt small{font-size:14px;color:var(--text-faint);font-weight:500}
+.mkt .price .amt .was{font-size:20px;color:var(--text-faint);font-weight:500;margin-right:8px}
 .mkt .price ul{list-style:none;display:grid;gap:9px;font-size:14px;color:var(--text-dim);margin-top:4px;padding:0}
 .mkt .price li{display:flex;gap:9px;align-items:flex-start}
 .mkt .price li::before{content:"";flex:none;width:14px;height:14px;margin-top:4px;border-radius:50%;background:var(--grad-moon);box-shadow:0 0 10px -2px rgba(174,187,230,.7)}

@@ -611,6 +611,28 @@ new screenshot 18. Two more Playwright lessons: `locator.count()` doesn't
 auto-wait (use `expect(...).to_have_count(n)`), and `get_by_text` needs
 `exact=True` when a label is echoed inside hint/note text.
 
+### Addendum — pricing revision (2026-07-14)
+
+Owner decisions applied to the v1 launch config (nothing deployed, so the
+seed defaults were edited in place):
+
+- **Tiers are now $19 / $99 / $199.** Credit totals per tier stay at
+  1,900 / 11,000 / 25,000 — paid credits track the price (1 cr = 1¢), so
+  the bonus absorbs the difference: Pro 9,900 + 1,100, Power
+  19,900 + 5,100. Keys renamed `recurring_100/200` → `recurring_99/199`.
+- **Yearly gift doubled to two months of paid monthly credits**
+  (Hobby 3,800, Pro 19,800, Power 39,800).
+- **Strike-through value price** wherever a bonus makes the credit value
+  exceed the price: marketing /pricing and the dashboard Billing tab show
+  ~~$110~~ $99 and ~~$250~~ $199 (credit total is literally a cent
+  amount, so `usd(paid + bonus)` is the struck value).
+- 006 Stripe plan's product/price table updated to the new keys and
+  yearly totals ($1,188 / $2,388).
+- Dojo hardening: transient network stalls on the external Google Fonts
+  request hung `page.goto(..., wait_until="load")` for 30s+; all dojo
+  navigations now wait on `domcontentloaded` (assertions auto-wait
+  anyway).
+
 ### Plan reassessment
 
 - **007 (Stripe integration)**: the UI contract is now concrete — flip

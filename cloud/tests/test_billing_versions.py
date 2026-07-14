@@ -153,7 +153,7 @@ async def test_seeded_config_contents(db_session):
     enabled = {s["key"] for s in config["skus"] if s["enabled"]}
     assert enabled == {"llm_call", "hosting_month"}  # everything else fails closed
     product_keys = {p["key"] for p in config["products"]}
-    assert {"hobby_19", "recurring_100", "recurring_200", "topup_10"} <= product_keys
+    assert {"hobby_19", "recurring_99", "recurring_199", "topup_10"} <= product_keys
 
 
 @pytest.mark.asyncio

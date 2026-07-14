@@ -31,10 +31,10 @@ config:
 |---|---:|---|
 | `hobby_19_monthly` | $19.00 | monthly |
 | `hobby_19_yearly` | $228.00 | yearly |
-| `recurring_100_monthly` | $100.00 | monthly |
-| `recurring_100_yearly` | $1,200.00 | yearly |
-| `recurring_200_monthly` | $200.00 | monthly |
-| `recurring_200_yearly` | $2,400.00 | yearly |
+| `recurring_99_monthly` | $99.00 | monthly |
+| `recurring_99_yearly` | $1,188.00 | yearly |
+| `recurring_199_monthly` | $199.00 | monthly |
+| `recurring_199_yearly` | $2,388.00 | yearly |
 | `topup_10` | $10.00 | one-time |
 | `topup_25` | $25.00 | one-time |
 | `topup_50` | $50.00 | one-time |

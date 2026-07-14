@@ -32,8 +32,8 @@ interface PublicPricing {
 
 const PLAN_NAMES: Record<string, string> = {
   hobby_19: 'Hobby',
-  recurring_100: 'Pro',
-  recurring_200: 'Power',
+  recurring_99: 'Pro',
+  recurring_199: 'Power',
 };
 
 const fmt = (n: number) => n.toLocaleString('en-US');
@@ -80,10 +80,20 @@ export default function Pricing() {
     return rows;
   };
 
-  const planAmount = (p: PublicProduct) =>
-    p.interval === 'year'
-      ? { amount: usd(p.price_usd_cents / 12), per: '/mo billed yearly' }
-      : { amount: usd(p.price_usd_cents), per: '/mo' };
+  // Credits are worth $0.01 each, so a credit total IS a cent amount; when the
+  // bonus makes the credit value exceed the price, show the value struck out.
+  const planAmount = (p: PublicProduct) => {
+    const yearlyPlan = p.interval === 'year';
+    const priceCents = yearlyPlan ? p.price_usd_cents / 12 : p.price_usd_cents;
+    const valueCents = yearlyPlan
+      ? (p.monthly_paid_lot_credits ?? 0) + (p.monthly_bonus_lot_credits ?? 0)
+      : p.paid_credits + p.bonus_credits;
+    return {
+      amount: usd(priceCents),
+      per: yearlyPlan ? '/mo billed yearly' : '/mo',
+      was: valueCents > priceCents ? usd(valueCents) : null,
+    };
+  };
 
   return (
     <>
@@ -139,15 +149,18 @@ export default function Pricing() {
               </Reveal>
               {plans.map(p => {
                 const base = p.key.replace(/_yearly$/, '');
-                const featured = base === 'recurring_100';
-                const { amount, per } = planAmount(p);
+                const featured = base === 'recurring_99';
+                const { amount, per, was } = planAmount(p);
                 return (
                   <Reveal key={base}>
                     <div className={`card price ${featured ? 'featured' : ''}`}>
                       <span className={`tier ${featured ? 'gtext' : ''}`}>
                         {PLAN_NAMES[base] ?? base}
                       </span>
-                      <span className="amt">{amount}<small>{per}</small></span>
+                      <span className="amt">
+                        {was && <s className="was">{was}</s>}
+                        {amount}<small>{per}</small>
+                      </span>
                       <ul>
                         {planFeatures(p).map(f => <li key={f}>{f}</li>)}
                       </ul>

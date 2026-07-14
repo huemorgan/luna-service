@@ -24,8 +24,8 @@ const card = {
 
 const PLAN_NAMES: Record<string, string> = {
   hobby_19: 'Hobby',
-  recurring_100: 'Pro',
-  recurring_200: 'Power',
+  recurring_99: 'Pro',
+  recurring_199: 'Power',
 };
 
 const GRANT_CATEGORY_LABELS: Record<string, string> = {
@@ -697,6 +697,12 @@ export default function BillingPage() {
                             {PLAN_NAMES[p.key] ?? p.key}
                           </div>
                           <div className="text-2xl font-bold mb-2" style={{ color: 'var(--text)' }}>
+                            {p.paid_credits + p.bonus_credits > p.price_usd_cents && (
+                              // 1 credit = 1¢, so the credit total is the value in cents
+                              <s className="text-base font-medium mr-2" style={{ color: 'var(--text-dim)' }}>
+                                {usd(p.paid_credits + p.bonus_credits)}
+                              </s>
+                            )}
                             {usd(p.price_usd_cents)}<span className="text-sm font-normal" style={{ color: 'var(--text-dim)' }}>/mo</span>
                           </div>
                           <div className="text-sm" style={{ color: 'var(--text)' }}>

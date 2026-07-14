@@ -99,8 +99,10 @@ async def test_public_pricing_shape_and_no_internal_leaks(anon_client, db_sessio
     products = {p["key"]: p for p in body["products"]}
     assert products["hobby_19"]["price_usd_cents"] == 1900
     assert products["hobby_19"]["paid_credits"] == 1900
-    assert products["recurring_100"]["bonus_credits"] == 1000
-    assert products["recurring_200_yearly"]["interval"] == "year"
+    assert products["recurring_99"]["bonus_credits"] == 1100
+    assert products["recurring_199_yearly"]["interval"] == "year"
+    # Yearly gift = two months of the package's paid monthly credits.
+    assert products["recurring_99_yearly"]["yearly_gift_credits"] == 19800
 
     text = resp.text.lower()
     for token in FORBIDDEN:
@@ -182,7 +184,7 @@ async def test_products_payments_disabled(admin_client, db_session):
     await _seed(db_session)
     body = (await admin_client.get("/api/billing/products")).json()
     assert body["payments_enabled"] is False
-    assert {p["key"] for p in body["products"]} >= {"hobby_19", "recurring_100", "recurring_200"}
+    assert {p["key"] for p in body["products"]} >= {"hobby_19", "recurring_99", "recurring_199"}
 
 
 # ── Usage ────────────────────────────────────────────────────────────────────
