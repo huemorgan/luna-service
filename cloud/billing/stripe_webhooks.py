@@ -373,6 +373,8 @@ async def grant_from_paid_invoice(db: AsyncSession, gw: StripeGateway, event_id:
     row = await _upsert_subscription_mirror(db, account.account_id, subscription, product["key"])
     row.payment_action_required = False
     row.next_payment_retry_at = None
+    if row.pending_product_key == product["key"]:
+        row.pending_product_key = None  # scheduled downgrade took effect
     if account.billing_status == "past_due":
         account.billing_status = "active"
     await db.flush()

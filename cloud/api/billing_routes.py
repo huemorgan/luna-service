@@ -47,6 +47,7 @@ from cloud.billing.stripe_gateway import (
 )
 from cloud.billing.stripe_service import (
     CheckoutRejected,
+    change_subscription_plan,
     create_portal_session,
     create_subscription_checkout,
     create_topup_checkout,
@@ -393,6 +394,33 @@ async def checkout_topup(
             return await _checkout_call(
                 db, create_topup_checkout, db, gw, account, user, body.amount_usd_cents
             )
+    finally:
+        await gw.aclose()
+
+
+@router.post("/subscription/change", dependencies=[Depends(enforce_same_origin)])
+async def change_plan(
+    body: SubscriptionCheckoutBody,
+    auth: tuple[User, Account] = Depends(require_active_account),
+):
+    """Upgrade invoices the new plan immediately (grants only after the
+    verified paid invoice); downgrade waits for renewal. No proration."""
+    user, account = auth
+    gw = _stripe_gateway()
+    try:
+        async with get_db_session() as db:
+            await _require_owner(db, user, account)
+            try:
+                result = await change_subscription_plan(db, gw, account, body.product_key)
+            except CheckoutRejected as exc:
+                raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
+            except RatingUnavailable:
+                raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Pricing unavailable")
+            except StripeError as exc:
+                log.error("stripe plan change failed: %s", exc)
+                raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Payment provider error")
+            await db.commit()
+            return result
     finally:
         await gw.aclose()
 
