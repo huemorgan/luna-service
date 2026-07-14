@@ -40,7 +40,17 @@ from cloud.billing.models import (
     RatedCharge,
 )
 from cloud.billing.rating import RatingUnavailable
-from cloud.billing.stripe_gateway import payments_enabled_for
+from cloud.billing.stripe_gateway import (
+    StripeError,
+    StripeGateway,
+    payments_enabled_for,
+)
+from cloud.billing.stripe_service import (
+    CheckoutRejected,
+    create_portal_session,
+    create_subscription_checkout,
+    create_topup_checkout,
+)
 from cloud.db.models import Account, Agent, Membership, User
 from cloud.db.session import get_session as get_db_session
 
@@ -318,6 +328,85 @@ async def my_products(auth: tuple[User, Account] = Depends(require_active_accoun
             **_public_pricing(config),
             "payments_enabled": await payments_enabled_for(db, config),
         }
+
+
+# ── Checkout and portal (039/007) ────────────────────────────────────────────
+# These endpoints only ever RETURN a Stripe-hosted URL. Credits are granted
+# exclusively by verified webhook events — a success redirect proves nothing.
+
+class SubscriptionCheckoutBody(BaseModel):
+    product_key: str = Field(min_length=1)
+
+
+class TopupCheckoutBody(BaseModel):
+    amount_usd_cents: int = Field(gt=0)
+
+
+def _stripe_gateway() -> StripeGateway:
+    gw = StripeGateway.from_settings()
+    if gw is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Payments are not enabled")
+    return gw
+
+
+async def _checkout_call(db, fn, *args, **kwargs) -> dict:
+    try:
+        url = await fn(*args, **kwargs)
+    except CheckoutRejected as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
+    except RatingUnavailable:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Pricing unavailable")
+    except StripeError as exc:
+        log.error("stripe call failed: %s", exc)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Payment provider error")
+    await db.commit()  # persists a newly created stripe_customer_id
+    return {"url": url}
+
+
+@router.post("/checkout/subscription", dependencies=[Depends(enforce_same_origin)])
+async def checkout_subscription(
+    body: SubscriptionCheckoutBody,
+    auth: tuple[User, Account] = Depends(require_active_account),
+):
+    user, account = auth
+    gw = _stripe_gateway()
+    try:
+        async with get_db_session() as db:
+            await _require_owner(db, user, account)
+            return await _checkout_call(
+                db, create_subscription_checkout, db, gw, account, user, body.product_key
+            )
+    finally:
+        await gw.aclose()
+
+
+@router.post("/checkout/topup", dependencies=[Depends(enforce_same_origin)])
+async def checkout_topup(
+    body: TopupCheckoutBody,
+    auth: tuple[User, Account] = Depends(require_active_account),
+):
+    user, account = auth
+    gw = _stripe_gateway()
+    try:
+        async with get_db_session() as db:
+            await _require_owner(db, user, account)
+            return await _checkout_call(
+                db, create_topup_checkout, db, gw, account, user, body.amount_usd_cents
+            )
+    finally:
+        await gw.aclose()
+
+
+@router.post("/portal", dependencies=[Depends(enforce_same_origin)])
+async def billing_portal(auth: tuple[User, Account] = Depends(require_active_account)):
+    user, account = auth
+    gw = _stripe_gateway()
+    try:
+        async with get_db_session() as db:
+            await _require_owner(db, user, account)
+            return await _checkout_call(db, create_portal_session, db, gw, account, user)
+    finally:
+        await gw.aclose()
 
 
 # ── Usage ────────────────────────────────────────────────────────────────────

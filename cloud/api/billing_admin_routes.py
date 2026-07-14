@@ -27,7 +27,15 @@ from cloud.billing.models import (
     CommercialPricingVersion,
     ProviderCostRate,
     ProviderCostVersion,
+    StripePriceBinding,
 )
+from cloud.billing.stripe_gateway import (
+    StripeError,
+    StripeGateway,
+    payments_enabled_for,
+    stripe_settings_ok,
+)
+from cloud.config import get_settings
 from cloud.db.models import Account, AuditLog, User
 from cloud.db.session import get_session as get_db_session
 
@@ -549,3 +557,204 @@ async def models_coverage(version_id: uuid.UUID, admin: User = Depends(require_a
                 db, version.config_json
             )
         }
+
+
+# ── Stripe price bindings (039/007) ──────────────────────────────────────────
+# Bindings gate checkout activation: payments stay disabled until every
+# product in the default published catalog is bound to a Stripe Price for
+# the declared mode. Publication (002) stays decoupled from Stripe.
+
+def _stripe_lookup_key(product: dict) -> str:
+    """006 naming: monthly subscriptions carry a `_monthly` suffix in Stripe;
+    yearly and top-up keys match the catalog key exactly."""
+    key = product["key"]
+    if product.get("kind") == "subscription" and product.get("interval") == "month":
+        return f"{key}_monthly"
+    return key
+
+
+async def _default_config(db) -> dict:
+    try:
+        version_id = await assignments_svc.default_version_id(db)
+    except Exception:
+        raise HTTPException(status.HTTP_409_CONFLICT, "No published pricing version")
+    version = await db.get(CommercialPricingVersion, version_id)
+    return version.config_json
+
+
+@router.get("/stripe-bindings")
+async def list_stripe_bindings(admin: User = Depends(require_admin)):
+    s = get_settings()
+    async with get_db_session() as db:
+        config = await _default_config(db)
+        products = {p["key"]: p for p in config.get("products") or []}
+        bindings = (
+            await db.execute(
+                select(StripePriceBinding).where(
+                    StripePriceBinding.livemode == s.stripe_livemode
+                )
+            )
+        ).scalars().all()
+        by_key = {b.product_key: b for b in bindings}
+        drifted = [
+            k for k, p in products.items()
+            if k in by_key and (
+                by_key[k].price_usd_cents != p["price_usd_cents"]
+                or (by_key[k].interval or None) != (p.get("interval") or None)
+            )
+        ]
+        return {
+            "livemode": s.stripe_livemode,
+            "stripe_settings_ok": stripe_settings_ok(s),
+            "bindings": [
+                {
+                    "product_key": b.product_key,
+                    "stripe_product_id": b.stripe_product_id,
+                    "stripe_price_id": b.stripe_price_id,
+                    "price_usd_cents": b.price_usd_cents,
+                    "interval": b.interval,
+                    "updated_at": b.updated_at.isoformat(),
+                }
+                for b in sorted(bindings, key=lambda b: b.product_key)
+            ],
+            "missing": sorted(set(products) - set(by_key)),
+            "drifted": sorted(drifted),
+            "payments_enabled": await payments_enabled_for(db, config, s),
+        }
+
+
+class BindingBody(BaseModel):
+    stripe_product_id: str = Field(min_length=1)
+    stripe_price_id: str = Field(min_length=1)
+    reason: str = Field(default="")
+
+
+@router.put("/stripe-bindings/{product_key}")
+async def upsert_stripe_binding(product_key: str, body: BindingBody,
+                                request: Request, admin: User = Depends(require_admin)):
+    reason = _require_reason(body.reason)
+    s = get_settings()
+    async with get_db_session() as db:
+        config = await _default_config(db)
+        product = next((p for p in config.get("products") or []
+                        if p["key"] == product_key), None)
+        if product is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND,
+                                f"No product '{product_key}' in the default catalog")
+        binding = (
+            await db.execute(
+                select(StripePriceBinding).where(
+                    StripePriceBinding.livemode == s.stripe_livemode,
+                    StripePriceBinding.product_key == product_key,
+                )
+            )
+        ).scalar_one_or_none()
+        before = None
+        if binding is None:
+            binding = StripePriceBinding(livemode=s.stripe_livemode, product_key=product_key,
+                                         stripe_product_id="", stripe_price_id="",
+                                         price_usd_cents=0)
+            db.add(binding)
+        else:
+            before = {"stripe_price_id": binding.stripe_price_id,
+                      "stripe_product_id": binding.stripe_product_id}
+        binding.stripe_product_id = body.stripe_product_id
+        binding.stripe_price_id = body.stripe_price_id
+        # The binding records the CATALOG amount it was attached against, so
+        # a later catalog edit shows up as drift instead of silently selling
+        # at the old Stripe price.
+        binding.price_usd_cents = product["price_usd_cents"]
+        binding.interval = product.get("interval")
+        _audit(db, request, admin, action="pricing.stripe_binding.upsert",
+               target=f"binding:{'live' if s.stripe_livemode else 'test'}:{product_key}",
+               reason=reason, before=before,
+               after={"stripe_price_id": body.stripe_price_id,
+                      "stripe_product_id": body.stripe_product_id,
+                      "price_usd_cents": binding.price_usd_cents})
+        await db.commit()
+        return {"product_key": product_key, "stripe_price_id": binding.stripe_price_id}
+
+
+class SyncBody(BaseModel):
+    reason: str = Field(default="")
+
+
+@router.post("/stripe-bindings/sync")
+async def sync_stripe_bindings(body: SyncBody, request: Request,
+                               admin: User = Depends(require_admin)):
+    """Pull Prices from Stripe by the 006 lookup-key convention and bind
+    every catalog product whose amount and interval match exactly."""
+    reason = _require_reason(body.reason)
+    s = get_settings()
+    gw = StripeGateway.from_settings(s)
+    if gw is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "Stripe is not configured")
+    try:
+        async with get_db_session() as db:
+            config = await _default_config(db)
+            products = config.get("products") or []
+            lookup_keys = [_stripe_lookup_key(p) for p in products]
+            try:
+                resp = await gw.get("/v1/prices", params={
+                    "lookup_keys": lookup_keys, "limit": 100, "active": True,
+                })
+            except StripeError as exc:
+                log.error("stripe price lookup failed: %s", exc)
+                raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Payment provider error")
+            prices = {p.get("lookup_key"): p for p in resp.get("data") or []}
+            bound, mismatched, missing = [], [], []
+            for product in products:
+                lookup = _stripe_lookup_key(product)
+                price = prices.get(lookup)
+                if price is None:
+                    missing.append(lookup)
+                    continue
+                interval = (price.get("recurring") or {}).get("interval")
+                if (price.get("unit_amount") != product["price_usd_cents"]
+                        or price.get("currency") != "usd"
+                        or (interval or None) != (product.get("interval") or None)):
+                    mismatched.append({
+                        "lookup_key": lookup,
+                        "stripe_unit_amount": price.get("unit_amount"),
+                        "catalog_usd_cents": product["price_usd_cents"],
+                        "stripe_interval": interval,
+                        "catalog_interval": product.get("interval"),
+                    })
+                    continue
+                binding = (
+                    await db.execute(
+                        select(StripePriceBinding).where(
+                            StripePriceBinding.livemode == s.stripe_livemode,
+                            StripePriceBinding.product_key == product["key"],
+                        )
+                    )
+                ).scalar_one_or_none()
+                if binding is None:
+                    binding = StripePriceBinding(
+                        livemode=s.stripe_livemode, product_key=product["key"],
+                        stripe_product_id="", stripe_price_id="", price_usd_cents=0,
+                    )
+                    db.add(binding)
+                prod_ref = price.get("product")
+                binding.stripe_product_id = (
+                    prod_ref.get("id") if isinstance(prod_ref, dict) else prod_ref
+                )
+                binding.stripe_price_id = price["id"]
+                binding.price_usd_cents = product["price_usd_cents"]
+                binding.interval = product.get("interval")
+                bound.append(product["key"])
+            _audit(db, request, admin, action="pricing.stripe_binding.sync",
+                   target=f"bindings:{'live' if s.stripe_livemode else 'test'}",
+                   reason=reason,
+                   after={"bound": bound, "missing": missing,
+                          "mismatched": [m["lookup_key"] for m in mismatched]})
+            await db.commit()
+            return {
+                "bound": bound,
+                "missing": missing,
+                "mismatched": mismatched,
+                "payments_enabled": await payments_enabled_for(db, config, s),
+            }
+    finally:
+        await gw.aclose()
