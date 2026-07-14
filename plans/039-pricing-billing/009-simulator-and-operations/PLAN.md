@@ -141,3 +141,25 @@ touching production records, and operate the system: reconciliation, invariants,
 - Postgres returns `Decimal` for SUM aggregates where SQLite returns int —
   cast before arithmetic; a Decimal/float mix 500ed in phase 008 and only
   the PG dojo caught it.
+
+## Amendments from phase 007 (2026-07-14)
+
+- New operational surfaces that ops pages/alerts must cover:
+  - **Billing-job dead letters**: jobs stuck `pending` with rising
+    `attempts` or `dead` (max 8 attempts) — a dead `stripe.*` job means
+    money moved in Stripe with no local grant/clawback. Highest-severity
+    signal on the ops page.
+  - **processed_webhooks in state `error`** and events `queued` older
+    than a few minutes (worker stalled or handler crash-looping).
+  - **Clawback drift**: `stripe_payments.refunded_pretax_cents /
+    disputed_pretax_cents / clawed_credits` should reconcile against
+    Stripe's own refund/dispute totals; the simulator should compute
+    `clawback_target_credits` from Stripe data and diff.
+  - Unconfigured-gateway retries (`StripeConfigMissing` in
+    `last_error`): payments env got wiped while webhooks kept arriving.
+- Webhook simulation: replay canned Stripe event fixtures through
+  `intake_event` + the real worker (fake gateway via the module-level
+  `gateway_factory` seam), never by calling handlers directly — the
+  dedupe + durable-job path is where production bugs live.
+- The `payments_enabled` derivation (settings + full binding coverage) is
+  itself worth an ops check: show WHICH product keys are unbound per mode.

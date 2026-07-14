@@ -646,3 +646,136 @@ seed defaults were edited in place):
   than invent a second projection. Noted in the phase file.
 - **006 unchanged** (account setup already specced; keys live in
   `.stripe-dev.env`).
+
+## Phase 006 — Stripe account setup (2026-07-14)
+
+### What was done
+
+Executed against Roy's real Stripe account in **test mode** with Roy
+present in the browser session (568933c, 93889cc):
+
+- Created the six subscription Products/Prices ($19/$99/$199 monthly,
+  $228/$1,188/$2,388 yearly) and the four top-up Prices ($10/$25/$50/$100)
+  matching the commercial_v1 catalog exactly.
+- Billing Portal configuration: payment-method update and invoice history
+  on; **plan switching disabled in the portal** — plan changes are
+  code-owned (007) so grants can never originate from a portal action the
+  ledger doesn't understand.
+- Tax defaults set via API. Still on Roy's side: head-office address,
+  business profile/branding/statement descriptor, the restricted API key
+  into `.stripe-dev.env`, and the webhook endpoint + signing secret once
+  007 deploys.
+
+### What was learned
+
+- Stripe object IDs (`prod_`/`price_`) are identifiers, not secrets — they
+  can live in commits and admin UIs; only keys are secret.
+- The portal config API is versioned per configuration object; disabling
+  `subscription_update` there is what makes "plan changes are code-owned"
+  enforceable rather than aspirational.
+
+## Phase 007 — Stripe integration (2026-07-14)
+
+Order amended by Roy: 008 (billing UI) shipped first, so 007 ended as pure
+wiring against a finished UI. Executed in six reviewable slices, each with
+tests + full-suite regression before push.
+
+### What was done
+
+- **Settings/gateway/tables (ed4846f)** — `CLOUD_STRIPE_*` settings; a
+  ~200-line httpx gateway (form-encoding, idempotency keys, livemode
+  guard, webhook signature verify) instead of the stripe SDK;
+  migration 0005: price bindings, subscription mirror, processed-webhook
+  dedupe, payment clawback accumulator. `payments_enabled` is DERIVED:
+  settings complete AND every catalog product bound for the declared mode
+  — a misconfigured deploy degrades to "Coming soon", never a broken
+  button.
+- **Checkout/portal (b8a87c4)** — one Stripe Customer per account (row
+  lock + idempotency key); checkout only for the FIRST subscription;
+  top-ups only from catalog steps; price-drift check blocks checkout
+  before money moves; admin bindings API.
+- **Webhooks → grants (fac6cca)** — signature-only auth over the raw body
+  (no cookies/origin); intake dedupes into `processed_webhooks` and
+  enqueues a durable billing job in the same transaction; handlers fetch
+  CANONICAL objects from Stripe and never trust payloads. invoice.paid
+  runs a strict proof-of-money gate (paid, real PI, usd, one line, pretax
+  == catalog price, buyer's catalog). Yearly = 12 monthly paid lots on
+  calendar-clamped boundaries + bonus lots + one year-spanning gift lot;
+  monthly = paid + bonus; top-ups = no-expiry lot after metadata/amount
+  verification.
+- **Clawback (03a39fd)** — proportional: target = floor(granted ×
+  refunded_pretax / pretax), applied scheduled-lots-first (cancel, no
+  postings), then active remainders (reversal postings), then
+  reclassifies already-consumed credits as debt (DEBT +x / CONSUMED −x
+  with a grant_id-NULL consumption row — the exact inverse of debt
+  repayment, so future grants auto-repay it). Disputes accumulate into
+  the same per-payment cap; a won dispute restores via a fresh
+  `stripe-restore` lot.
+- **Dunning (e2bbde9)** — invoice.payment_failed grants nothing, marks
+  `billing_status=past_due`, maps PI status to
+  `payment_action_required`, stores `next_payment_retry_at`. Recovery is
+  not a separate path: the next verified invoice.paid grants once and
+  clears the flags. Top-ups keep working while past_due without clearing
+  it.
+- **Plan changes (b1331c7)** — code-owned subscription updates, never a
+  new checkout, never proration. Upgrade: `billing_cycle_anchor=now` +
+  `pending_if_incomplete` → full-price invoice now; local state changes
+  ONLY from the verified invoice (payment failure = old plan intact).
+  Downgrade: price switch with `proration_behavior=none`, nothing charged
+  until renewal; `pending_product_key` is UI state cleared by the renewal
+  grant.
+- **UI wiring (fa5ce6f)** — summary exposes the mirror (subscription
+  block, billing_status, real recovery fields); BillingPage plan buttons
+  keyed to mirror state, monthly/yearly toggle, top-up picker, portal
+  link, past_due banner with retry date; dojo Act II reboots the app with
+  Stripe configured (17 scenarios).
+
+Suite grew 462 → 536 passed across the phase.
+
+### What was learned
+
+- **`_post_grant_activation` posts `original_credits`** — cancelling a
+  scheduled lot must zero BOTH original and remaining credits or a later
+  activation over-grants. Found by reading the ledger, not by a failing
+  test; worth a regression test whenever grant lifecycle changes.
+- Registering webhook event types before their handlers exist dead-letters
+  jobs: keep `HANDLED_EVENTS` trimmed to implemented handlers and grow it
+  per slice.
+- SQLite returns naive datetimes where Postgres returns aware — an
+  `_aware()` helper at every mirror/grant comparison point is cheaper than
+  chasing each assertion.
+- Yearly-lot tests must straddle "now" (first lot active, rest scheduled);
+  calendar clamping (Jan 31 → Feb 28/29) is best pinned in a dedicated
+  add_months unit test, not the integration fixture.
+- `pending_if_incomplete` + anchor-now is the exact Stripe idiom for
+  "upgrade now, but a failed payment must not move the plan"; with grants
+  gated on verified invoices, the local mirror needs NO optimistic update.
+- The clawback/debt symmetry (clawback of consumed credits == inverse of
+  debt repayment) meant zero new ledger account types and free
+  auto-repayment from future grants — designing new flows as compositions
+  of existing posting shapes keeps the invariant checker authoritative.
+- httpx MockTransport with a path→object dict fakes the whole Stripe GET
+  surface in ~15 lines; POST recording (parse_qs of the form body) asserts
+  outbound payloads without a fake server.
+- A dojo can flip a server-side feature flag mid-run by restarting the
+  app with different env (bogus-but-well-formed keys) — bindings in DB +
+  fake keys exercise every payments-enabled render path with zero Stripe
+  traffic, and one deliberate failing call proves the 502 error surface.
+
+### Reassessment of future phases
+
+- **003 (Luna-core metering, luna repo)**: unchanged by 007 — it feeds
+  BillableEvents through the gateway; nothing Stripe-specific leaks into
+  the agent. Still next after rollout pieces.
+- **009 (simulator/operations)**: add operational checks for the new 007
+  surfaces — webhook dead-letter monitoring (jobs stuck pending/dead),
+  processed_webhooks error states, StripePayment clawback drift vs
+  Stripe's refund totals. The simulator should replay canned webhook
+  fixtures through `intake_event` + worker rather than mock at the
+  handler layer. Noted in the phase file.
+- **010 (rollout)**: the deploy checklist gains concrete steps — set the
+  four CLOUD_STRIPE_* env vars (per-key PUT on Render), create the
+  webhook endpoint in Stripe pointing at /api/webhooks/stripe, bind all
+  ten products via the admin bindings API, verify payments_enabled flips,
+  then repeat in live mode. Noted in the phase file.
+

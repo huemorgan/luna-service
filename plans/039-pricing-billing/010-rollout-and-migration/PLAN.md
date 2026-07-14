@@ -180,3 +180,32 @@ separately approved retention/deletion policy exists.
   migration script (anchor = flip day), NOT by the renewal sweep — the
   sweep only renews existing active periods; it never creates first
   periods for unbilled agents.
+
+## Amendments from phase 007 (2026-07-14)
+
+Stripe go-live is now a concrete checklist (test mode first, repeat for
+live):
+
+1. Set `CLOUD_STRIPE_SECRET_KEY` / `CLOUD_STRIPE_PUBLISHABLE_KEY` /
+   `CLOUD_STRIPE_WEBHOOK_SECRET` / `CLOUD_STRIPE_LIVEMODE` on Render —
+   per-key PUT only (never the bulk env replace).
+2. Create the webhook endpoint in Stripe → `POST /api/webhooks/stripe`,
+   events: invoice.paid, invoice.payment_failed,
+   checkout.session.completed, customer.subscription.created/updated/
+   deleted, charge.refunded, charge.dispute.created/closed. Copy the
+   signing secret into the env BEFORE announcing (unset secret = 503, and
+   Stripe retries for days, so no events are lost during the gap).
+3. Bind all ten products (6 subscriptions + 4 top-ups) via the admin
+   bindings API for the deployed mode; `payments_enabled` flips ON only
+   when settings AND full binding coverage hold — verify via
+   `/api/public/pricing`.
+4. `CLOUD_BILLING_WORKER=1` on exactly the web service that should own
+   the queue; webhook grants are worker-executed, so a deploy without the
+   worker accepts events but grants nothing (jobs wait, nothing lost).
+5. Smoke: test-mode checkout → webhook → grant visible on the billing
+   page; then a test refund → clawback visible in the ledger.
+- Live-mode rehearsal note: bindings are per-mode rows; live needs its own
+  product/price creation (006 was test mode) and its own binding pass.
+- Dunning does NOT suspend hosting by itself: `past_due` only flags the
+  account; hosting stops via the existing payment_due renewal sweep when
+  credits run out. Rollout comms should describe it that way.
