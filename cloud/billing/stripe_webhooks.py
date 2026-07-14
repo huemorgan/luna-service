@@ -25,7 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cloud.billing import ledger, rating, worker
+from cloud.billing import ledger, rating, stripe_clawback, worker
 from cloud.billing.models import (
     BillingAccount,
     BillingJob,
@@ -45,9 +45,11 @@ HANDLED_EVENTS = {
     "customer.subscription.created": "stripe.subscription_sync",
     "customer.subscription.updated": "stripe.subscription_sync",
     "customer.subscription.deleted": "stripe.subscription_sync",
-    # invoice.payment_failed / charge.refunded / charge.dispute.* get entries
-    # when their handlers land (dunning + clawback slices) — an entry without
-    # a registered handler would dead-letter its jobs.
+    "charge.refunded": "stripe.charge_refunded",
+    "charge.dispute.created": "stripe.dispute",
+    "charge.dispute.closed": "stripe.dispute",
+    # invoice.payment_failed gets its entry when the dunning handler lands —
+    # an entry without a registered handler would dead-letter its jobs.
 }
 
 # Tests replace this with a factory returning a MockTransport-backed gateway.
@@ -493,3 +495,5 @@ def _handler(fn):
 worker.register_handler("stripe.invoice_paid", _handler(grant_from_paid_invoice))
 worker.register_handler("stripe.checkout_completed", _handler(grant_from_topup_checkout))
 worker.register_handler("stripe.subscription_sync", _handler(sync_subscription))
+worker.register_handler("stripe.charge_refunded", _handler(stripe_clawback.handle_charge_refunded))
+worker.register_handler("stripe.dispute", _handler(stripe_clawback.handle_dispute))

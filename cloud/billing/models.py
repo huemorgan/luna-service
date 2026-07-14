@@ -728,6 +728,10 @@ class StripePayment(Base):
             "refunded_pretax_cents >= 0 AND refunded_pretax_cents <= pretax_amount_cents",
             name="ck_sp_refund_bounds",
         ),
+        CheckConstraint(
+            "disputed_pretax_cents >= 0 AND disputed_pretax_cents <= pretax_amount_cents",
+            name="ck_sp_dispute_bounds",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
@@ -746,6 +750,9 @@ class StripePayment(Base):
     tax_amount_cents: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     granted_credits: Mapped[int] = mapped_column(BigInteger, nullable=False)
     refunded_pretax_cents: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    # Kept separate from refunds so a won dispute releases exactly the
+    # disputed portion while real refunds stay clawed.
+    disputed_pretax_cents: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     clawed_credits: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     dispute_status: Mapped[str | None] = mapped_column(Text)
     stripe_charge_id: Mapped[str | None] = mapped_column(Text)
