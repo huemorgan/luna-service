@@ -197,10 +197,13 @@ async def create_agent(
     from cloud.billing import grants as billing_grants
     from cloud.billing import hosting as billing_hosting
 
-    billing_on = billing_hosting.billing_mode() != "off"
-    enforce = billing_hosting.hosting_billing_active()
-
     async with get_db_session() as db:
+        # 039/010: effective mode is per account — the global
+        # CLOUD_BILLING_MODE escalated by the account's enforcement override.
+        effective_mode = await billing_hosting.effective_mode_for(db, account.id)
+        billing_on = effective_mode != "off"
+        enforce = effective_mode == "enforce"
+
         # 039/005: creation is transactional and durable. The billing-account
         # row lock serializes concurrent creates, so the trial active-Luna cap
         # and the hosting authorization can't be raced past.
@@ -232,7 +235,7 @@ async def create_agent(
                                         " Delete one or upgrade to add more."},
                         )
                     log.info("would_block active_luna_limit for account %s "
-                             "(billing mode %s)", account.id, billing_hosting.billing_mode())
+                             "(billing mode %s)", account.id, effective_mode)
 
         slug = base_slug
         suffix = 1

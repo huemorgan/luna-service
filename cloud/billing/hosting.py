@@ -60,8 +60,21 @@ def billing_mode() -> str:
 
 
 def hosting_billing_active() -> bool:
-    """Ledger movements for hosting happen only in enforce mode."""
+    """Ledger movements for hosting happen only in enforce mode (global —
+    per-account decisions use hosting_enforced)."""
     return billing_mode() == "enforce"
+
+
+async def effective_mode_for(session: AsyncSession, account_id: uuid.UUID) -> str:
+    """The account's effective billing mode (039/010): max of the global mode
+    and the account's enforcement override."""
+    from cloud.billing import modes
+
+    return await modes.effective_mode(session, account_id, billing_mode())
+
+
+async def hosting_enforced(session: AsyncSession, account_id: uuid.UUID) -> bool:
+    return await effective_mode_for(session, account_id) == "enforce"
 
 
 def hosting_price(config: dict) -> int:
@@ -129,7 +142,7 @@ async def start_hosting(
     version_id, config = await rating.resolve_commercial_version(session, account_id, now)
     price = hosting_price(config)
 
-    enforce = hosting_billing_active()
+    enforce = await hosting_enforced(session, account_id)
     if enforce and await ledger.posted_balance(session, account_id) < price:
         # Explicit check: the ledger's bounded-overrun would let a 999 hold
         # through once on an empty wallet, and hosting must never enter debt.
@@ -225,8 +238,12 @@ async def retry_provisioning(session: AsyncSession, agent_id: uuid.UUID) -> bool
 
 async def hosting_blocked(session: AsyncSession, agent_id: uuid.UUID) -> bool:
     """One hosting-state guard for every start/wake path: True while any
-    payment_due period exists for the agent. Enforced only in enforce mode."""
-    if not hosting_billing_active():
+    payment_due period exists for the agent. Enforced only when the agent's
+    account is effectively in enforce mode (global or override)."""
+    agent = await session.get(Agent, agent_id)
+    if agent is None:
+        return False
+    if not await hosting_enforced(session, agent.account_id):
         return False
     row = (
         await session.execute(
@@ -354,7 +371,8 @@ async def renew_due_periods(
         starts = old.ends_at
         ends = add_month_clamped(anchor, starts)
 
-        if hosting_billing_active():
+        enforce = await hosting_enforced(session, old.account_id)
+        if enforce:
             balance = await ledger.posted_balance(session, old.account_id)
             if balance < price:
                 old.state = "payment_due"
@@ -381,7 +399,7 @@ async def renew_due_periods(
         )
         session.add(new)
         await session.flush()
-        if hosting_billing_active():
+        if enforce:
             txn = await ledger.charge(
                 session,
                 account_id=old.account_id,
@@ -426,7 +444,7 @@ async def _handle_hosting_provision(session: AsyncSession, job: BillingJob) -> d
 
     agent = await session.get(Agent, uuid.UUID(agent_id))
     if agent is None or agent.deleted_at is not None:
-        if hosting_billing_active():
+        if await hosting_enforced(session, period.account_id):
             try:
                 await ledger.release(session, operation_id=f"hosting:{period_id}")
             except ledger.BillingError:
@@ -478,7 +496,7 @@ async def _handle_hosting_provision(session: AsyncSession, job: BillingJob) -> d
     await session.flush()
     period.resource_allocation_id = machine_alloc.id
 
-    if hosting_billing_active():
+    if await hosting_enforced(session, period.account_id):
         try:
             txn = await ledger.settle(
                 session,

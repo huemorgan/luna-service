@@ -17,9 +17,11 @@ from sqlalchemy import func, select
 
 from cloud.auth.deps import enforce_same_origin, require_admin
 from cloud.billing import assignments as assignments_svc
+from cloud.billing import modes as modes_svc
 from cloud.billing import versions as versions_svc
 from cloud.billing.models import (
     AccountBalanceProjection,
+    BillingAccount,
     BillingHold,
     BillingJob,
     CommercialPricingAssignment,
@@ -543,6 +545,99 @@ async def create_gift(body: GiftRequest, request: Request,
             "credits": grant.original_credits,
             "expires_at": grant.expires_at.isoformat() if grant.expires_at else None,
             "source_key": grant.source_key,
+        }
+
+
+# ── Enforcement overrides (039/010) ──────────────────────────────────────────
+# Per-account/cohort escalation over the global CLOUD_BILLING_MODE. The
+# effective mode is max(global, override), so an override can only escalate —
+# internal canaries get enforced without touching customers.
+
+class OverrideRequest(BaseModel):
+    account_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    mode: str | None = None  # observe | shadow | enforce; None clears
+    reason: str = Field(default="")
+
+
+@router.get("/enforcement")
+async def enforcement_state(admin: User = Depends(require_admin)):
+    from cloud.billing import hosting as billing_hosting
+
+    async with get_db_session() as db:
+        rows = (
+            await db.execute(
+                select(BillingAccount, Account)
+                .join(Account, Account.id == BillingAccount.account_id)
+                .where(BillingAccount.enforcement_override.is_not(None))
+                .order_by(BillingAccount.enforcement_override_set_at.desc())
+            )
+        ).all()
+        return {
+            "global_mode": billing_hosting.billing_mode(),
+            "modes": list(modes_svc.MODES),
+            "overrides": [
+                {
+                    "account_id": str(ba.account_id),
+                    "slug": acc.slug,
+                    "name": acc.name,
+                    "mode": ba.enforcement_override,
+                    "effective_mode": modes_svc.combine(
+                        billing_hosting.billing_mode(), ba.enforcement_override
+                    ),
+                    "set_at": ba.enforcement_override_set_at.isoformat()
+                    if ba.enforcement_override_set_at else None,
+                }
+                for ba, acc in rows
+            ],
+        }
+
+
+@router.post("/enforcement/overrides")
+async def set_enforcement_overrides(body: OverrideRequest, request: Request,
+                                    admin: User = Depends(require_admin)):
+    if body.mode is not None and body.mode not in modes_svc.OVERRIDE_MODES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            f"mode must be one of {list(modes_svc.OVERRIDE_MODES)} or null")
+    reason = _require_reason(body.reason)
+    async with get_db_session() as db:
+        applied = []
+        for account_id in body.account_ids:
+            account = await db.get(Account, account_id)
+            if account is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND,
+                                    f"Account not found: {account_id}")
+            before = await modes_svc.account_override(db, account_id)
+            await modes_svc.set_override(db, account_id, body.mode)
+            _audit(db, request, admin, action="pricing.enforcement.override",
+                   target=f"account:{account_id}", reason=reason,
+                   before={"mode": before}, after={"mode": body.mode})
+            applied.append({"account_id": str(account_id), "slug": account.slug,
+                            "mode": body.mode})
+        await db.commit()
+    return {"applied": applied}
+
+
+@router.get("/accounts/search")
+async def search_accounts(q: str = "", admin: User = Depends(require_admin)):
+    """Account picker for the enforcement UI: match slug or name."""
+    async with get_db_session() as db:
+        query = (
+            select(Account, BillingAccount.enforcement_override)
+            .join(BillingAccount, BillingAccount.account_id == Account.id, isouter=True)
+            .order_by(Account.created_at.desc())
+            .limit(20)
+        )
+        term = q.strip()
+        if term:
+            like = f"%{term}%"
+            query = query.where(Account.slug.ilike(like) | Account.name.ilike(like))
+        rows = (await db.execute(query)).all()
+        return {
+            "accounts": [
+                {"id": str(acc.id), "slug": acc.slug, "name": acc.name,
+                 "override": override}
+                for acc, override in rows
+            ]
         }
 
 

@@ -1,6 +1,7 @@
 // 039/009 — billing operations: counters, invariants, alerts.
+// 039/010 — per-account enforcement overrides (rollout canaries).
 import { useCallback, useEffect, useState } from 'react';
-import { Activity, Loader2, AlertTriangle, RefreshCw, ShieldCheck } from 'lucide-react';
+import { Activity, Loader2, AlertTriangle, RefreshCw, ShieldCheck, ShieldAlert, X } from 'lucide-react';
 import { API, apiError } from './api';
 
 interface Counted { count: number; credits: number }
@@ -132,6 +133,8 @@ export default function PricingOpsPage() {
         <div className="rounded-xl px-4 py-3 text-sm mb-4"
           style={{ background: 'rgba(255,107,107,0.12)', color: '#ff6b6b' }}>{error}</div>
       )}
+
+      <EnforcementSection />
 
       {/* Alerts */}
       <Section title="Alerts" action={
@@ -319,6 +322,161 @@ export default function PricingOpsPage() {
         )}
       </Section>
     </div>
+  );
+}
+
+// ── Enforcement overrides (039/010) ─────────────────────────────────────────
+
+interface Override {
+  account_id: string; slug: string; name: string;
+  mode: string; effective_mode: string; set_at: string | null;
+}
+interface EnforcementState { global_mode: string; modes: string[]; overrides: Override[] }
+interface AccountHit { id: string; slug: string; name: string; override: string | null }
+
+const MODE_COLORS: Record<string, string> = {
+  off: 'var(--text-dim)', observe: '#7aa2ff', shadow: '#ffc864', enforce: '#ff6b6b',
+};
+
+function ModePill({ mode }: { mode: string }) {
+  const c = MODE_COLORS[mode] ?? 'var(--text-dim)';
+  return (
+    <span className="px-2 py-0.5 rounded-full text-xs font-medium"
+      style={{ background: 'color-mix(in srgb, currentColor 15%, transparent)', color: c }}>{mode}</span>
+  );
+}
+
+function EnforcementSection() {
+  const [state, setState] = useState<EnforcementState | null>(null);
+  const [q, setQ] = useState('');
+  const [hits, setHits] = useState<AccountHit[]>([]);
+  const [selected, setSelected] = useState<AccountHit | null>(null);
+  const [mode, setMode] = useState('enforce');
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const res = await fetch(`${API}/enforcement`);
+    if (res.ok) setState(await res.json());
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (selected) { setHits([]); return; }
+    const t = setTimeout(async () => {
+      if (!q.trim()) { setHits([]); return; }
+      const res = await fetch(`${API}/accounts/search?q=${encodeURIComponent(q.trim())}`);
+      if (res.ok) setHits((await res.json()).accounts);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [q, selected]);
+
+  const apply = async (accountId: string, newMode: string | null) => {
+    if (!reason.trim()) { setErr('A reason is required for enforcement changes.'); return; }
+    setBusy(true); setErr(null);
+    const res = await fetch(`${API}/enforcement/overrides`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account_ids: [accountId], mode: newMode, reason: reason.trim() }),
+    });
+    if (!res.ok) setErr(await apiError(res));
+    else { setSelected(null); setQ(''); setReason(''); await load(); }
+    setBusy(false);
+  };
+
+  if (!state) return null;
+
+  return (
+    <Section title="Enforcement">
+      <div className="rounded-xl border p-4 mb-3"
+        style={{ background: 'var(--surface)', borderColor: 'var(--ink-lighter)' }}>
+        <div className="flex items-center gap-3 mb-3">
+          <ShieldAlert size={16} style={{ color: MODE_COLORS[state.global_mode] }} />
+          <span className="text-sm" style={{ color: 'var(--text)' }}>
+            Global mode (<span className="font-mono text-xs">CLOUD_BILLING_MODE</span>):
+          </span>
+          <ModePill mode={state.global_mode} />
+          <span className="text-xs" style={{ color: 'var(--text-dim)' }}>
+            Effective per account = max(global, override) — overrides only escalate.
+          </span>
+        </div>
+
+        {state.overrides.length === 0 ? (
+          <Empty>No account overrides — every account follows the global mode.</Empty>
+        ) : (
+          <table className="w-full text-sm mb-1">
+            <thead>
+              <tr style={{ color: 'var(--text-dim)' }} className="text-left text-xs">
+                <th className="pb-2 font-medium">Account</th>
+                <th className="pb-2 font-medium">Override</th>
+                <th className="pb-2 font-medium">Effective</th>
+                <th className="pb-2 font-medium">Since</th>
+                <th className="pb-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {state.overrides.map(o => (
+                <tr key={o.account_id} className="border-t" style={{ borderColor: 'var(--ink-lighter)', color: 'var(--text)' }}>
+                  <td className="py-2 pr-3">
+                    <span className="font-medium">{o.name}</span>{' '}
+                    <span className="text-xs" style={{ color: 'var(--text-dim)' }}>({o.slug})</span>
+                  </td>
+                  <td className="py-2 pr-3"><ModePill mode={o.mode} /></td>
+                  <td className="py-2 pr-3"><ModePill mode={o.effective_mode} /></td>
+                  <td className="py-2 pr-3 text-xs" style={{ color: 'var(--text-dim)' }}>{ago(o.set_at)}</td>
+                  <td className="py-2 text-right">
+                    <button onClick={() => apply(o.account_id, null)} disabled={busy}
+                      title="Clear override (requires a reason below)"
+                      className="p-1 rounded transition-colors hover:opacity-80"
+                      style={{ color: 'var(--text-dim)' }}>
+                      <X size={14} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2 mt-3">
+          <div className="relative">
+            <input value={selected ? `${selected.name} (${selected.slug})` : q}
+              onChange={e => { setSelected(null); setQ(e.target.value); }}
+              placeholder="Find account…"
+              className="px-3 py-1.5 rounded-lg text-sm border outline-none w-56"
+              style={{ background: 'var(--ink)', borderColor: 'var(--ink-lighter)', color: 'var(--text)' }} />
+            {hits.length > 0 && (
+              <div className="absolute left-0 top-full mt-1 w-72 rounded-xl border py-1 shadow-lg z-40 max-h-56 overflow-auto"
+                style={{ background: 'var(--surface)', borderColor: 'var(--ink-lighter)' }}>
+                {hits.map(h => (
+                  <button key={h.id} onClick={() => { setSelected(h); setQ(''); }}
+                    className="w-full text-left px-3 py-2 text-sm transition-colors hover:opacity-80"
+                    style={{ color: 'var(--text)' }}>
+                    {h.name} <span className="text-xs" style={{ color: 'var(--text-dim)' }}>({h.slug})</span>
+                    {h.override && <span className="ml-2"><ModePill mode={h.override} /></span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <select value={mode} onChange={e => setMode(e.target.value)}
+            className="px-3 py-1.5 rounded-lg text-sm border outline-none"
+            style={{ background: 'var(--ink)', borderColor: 'var(--ink-lighter)', color: 'var(--text)' }}>
+            {['observe', 'shadow', 'enforce'].map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+          <input value={reason} onChange={e => setReason(e.target.value)} placeholder="Reason (required)"
+            className="px-3 py-1.5 rounded-lg text-sm border outline-none flex-1 min-w-40"
+            style={{ background: 'var(--ink)', borderColor: 'var(--ink-lighter)', color: 'var(--text)' }} />
+          <button onClick={() => selected && apply(selected.id, mode)}
+            disabled={busy || !selected || !reason.trim()}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80 disabled:opacity-40"
+            style={{ background: 'var(--moon)', color: 'var(--ink)' }}>
+            {busy ? 'Applying…' : 'Set override'}
+          </button>
+        </div>
+        {err && <div className="text-xs mt-2" style={{ color: '#ff6b6b' }}>{err}</div>}
+      </div>
+    </Section>
   );
 }
 

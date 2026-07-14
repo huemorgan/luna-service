@@ -67,6 +67,16 @@ def _patch_settings(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _reset_override_cache():
+    """039/010: the enforcement-override map is TTL-cached in-process; reset it
+    around every test so one test's overrides never leak into another."""
+    from cloud.billing.modes import invalidate_override_cache
+    invalidate_override_cache()
+    yield
+    invalidate_override_cache()
+
+
+@pytest.fixture(autouse=True)
 def _reset_catalog_cache():
     """Plan 018: the model catalog has a process-local TTL cache; reset it around
     every test so a seeded catalog from one test never leaks into another."""

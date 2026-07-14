@@ -1,0 +1,12 @@
+PASS  0 scratch DB migrated to alembic head 0007 (override columns), seeded
+PASS  1 GET /enforcement: global off, no overrides
+PASS  2 override enforce on canary: listed, effective=enforce, searchable, audited
+PASS  3 clearing an override requires a reason; list is empty after
+PASS  4 ck_billing_account_override rejects junk values on real PG
+PASS  5 plan: signed manifest — keep newest-active, stop 1, gifts 3600, hosting 999
+PASS  6 execute: 2 gifts posted, keep charged 999 (801/1800 balances), period active
+PASS  7 real worker drained the stop job: succeeded, 'skipped: no runtime'
+PASS  8 rerun: replayed 2, zero new grants/periods/charges/jobs
+PASS  9 tampered manifest: exit 2, MIGRATION ABORTED
+PASS  10 drifted live state: exit 2, no writes for the canary account
+PASS  11 invariants (trial balance / projection / remainders) hold post-migration

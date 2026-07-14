@@ -44,7 +44,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cloud.billing import ledger, rating
+from cloud.billing import ledger, modes, rating
 from cloud.billing import worker as billing_worker
 from cloud.billing.models import AgentHostingPeriod, BillableEvent, RatedCharge
 from cloud.billing.rating import AttemptFacts, RatingUnavailable
@@ -205,10 +205,19 @@ async def prepare(
     catalog: list[dict] | None,
 ) -> BillingContext:
     """Pre-upstream billing decision for a managed request. Never raises for
-    billing reasons — failures map to mode-appropriate decisions."""
+    billing reasons — failures map to mode-appropriate decisions.
+
+    The effective mode is per account (039/010): max of the global mode and
+    the account's enforcement override. The override map is TTL-cached, so a
+    fully-off deployment with no overrides stays a zero-query fast path."""
     mode = billing_mode()
     ctx = BillingContext(mode=mode, agent_id=agent_id, service_slug=service_slug, body=body)
-    if mode == "off":
+    try:
+        overrides = await modes.override_map(db)
+    except Exception:  # noqa: BLE001 — billing store down; global mode decides
+        log.exception("override map load failed — falling back to global mode")
+        overrides = {}
+    if mode == "off" and not overrides:
         return ctx
 
     ctx.operation_id = f"gw:{uuid.uuid4().hex}"
@@ -228,6 +237,10 @@ async def prepare(
             ctx.block = "billing_temporarily_unavailable" if mode == "enforce" else None
             return ctx
         ctx.account_id = agent.account_id
+        mode = modes.combine(mode, overrides.get(agent.account_id))
+        ctx.mode = mode
+        if mode == "off":
+            return ctx
         await ledger.ensure_billing_account(db, agent.account_id)
 
         route = route_catalog.classify(service_slug, method, path)

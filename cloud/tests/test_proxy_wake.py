@@ -155,6 +155,9 @@ class TestWakeLock:
             mock_session.__aexit__ = AsyncMock(return_value=False)
             mock_result = MagicMock()
             mock_result.scalar_one = MagicMock(return_value=agent)
+            # 039/010: hosting_blocked resolves the effective billing mode —
+            # no override row means the global mode (off) applies.
+            mock_result.scalar_one_or_none = MagicMock(return_value=None)
             mock_session.execute = AsyncMock(return_value=mock_result)
             mock_session.commit = AsyncMock()
             mock_db.return_value = mock_session

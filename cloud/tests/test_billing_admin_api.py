@@ -283,3 +283,96 @@ async def test_provider_cost_invalid_rates_rejected(admin_client, db_session):
         "rates": [dict(dup, rate_denominator=0)],
     })
     assert resp.status_code == 400
+
+
+# ── Enforcement overrides (039/010) ──────────────────────────────────────────
+
+async def test_enforcement_state_empty(admin_client):
+    resp = await admin_client.get("/api/admin/pricing/enforcement")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["global_mode"] == "off"
+    assert body["modes"] == ["off", "observe", "shadow", "enforce"]
+    assert body["overrides"] == []
+
+
+async def test_enforcement_requires_admin(regular_client, anon_client):
+    assert (await regular_client.get("/api/admin/pricing/enforcement")).status_code == 403
+    assert (await anon_client.get("/api/admin/pricing/enforcement")).status_code == 401
+    resp = await regular_client.post(
+        "/api/admin/pricing/enforcement/overrides",
+        json={"account_ids": [str(uuid.uuid4())], "mode": "enforce", "reason": "x"},
+        headers=SAME_ORIGIN,
+    )
+    assert resp.status_code == 403
+
+
+async def test_override_set_list_clear_with_audit(admin_client, db_session, account):
+    set_resp = await admin_client.post(
+        "/api/admin/pricing/enforcement/overrides",
+        json={"account_ids": [str(account.id)], "mode": "enforce",
+              "reason": "canary rollout step 7"},
+        headers=SAME_ORIGIN,
+    )
+    assert set_resp.status_code == 200
+    assert set_resp.json()["applied"] == [
+        {"account_id": str(account.id), "slug": "test-account", "mode": "enforce"}
+    ]
+
+    state = (await admin_client.get("/api/admin/pricing/enforcement")).json()
+    assert len(state["overrides"]) == 1
+    ov = state["overrides"][0]
+    assert ov["mode"] == "enforce"
+    assert ov["effective_mode"] == "enforce"  # global off, override wins
+    assert ov["slug"] == "test-account" and ov["set_at"] is not None
+
+    audits = (await db_session.execute(
+        select(AuditLog).where(AuditLog.action == "pricing.enforcement.override")
+    )).scalars().all()
+    assert len(audits) == 1
+    assert audits[0].before_state == {"mode": None}
+    assert audits[0].after_state == {"mode": "enforce"}
+    assert audits[0].metadata_["reason"] == "canary rollout step 7"
+
+    clear_resp = await admin_client.post(
+        "/api/admin/pricing/enforcement/overrides",
+        json={"account_ids": [str(account.id)], "mode": None, "reason": "rollback"},
+        headers=SAME_ORIGIN,
+    )
+    assert clear_resp.status_code == 200
+    state = (await admin_client.get("/api/admin/pricing/enforcement")).json()
+    assert state["overrides"] == []
+
+
+async def test_override_requires_reason_and_valid_mode(admin_client, account):
+    no_reason = await admin_client.post(
+        "/api/admin/pricing/enforcement/overrides",
+        json={"account_ids": [str(account.id)], "mode": "enforce", "reason": "  "},
+        headers=SAME_ORIGIN,
+    )
+    assert no_reason.status_code == 400
+
+    bad_mode = await admin_client.post(
+        "/api/admin/pricing/enforcement/overrides",
+        json={"account_ids": [str(account.id)], "mode": "off", "reason": "x"},
+        headers=SAME_ORIGIN,
+    )
+    assert bad_mode.status_code == 400
+
+
+async def test_override_unknown_account_404(admin_client, account):
+    resp = await admin_client.post(
+        "/api/admin/pricing/enforcement/overrides",
+        json={"account_ids": [str(uuid.uuid4())], "mode": "shadow", "reason": "x"},
+        headers=SAME_ORIGIN,
+    )
+    assert resp.status_code == 404
+
+
+async def test_accounts_search(admin_client, account):
+    hit = (await admin_client.get("/api/admin/pricing/accounts/search?q=test-acc")).json()
+    assert [a["slug"] for a in hit["accounts"]] == ["test-account"]
+    assert hit["accounts"][0]["override"] is None
+
+    miss = (await admin_client.get("/api/admin/pricing/accounts/search?q=zzz-nope")).json()
+    assert miss["accounts"] == []

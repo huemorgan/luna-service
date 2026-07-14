@@ -275,7 +275,7 @@ export default function AgentDetail() {
         </a>
       ) : '—',
     },
-    { label: 'Account', value: <span>{account.name} <span style={{ color: 'var(--text-dim)' }}>· {account.plan}</span></span> },
+    { label: 'Account', value: <span>{account.name}</span> },
     { label: 'Created by', value: creator.email || '—' },
     { label: 'Created at', value: fmtDate(agent.created_at) },
   ];

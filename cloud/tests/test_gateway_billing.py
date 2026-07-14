@@ -779,3 +779,60 @@ async def test_byok_never_billed(anon_client, db_session, sample_agent, anthropi
     assert anthropic_upstream[0]["headers"]["x-api-key"] == "sk-ant-users-own-key"
     assert await _rows(db_session, BillableEvent) == []
     assert await _rows(db_session, BillingHold) == []
+
+
+# ── Per-account enforcement overrides (039/010) ──────────────────────────────
+
+async def test_override_enforce_blocks_while_global_off(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    from cloud.billing import modes
+
+    _set_mode(monkeypatch, "off")
+    token = await _seed_billing_gateway(db_session, sample_agent, credits=0)
+    await modes.set_override(db_session, sample_agent.account_id, "enforce")
+    await db_session.commit()
+
+    r = await _call_messages(anon_client, token)
+    assert r.status_code == 402
+    assert r.json()["error"]["code"] == "credits_exhausted"
+    assert anthropic_upstream == []
+
+
+async def test_override_never_lowers_global_enforce(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    from cloud.billing import modes
+
+    _set_mode(monkeypatch, "enforce")
+    token = await _seed_billing_gateway(db_session, sample_agent, credits=0)
+    await modes.set_override(db_session, sample_agent.account_id, "observe")
+    await db_session.commit()
+
+    r = await _call_messages(anon_client, token)
+    assert r.status_code == 402  # effective mode = max(enforce, observe)
+    assert anthropic_upstream == []
+
+
+async def test_override_on_other_account_leaves_this_one_off(
+    anon_client, db_session, admin_user, sample_agent, anthropic_upstream, monkeypatch,
+):
+    from cloud.billing import modes
+    from cloud.db.models import Account
+
+    _set_mode(monkeypatch, "off")
+    token = await _seed_billing_gateway(db_session, sample_agent, credits=0)
+
+    other = Account(slug="other-account", name="Other", created_by=admin_user.id)
+    db_session.add(other)
+    await db_session.flush()
+    await modes.set_override(db_session, other.id, "enforce")
+    await db_session.commit()
+
+    # An override existing anywhere disables the zero-query fast path, but this
+    # account's effective mode is still off: passthrough, zero billing rows.
+    r = await _call_messages(anon_client, token)
+    assert r.status_code == 200
+    assert await _rows(db_session, BillableEvent) == []
+    assert await _rows(db_session, RatedCharge) == []
+    assert await _rows(db_session, BillingHold) == []

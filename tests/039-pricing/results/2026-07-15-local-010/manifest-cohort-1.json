@@ -1,0 +1,55 @@
+{
+  "algorithm": "migration_v1",
+  "generated_at": "2026-07-14T23:21:26.265554+00:00",
+  "cutover_at": "2026-07-15T00:21:24.426176+00:00",
+  "account_ids": [
+    "5f0dd1da-f319-4020-9178-569399435a5a",
+    "c1ad86cf-58fd-40c4-9612-672515d3cf33"
+  ],
+  "per_account": [
+    {
+      "account_id": "5f0dd1da-f319-4020-9178-569399435a5a",
+      "slug": "mig-alpha",
+      "agents_total": 3,
+      "agents_running": 2,
+      "agents_not_running": 1,
+      "keep_agent_id": "794921c2-26d5-48b8-84c2-2a9c3ccbc929",
+      "stop_agent_ids": [
+        "a55be3c2-ccc4-423c-a405-581090c88dea"
+      ],
+      "gift_credits": 1800,
+      "gift_days": 28,
+      "hosting_charge_credits": 999,
+      "has_assignment": false,
+      "already_migrated": false
+    },
+    {
+      "account_id": "c1ad86cf-58fd-40c4-9612-672515d3cf33",
+      "slug": "mig-beta",
+      "agents_total": 1,
+      "agents_running": 0,
+      "agents_not_running": 1,
+      "keep_agent_id": null,
+      "stop_agent_ids": [],
+      "gift_credits": 1800,
+      "gift_days": 28,
+      "hosting_charge_credits": 0,
+      "has_assignment": false,
+      "already_migrated": false
+    }
+  ],
+  "totals": {
+    "accounts": 2,
+    "already_migrated": 0,
+    "pending": 2,
+    "running_lunas": 2,
+    "not_running_lunas": 2,
+    "keeps": 1,
+    "stops": 1,
+    "gift_credits_total": 3600,
+    "hosting_charges_total": 999,
+    "accounts_without_assignment": 2,
+    "resulting_liability_credits": 2601
+  },
+  "content_hash": "eee757d499f6658edc154d99b2d1bc9df23d2c52b5e46de128a1f27e35a7fb24"
+}

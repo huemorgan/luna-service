@@ -1,0 +1,23 @@
+{
+  "algorithm": "migration_v1",
+  "executed_at": "2026-07-14T23:21:31.772136+00:00",
+  "manifest_hash": "eee757d499f6658edc154d99b2d1bc9df23d2c52b5e46de128a1f27e35a7fb24",
+  "applied": [],
+  "replayed": [
+    {
+      "account_id": "5f0dd1da-f319-4020-9178-569399435a5a",
+      "grant_id": "f0af695d-554f-415f-9cf2-973b092b0fc2"
+    },
+    {
+      "account_id": "c1ad86cf-58fd-40c4-9612-672515d3cf33",
+      "grant_id": "4a2cf01f-e304-4044-8db3-e8be6d3e3d1c"
+    }
+  ],
+  "totals": {
+    "applied": 0,
+    "replayed": 2,
+    "gift_credits_posted": 0,
+    "hosting_charges_posted": 0,
+    "stop_jobs_enqueued": 0
+  }
+}

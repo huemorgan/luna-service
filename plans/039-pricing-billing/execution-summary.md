@@ -977,3 +977,104 @@ version `0.36.006`.
   dead_money_jobs, invariants) are live at `GET /api/admin/pricing/ops`.
   The simulator is the dry-run evidence tool for migration cohorts.
   Amended.
+
+## Phase 010 — Rollout and migration (2026-07-15)
+
+Enforcement remains OFF: `CLOUD_BILLING_MODE` was not set or changed in
+production, no deploy was made, and no runbook step was executed against
+prod — by explicit instruction. This phase built the machinery the rollout
+needs; the runbook documents the steps for when the flip is authorized.
+
+### What was done
+
+- **Per-account enforcement override** (`cloud/billing/modes.py`, migration
+  `0007`): `billing_accounts.enforcement_override` (observe|shadow|enforce,
+  server-side CHECK) + `enforcement_override_set_at`. Effective mode per
+  account = `max(global CLOUD_BILLING_MODE, override)` — an override can
+  only escalate, never lower, so canary cohorts get enforced while global
+  stays off/shadow and a stray override can never disable billing. The
+  override map is TTL-cached in-process (15s): with mode off and zero
+  overrides the gateway keeps its zero-billing-query fast path; cache skew
+  only delays escalation, never removal of service. 8 unit tests
+  (`test_billing_modes.py`) incl. the CHECK constraint and cache
+  invalidation.
+- **Effective-mode plumbing**: `gateway/enforcement.prepare()` resolves the
+  override after identifying the agent (fails open to `{}` on lookup
+  errors); `hosting.hosting_enforced()/effective_mode_for()` drive
+  `hosting_blocked`, `renew_due_periods`, provisioning, and agent creation
+  — every enforcement site now asks per-account, not global. 3 gateway
+  integration tests: override enforce blocks 402 with global off, global
+  enforce is never lowered by a weaker override, an override on another
+  account leaves an off-mode account with zero billing rows.
+- **Admin API + UI**: `GET /enforcement` (global mode + override list with
+  effective modes), `POST /enforcement/overrides` (cohort up to 500,
+  observe/shadow/enforce or null to clear, reason required, per-account
+  audit rows), `GET /accounts/search` picker. `PricingOpsPage` gained an
+  Enforcement section: global-mode banner ("overrides only escalate"),
+  override table with mode/effective pills + clear, debounced account
+  search + set-override form. `AgentDetail` stops presenting `Account.plan`
+  as a paid plan (plan de-authority). 6 API tests.
+- **Migration tooling** (`cloud/billing/migration.py` +
+  `scripts/migrate_accounts.py`): `plan` reconciles live state into a
+  sha256-signed manifest — per pre-cutover account: keep the most recently
+  active running Luna, stop the rest (durable `hosting_suspend` jobs,
+  nothing deleted), gift from `config.migration_gift` (1,800 cr / 28 days),
+  first hosting period opened active + charged 999 at migration time.
+  `execute` re-verifies the manifest hash AND re-plans every pending
+  account, aborting with zero writes on any drift (exit 2); already-
+  migrated accounts replay idempotently via grant source keys
+  (`migration:{account}:v1`). Totals include resulting liability. 7 unit
+  tests (`test_billing_migration.py`) incl. drift-abort and tamper-abort.
+- **Runbook** (`010-rollout-and-migration/RUNBOOK.md`): the 12 plan steps
+  as operator commands + evidence gates (per-key Render PUT only, manual
+  deploys, `/ops` citations, quiet alerts + fresh heartbeats), canaries via
+  the new override API at step 7, cohort migration via the script at step
+  10, rollback semantics (config reversible, money append-only).
+- **Dojo** (`tests/039-pricing/dojo_rollout_migration.py`, 12 scenarios on
+  real PG + real uvicorn + real worker loop): alembic 0007 applies; the
+  enforcement API sets/lists/clears with audit; the PG CHECK rejects junk;
+  the operator script plans/executes/replays as a real subprocess; the
+  REAL worker drains the migration stop job (`skipped: no runtime`);
+  tampered manifest and drifted live state both abort exit-2 with zero
+  writes; ledger invariants hold after the whole exercise. Results in
+  `tests/039-pricing/results/2026-07-15-local-010/`.
+- **Regression**: full suite 603 passed / 1 skipped (24 new tests this
+  phase); `cloud/ui` build green.
+
+### What was learned
+
+1. **SQLite round-trips timestamptz as naive** — and SQLAlchemy's identity
+   map holds objects by weakref, so a test's *unreferenced* rows reload
+   naive while referenced ones stay aware: `max()` over mixed datetimes
+   blows up only when GC has run. Normalize before comparing
+   (`migration._aware`); never trust tz-awareness in SQLite-backed tests.
+2. **Session.rollback() expires ORM instances** — capture ids/values
+   before asserting an abort path, or the assertion itself triggers a
+   lazy refresh outside the async greenlet (MissingGreenlet).
+3. **Keep-selection semantics**: the recency key is
+   `(last_active_at or created_at)` — a fresh never-used running Luna
+   deliberately beats an older one whose last activity predates it. The
+   test initially encoded the opposite intuition; the manifest is the
+   review surface where owners catch surprising keeps before execution.
+4. **Rerun-safety and drift-checking conflict** — post-migration state
+   legitimately changes (the worker stops Lunas), so re-comparing
+   already-migrated accounts would make every rerun abort. Replay
+   detection by grant source key, drift comparison only for pending
+   accounts.
+5. **Operator scripts print outcomes to stderr for humans, JSON to
+   stdout** — assertions (and operators' `grep`) must target the right
+   stream; the dojo caught the mismatch.
+6. **Mocked-session tests break when a code path gains a query** — the
+   proxy wake test's `MagicMock` returned a mock for the new
+   `scalar_one_or_none()` override lookup and it leaked into `_RANK[...]`.
+   Mock results need explicit `scalar_one_or_none` returns whenever
+   enforcement plumbing touches a path.
+
+### Remaining before enforcement (operator gates, not code)
+
+- Runbook steps 1–11 in order, each with its evidence gate: restore drill
+  against a production backup, observe → shadow soak, provider invoice
+  reconciliation, Stripe live keys + webhook (Roy's dashboard items),
+  canary enforce via overrides, cohort migration with owner sign-off (M9)
+  and customer notice, then the global flip. Step 12 (marketplace) stays
+  blocked pending schema + legal.

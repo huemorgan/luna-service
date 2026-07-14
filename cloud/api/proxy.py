@@ -102,13 +102,13 @@ async def _try_wake_agent(agent: Agent) -> bool:
         return False
 
     # 039/005: a payment_due Luna must not wake through traffic — recovery is
-    # the explicit start endpoint (which re-charges). Enforce mode only.
+    # the explicit start endpoint (which re-charges). Effective enforce mode
+    # only (global or the account's 039/010 override; hosting_blocked resolves it).
     from cloud.billing import hosting as billing_hosting
-    if billing_hosting.hosting_billing_active():
-        async with get_db_session() as db:
-            if await billing_hosting.hosting_blocked(db, agent.id):
-                log.info("Wake %s blocked: hosting payment due", agent.slug)
-                return False
+    async with get_db_session() as db:
+        if await billing_hosting.hosting_blocked(db, agent.id):
+            log.info("Wake %s blocked: hosting payment due", agent.slug)
+            return False
 
     slug = agent.slug
 

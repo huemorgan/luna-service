@@ -173,11 +173,21 @@ class BillingAccount(Base):
     financial mutations for the account."""
 
     __tablename__ = "billing_accounts"
+    __table_args__ = (
+        CheckConstraint(
+            "enforcement_override IN ('observe','shadow','enforce')",
+            name="ck_billing_account_override",
+        ),
+    )
 
     account_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="RESTRICT"), primary_key=True
     )
     billing_status: Mapped[str] = mapped_column(Text, nullable=False, default="active")
+    # 039/010 rollout: per-account escalation over the global CLOUD_BILLING_MODE
+    # (effective mode = max of the two; see cloud/billing/modes.py).
+    enforcement_override: Mapped[str | None] = mapped_column(Text)
+    enforcement_override_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     current_assignment_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("commercial_pricing_assignments.id", ondelete="RESTRICT")
     )
