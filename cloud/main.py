@@ -23,6 +23,7 @@ from cloud.api.plugin_catalog_routes import router as plugin_catalog_router
 from cloud.api.proxy import router as proxy_router
 from cloud.api.relay_routes import router as relay_router
 from cloud.api.scheduler_agent_routes import router as scheduler_agent_router
+from cloud.api.stripe_webhook_routes import router as stripe_webhook_router
 from cloud.api.scheduler_routes import relay_router as scheduler_relay_router
 from cloud.api.scheduler_routes import router as scheduler_router
 from cloud.api.whatsapp_agent_routes import router as whatsapp_agent_router
@@ -208,6 +209,9 @@ def create_app() -> FastAPI:
     app.include_router(billing_admin_router)
     app.include_router(billing_router)
     app.include_router(billing_public_router)
+    # Stripe webhooks authenticate via signature over the raw body — no
+    # cookies, no same-origin dependency (007 amendment).
+    app.include_router(stripe_webhook_router)
     app.include_router(gateway_admin_router)
     app.include_router(plugin_catalog_router)
     app.include_router(gateway_agent_router)
