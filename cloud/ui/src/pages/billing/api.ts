@@ -32,6 +32,14 @@ export interface BillingSummary {
     payment_action_required: boolean;
     next_payment_retry_at: string | null;
   };
+  billing_status: string;
+  subscription: {
+    product_key: string;
+    status: string;
+    pending_product_key: string | null;
+    cancel_at_period_end: boolean;
+    current_period_end: string | null;
+  } | null;
   payments_enabled: boolean;
 }
 
@@ -174,6 +182,14 @@ export async function apiError(res: Response): Promise<string> {
 
 export function getJson<T>(url: string): Promise<T> {
   return fetch(url).then(r => (r.ok ? r.json() : apiError(r).then(m => Promise.reject(new Error(m)))));
+}
+
+export function postJson<T>(url: string, body?: unknown): Promise<T> {
+  return fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }).then(r => (r.ok ? r.json() : apiError(r).then(m => Promise.reject(new Error(m)))));
 }
 
 export const credits = (n: number) => `${n.toLocaleString()} cr`;

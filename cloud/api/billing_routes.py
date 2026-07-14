@@ -38,6 +38,7 @@ from cloud.billing.models import (
     CreditLedgerPosting,
     CreditLedgerTransaction,
     RatedCharge,
+    StripeSubscription,
 )
 from cloud.billing.rating import RatingUnavailable
 from cloud.billing.stripe_gateway import (
@@ -46,6 +47,7 @@ from cloud.billing.stripe_gateway import (
     payments_enabled_for,
 )
 from cloud.billing.stripe_service import (
+    DEAD_SUB_STATUSES,
     CheckoutRejected,
     change_subscription_plan,
     create_portal_session,
@@ -117,7 +119,10 @@ async def public_pricing():
                 status.HTTP_503_SERVICE_UNAVAILABLE, "Pricing is not published yet"
             )
         version = await db.get(CommercialPricingVersion, version_id)
-        return _public_pricing(version.config_json)
+        return {
+            **_public_pricing(version.config_json),
+            "payments_enabled": await payments_enabled_for(db, version.config_json),
+        }
 
 
 # ── Shared helpers ───────────────────────────────────────────────────────────
@@ -182,7 +187,7 @@ async def billing_summary(auth: tuple[User, Account] = Depends(require_active_ac
     _, account = auth
     now = _utcnow()
     async with get_db_session() as db:
-        await ledger.ensure_billing_account(db, account.id)
+        ba = await ledger.ensure_billing_account(db, account.id)
         proj = await ledger.rebuild_projection(db, account.id)
         trial = await is_trial_account(db, account.id)
 
@@ -236,6 +241,11 @@ async def billing_summary(auth: tuple[User, Account] = Depends(require_active_ac
                 "price_credits": p.price_credits if p else None,
             })
 
+        # Subscription mirror (007): plan, pending downgrade, dunning state.
+        sub = await db.get(StripeSubscription, account.id)
+        if sub is not None and sub.status in DEAD_SUB_STATUSES:
+            sub = None
+
         # Recovery math — the truthful "what do I need to pay" payload.
         debt = proj.debt_credits
         posted = proj.posted_balance_credits
@@ -270,9 +280,23 @@ async def billing_summary(auth: tuple[User, Account] = Depends(require_active_ac
                 "debt_credits": debt,
                 "credits_required_for_positive_balance": need_positive,
                 "hosting_restart_credits": restart_credits,
-                "payment_action_required": False,  # Stripe dunning lands in 007
-                "next_payment_retry_at": None,
+                "payment_action_required": bool(sub and sub.payment_action_required),
+                "next_payment_retry_at": (
+                    _aware(sub.next_payment_retry_at).isoformat()
+                    if sub and sub.next_payment_retry_at else None
+                ),
             },
+            "billing_status": ba.billing_status,
+            "subscription": {
+                "product_key": sub.product_key,
+                "status": sub.status,
+                "pending_product_key": sub.pending_product_key,
+                "cancel_at_period_end": sub.cancel_at_period_end,
+                "current_period_end": (
+                    _aware(sub.current_period_end).isoformat()
+                    if sub.current_period_end else None
+                ),
+            } if sub else None,
             "payments_enabled": await payments_enabled_for(db, config),
         }
 

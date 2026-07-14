@@ -142,6 +142,52 @@ async def test_summary_trial_balances_and_payments_flag(admin_client, db_session
         assert token not in text, f"internal field {token!r} leaked to summary"
 
 
+async def test_summary_surfaces_subscription_and_dunning_state(admin_client, db_session, account):
+    from cloud.billing.models import StripeSubscription
+
+    await _seed(db_session)
+    body = (await admin_client.get("/api/billing/summary")).json()
+    assert body["subscription"] is None
+    assert body["billing_status"] == "active"
+
+    ba = await ledger.ensure_billing_account(db_session, account.id)
+    ba.billing_status = "past_due"
+    db_session.add(StripeSubscription(
+        account_id=account.id, stripe_subscription_id="sub_ui1",
+        product_key="recurring_99", stripe_price_id="price_recurring_99",
+        status="past_due", pending_product_key="hobby_19",
+        payment_action_required=True,
+        next_payment_retry_at=datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc),
+        current_period_end=datetime(2026, 8, 1, tzinfo=timezone.utc),
+    ))
+    await db_session.commit()
+
+    body = (await admin_client.get("/api/billing/summary")).json()
+    assert body["billing_status"] == "past_due"
+    assert body["recovery"]["payment_action_required"] is True
+    assert body["recovery"]["next_payment_retry_at"].startswith("2026-07-20T12:00")
+    assert body["subscription"]["product_key"] == "recurring_99"
+    assert body["subscription"]["status"] == "past_due"
+    assert body["subscription"]["pending_product_key"] == "hobby_19"
+    assert body["subscription"]["cancel_at_period_end"] is False
+    assert body["subscription"]["current_period_end"].startswith("2026-08-01")
+
+
+async def test_summary_hides_dead_subscription(admin_client, db_session, account):
+    from cloud.billing.models import StripeSubscription
+
+    await _seed(db_session)
+    await ledger.ensure_billing_account(db_session, account.id)
+    db_session.add(StripeSubscription(
+        account_id=account.id, stripe_subscription_id="sub_dead1",
+        product_key="recurring_99", status="canceled",
+    ))
+    await db_session.commit()
+    body = (await admin_client.get("/api/billing/summary")).json()
+    assert body["subscription"] is None
+    assert body["recovery"]["payment_action_required"] is False
+
+
 async def test_summary_paid_grant_ends_trial(admin_client, db_session, account):
     await _seed(db_session)
     await ledger.create_grant(

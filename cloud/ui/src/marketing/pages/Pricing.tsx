@@ -28,6 +28,7 @@ interface PublicPricing {
   products: PublicProduct[];
   topup_steps_usd_cents: number[];
   credit_value_usd_cents: number;
+  payments_enabled: boolean;
 }
 
 const PLAN_NAMES: Record<string, string> = {
@@ -208,8 +209,10 @@ export default function Pricing() {
           )}
 
           <p className="sg-note" style={{ marginTop: 18 }}>
-            All plans include physical isolation, the one-way vault and full transparency. Online
-            payments are rolling out — every CTA gets you a working Luna today.
+            All plans include physical isolation, the one-way vault and full transparency.
+            {pricing?.payments_enabled
+              ? ' Subscribe or top up from your billing page once you\'re in.'
+              : ' Online payments are rolling out — every CTA gets you a working Luna today.'}
           </p>
         </div>
       </section>

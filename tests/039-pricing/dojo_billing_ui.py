@@ -1,10 +1,16 @@
-"""039/008 dojo — customer billing UI headless against real Postgres.
+"""039/008+007 dojo — customer billing UI headless against real Postgres.
 
 Covers what SQLite API tests can't: the built SPA rendering the public
 pricing page (packages from /api/public/pricing, no hardcoded tiers), the
 /dashboard/billing page (balance, trial, packages with payments disabled,
 grants, usage trend, per-Luna limits editing through the real same-origin
 PUT, actions, statement running balance), and the AgentDetail Spend card.
+
+Act II (039/007) restarts the app with Stripe configured and every catalog
+product bound, so `payments_enabled` flips: plan buttons go live keyed to
+the mirrored subscription, the top-up picker renders the catalog steps,
+the past_due dunning banner shows retry date + portal link, and a failing
+Stripe call degrades to a visible inline error.
 
 Self-contained: scratch DB dojo039bill on the docker PG at :5435, app on
 :8105 with the billing worker on. Signup goes through the real in-process
@@ -17,10 +23,12 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
 import time
+import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -213,9 +221,49 @@ async def seed() -> dict:
         await engine.dispose()
 
 
+async def enable_payments(ids: dict) -> None:
+    """Flip payments_enabled the way production would: bind every catalog
+    product to a (fake) Stripe Price and configure Stripe on the app. Also
+    mirror a past_due Pro subscription with a pending downgrade so every
+    007 render path is on screen at once."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from cloud.billing.models import BillingAccount, StripePriceBinding, StripeSubscription
+    from cloud.billing.rating import resolve_commercial_version
+
+    engine = create_async_engine(DB_URL)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    account_id = uuid.UUID(ids["account_id"])
+    now = datetime.now(timezone.utc)
+    try:
+        async with factory() as db:
+            _, config = await resolve_commercial_version(db, account_id, now)
+            for p in config["products"]:
+                db.add(StripePriceBinding(
+                    livemode=False, product_key=p["key"],
+                    stripe_product_id=f"prod_dojo_{p['key']}",
+                    stripe_price_id=f"price_dojo_{p['key']}",
+                    price_usd_cents=p["price_usd_cents"], interval=p.get("interval"),
+                ))
+            db.add(StripeSubscription(
+                account_id=account_id, stripe_subscription_id="sub_dojo1",
+                product_key="recurring_99", stripe_price_id="price_dojo_recurring_99",
+                status="past_due", pending_product_key="hobby_19",
+                payment_action_required=True,
+                next_payment_retry_at=now + timedelta(days=3),
+                current_period_start=now - timedelta(days=27),
+                current_period_end=now + timedelta(days=3),
+            ))
+            ba = await db.get(BillingAccount, account_id)
+            ba.billing_status = "past_due"
+            await db.commit()
+    finally:
+        await engine.dispose()
+
+
 # ── App lifecycle ────────────────────────────────────────────────────────────
 
-def boot_app() -> subprocess.Popen:
+def boot_app(*, stripe: bool = False) -> subprocess.Popen:
     env = {**os.environ,
            "CLOUD_DATABASE_URL": DB_URL,
            "CLOUD_BILLING_MODE": "enforce",
@@ -226,6 +274,13 @@ def boot_app() -> subprocess.Popen:
            "CLOUD_RELAY_FORWARDER": "0",
            "CLOUD_RECONCILER": "0",
            "CLOUD_BILLING_WORKER": "1"}
+    if stripe:
+        # Well-formed but bogus test-mode keys: payments_enabled flips on,
+        # while any real Stripe call fails — exercising the error surface.
+        env.update({"CLOUD_STRIPE_SECRET_KEY": "sk_test_dojo_bogus",
+                    "CLOUD_STRIPE_PUBLISHABLE_KEY": "pk_test_dojo_bogus",
+                    "CLOUD_STRIPE_WEBHOOK_SECRET": "whsec_dojo_bogus",
+                    "CLOUD_STRIPE_LIVEMODE": "0"})
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "cloud.main:app", "--port", str(APP_PORT),
          "--log-level", "warning"],
@@ -418,6 +473,55 @@ def main() -> None:
             expect(spend.get_by_text("active", exact=False).first).to_be_visible()
             shot(page, "17-agent-spend-card.png")
             ok("12 AgentDetail Spend card: real daily/monthly usage, limits, hosting state")
+
+            # ── Act II (039/007): restart with Stripe configured ─────────────
+            stop_app(app)
+            run(enable_payments(ids))
+            app = boot_app(stripe=True)
+
+            # 13 — past_due dunning banner: SCA hint, retry date, portal link.
+            page.goto(f"{BASE}/dashboard/billing", wait_until="domcontentloaded")
+            expect(page.get_by_text("Subscription payment failed.")).to_be_visible()
+            expect(page.get_by_text("Your card needs attention")).to_be_visible()
+            expect(page.get_by_text("We retry automatically on")).to_be_visible()
+            expect(page.get_by_role("button", name="Fix payment method")).to_be_visible()
+            shot(page, "19-billing-dunning-banner.png")
+            ok("13 past_due: dunning banner with action hint, retry date, portal link")
+
+            # 14 — plan buttons keyed to the mirrored subscription state.
+            page.get_by_role("button", name="Billing", exact=True).click()
+            expect(page.get_by_role("button", name="Coming soon")).to_have_count(0)
+            current = page.get_by_role("button", name="Current plan")
+            expect(current).to_be_visible()
+            expect(current).to_be_disabled()
+            pending = page.get_by_role("button", name="Starts at renewal")
+            expect(pending).to_be_visible()
+            expect(pending).to_be_disabled()
+            expect(page.get_by_role("button", name="Upgrade now")).to_be_enabled()
+            expect(page.get_by_text("Your plan switches to")).to_be_visible()
+            shot(page, "20-billing-plan-buttons.png")
+            ok("14 payments on: Current plan / Starts at renewal disabled, Upgrade now live, downgrade note")
+
+            # 15 — top-up picker renders the fixed catalog steps + portal link.
+            topup = page.get_by_role("button", name="$10 → 1,000 cr")
+            expect(topup).to_be_visible()
+            expect(page.get_by_role("button", name="$100 → 10,000 cr")).to_be_visible()
+            expect(page.get_by_role("button", name="Manage payment methods & invoices")).to_be_visible()
+            shot(page, "21-billing-topup-picker.png")
+            ok("15 top-up picker shows the catalog steps; portal link present")
+
+            # 16 — a failing Stripe call degrades to an inline error, not a
+            # dead button (bogus key → 401 upstream → 502 here).
+            topup.click()
+            expect(page.get_by_text(re.compile(
+                r"Payment provider error|Failed \(5"))).to_be_visible(timeout=20_000)
+            shot(page, "22-billing-checkout-error.png")
+            ok("16 checkout failure surfaces 'Payment provider error' inline")
+
+            # 17 — marketing pricing copy flips once payments are enabled.
+            page.goto(f"{BASE}/pricing", wait_until="domcontentloaded")
+            expect(page.get_by_text("Subscribe or top up from your billing page")).to_be_visible()
+            ok("17 /pricing drops the 'payments rolling out' note when payments are on")
 
             browser.close()
     finally:

@@ -10,3 +10,8 @@ PASS  9 actions.csv downloads 6 rows with the frozen header
 PASS  10 Billing tab: 3 packages disabled until 007; statement lists the trial grant
 PASS  11 limit editor PUTs daily 75→100; UI and DB agree
 PASS  12 AgentDetail Spend card: real daily/monthly usage, limits, hosting state
+PASS  13 past_due: dunning banner with action hint, retry date, portal link
+PASS  14 payments on: Current plan / Starts at renewal disabled, Upgrade now live, downgrade note
+PASS  15 top-up picker shows the catalog steps; portal link present
+PASS  16 checkout failure surfaces 'Payment provider error' inline
+PASS  17 /pricing drops the 'payments rolling out' note when payments are on
