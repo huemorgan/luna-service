@@ -19,7 +19,24 @@ secrets.
 | `topup_50` | `prod_UsqhnHgFEHCfi8` | `price_1Tt4zhQ1TPVjJHaqULgZKW0A` | $50.00 | one-time |
 | `topup_100` | `prod_UsqhnHZny9pCsy` | `price_1Tt4ziQ1TPVjJHaqiwOpYTys` | $100.00 | one-time |
 
-Still open from the 006 checklist: portal config (plan switching disabled),
-Stripe Tax + origin address, branding/statement descriptor, restricted API
-key, webhook endpoint + secret (deferred until the 007 route is deployed),
-and the same setup in live mode before rollout.
+## Portal and tax (2026-07-14, via API)
+
+- Billing Portal default configuration `bpc_1Tt5IrQ1TPVjJHaqfGPAl5g0`:
+  payment-method update, invoice history, tax-ID update, cancellation at
+  period end; **subscription_update disabled** (plan switching is
+  code-owned per the 006 plan).
+- Stripe Tax defaults set to `tax_behavior=exclusive` (credits derive from
+  the pretax amount). Status stays `pending` on `head_office` — needs the
+  business address, dashboard-only.
+
+## Still open (dashboard-only; API refuses own-account updates)
+
+- Business profile: name, support email, statement descriptor, branding
+  (Settings → Business / Branding).
+- Tax head-office address (Settings → Tax).
+- Restricted API key for 007 (Developers → API keys → Create restricted
+  key) — write: Customers, Checkout Sessions, Subscriptions, Billing
+  Portal, PaymentIntents, SetupIntents, PaymentMethods, Refunds; read:
+  Invoices, Charges, Products/Prices, Disputes.
+- Webhook endpoint + secret: deferred until the 007 route is deployed.
+- Live-mode repeat before rollout (010 gates).
