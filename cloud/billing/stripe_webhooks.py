@@ -48,8 +48,7 @@ HANDLED_EVENTS = {
     "charge.refunded": "stripe.charge_refunded",
     "charge.dispute.created": "stripe.dispute",
     "charge.dispute.closed": "stripe.dispute",
-    # invoice.payment_failed gets its entry when the dunning handler lands —
-    # an entry without a registered handler would dead-letter its jobs.
+    "invoice.payment_failed": "stripe.invoice_failed",
 }
 
 # Tests replace this with a factory returning a MockTransport-backed gateway.
@@ -453,6 +452,42 @@ async def grant_from_topup_checkout(db: AsyncSession, gw: StripeGateway, event_i
     return {"granted": True, "credits": product["paid_credits"], "product": product_key}
 
 
+# ── invoice.payment_failed → dunning state (no grants, no grace credits) ─────
+
+async def mark_invoice_failed(db: AsyncSession, gw: StripeGateway, event_id: str, invoice_id: str) -> dict:
+    """A failed renewal grants nothing and flips billing to past_due.
+    Existing lots keep expiring normally; hosting's renewal sweep enforces
+    payment_due when the wallet can no longer cover hosting. Recovery is a
+    later verified payment (grant_from_paid_invoice clears the state)."""
+    invoice = await gw.get(f"/v1/invoices/{invoice_id}")
+    sub_id = invoice.get("subscription")
+    if not sub_id:
+        return _skip(event_id, "not a subscription invoice")
+    account = await _account_for_customer(db, invoice.get("customer") or "")
+    if account is None:
+        return _skip(event_id, f"unknown customer {invoice.get('customer')!r}")
+
+    # requires_action means the bank wants 3DS/SCA from the customer — the
+    # UI shows a "finish payment" banner instead of a generic retry notice.
+    action_required = False
+    pi_id = invoice.get("payment_intent")
+    if pi_id:
+        pi = await gw.get(f"/v1/payment_intents/{pi_id}")
+        action_required = pi.get("status") in ("requires_action", "requires_payment_method")
+
+    subscription = await gw.get(f"/v1/subscriptions/{sub_id}")
+    row = await _upsert_subscription_mirror(db, account.account_id, subscription, None)
+    row.payment_action_required = action_required
+    row.next_payment_retry_at = _ts(invoice.get("next_payment_attempt"))
+    account.billing_status = "past_due"
+    await db.flush()
+    return {
+        "granted": False,
+        "billing_status": "past_due",
+        "payment_action_required": action_required,
+    }
+
+
 # ── subscription lifecycle mirror ────────────────────────────────────────────
 
 async def sync_subscription(db: AsyncSession, gw: StripeGateway, event_id: str, sub_id: str) -> dict:
@@ -495,5 +530,6 @@ def _handler(fn):
 worker.register_handler("stripe.invoice_paid", _handler(grant_from_paid_invoice))
 worker.register_handler("stripe.checkout_completed", _handler(grant_from_topup_checkout))
 worker.register_handler("stripe.subscription_sync", _handler(sync_subscription))
+worker.register_handler("stripe.invoice_failed", _handler(mark_invoice_failed))
 worker.register_handler("stripe.charge_refunded", _handler(stripe_clawback.handle_charge_refunded))
 worker.register_handler("stripe.dispute", _handler(stripe_clawback.handle_dispute))
