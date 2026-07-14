@@ -170,8 +170,10 @@ headless chromium 1440×960 with `reduced_motion="reduce"` (the marketing
 site reveals sections on scroll; screenshots would capture blanks otherwise).
 
 Run: `python3 tests/039-pricing/dojo_billing_ui.py`. Evidence:
-`results/<date>-local/REPORT-billing-ui.txt` + screenshots 10–17 +
-`app-billing-ui.log`.
+`results/<date>-local/REPORT-billing-ui.txt` + screenshots 10–18 +
+`app-billing-ui.log`. The billing page is split into Status / Usage /
+Billing tabs (`?tab=` in the URL); block and trial banners render above
+the tab bar on every tab.
 
 ## Scenarios
 
@@ -183,13 +185,14 @@ Run: `python3 tests/039-pricing/dojo_billing_ui.py`. Evidence:
    ($100/mo billed yearly for Pro) and yearly gift credits appear
    ("+10,000 gift credits each year").
 3. **Dashboard nav** — header Billing link routes to /dashboard/billing.
-4. **Billing overview** — trial banner (days left, active-Luna cap),
-   balance 1,678 cr, in-flight 0, debt 0, next expiry date; three package
-   cards render disabled "Coming soon" buttons (payments_enabled false
-   until 007).
-5. **Credit lots** — gift lot 1,678 / 1,800 remaining, expiry, status
-   active, burn order #1, cheapest-first note.
-6. **Usage** — 122 cr in 28d, today/month stats, est. days left, trend
+4. **Status tab (default)** — trial banner (days left, active-Luna cap),
+   balance 1,678 cr, in-flight 0, debt 0, next expiry date; Credit sources
+   bars (Gift & trial / Bonus / Bucket / Top-up) show granted-vs-consumed
+   ("122 used · 1,678 left of 1,800" on the gift bar) plus the burn-order
+   note (free → gift → bonus → top-up → bucket last).
+5. **Credit lots (Status tab)** — gift lot 1,678 / 1,800 remaining, expiry,
+   status active, burn order #1, cheapest-first note.
+6. **Usage tab** — 122 cr in 28d, today/month stats, est. days left, trend
    bars, per-Luna row 49 / 75 cr daily with progress + 122 / 800 monthly.
 7. **Breakdown pivots** — Luna / Service / Plugin / Action type / Model /
    Action buttons re-query; model shows claude-sonnet-5, plugin shows
@@ -199,10 +202,12 @@ Run: `python3 tests/039-pricing/dojo_billing_ui.py`. Evidence:
    shows 18 cr exactly once.
 9. **CSV export** — `/api/billing/usage/actions.csv` honours the session
    cookie, 6 data rows, frozen header `time,luna,action,service,status,credits`.
-10. **Statement** — trial gift +1,800 row and a correct per-row running
-    balance ending at 1,678.
-11. **Limit editor** — owner edits daily 75→100 through the same-origin
-    PUT; the UI re-renders 49 / 100 cr and the DB row agrees.
+10. **Billing tab** — three package cards render disabled "Coming soon"
+    buttons (payments_enabled false until 007); statement lists the trial
+    gift +1,800 row and a correct per-row running balance ending at 1,678
+    (screenshot 18).
+11. **Limit editor (Usage tab)** — owner edits daily 75→100 through the
+    same-origin PUT; the UI re-renders 49 / 100 cr and the DB row agrees.
 12. **AgentDetail Spend card** — real daily/monthly usage with "of 800 cr
     limit" hint and hosting state (active · 999 cr until date).
 

@@ -1,12 +1,12 @@
 PASS  1 /pricing renders trial + 3 packages + top-ups + hosting from the API
 PASS  2 yearly toggle shows billed-yearly pricing with yearly gift credits
 PASS  3 dashboard header has a Billing link that routes to /dashboard/billing
-PASS  4 billing page: trial banner, 1,678 cr balance, 3 packages disabled until 007
+PASS  4 Status tab: trial banner, 1,678 cr balance, source bars (gift 122 used)
 PASS  5 credit lots: gift 1,678/1,800 remaining, burn order #1
 PASS  6 usage: 122 cr in 28d, trend bars, Mika daily 49/75 with progress
 PASS  7 breakdown pivots by Luna / model / plugin with credit bars
 PASS  8 actions: playbook 26 cr with plugin child; chat retry charged once
 PASS  9 actions.csv downloads 6 rows with the frozen header
-PASS  10 statement lists the trial grant and per-row running balance
+PASS  10 Billing tab: 3 packages disabled until 007; statement lists the trial grant
 PASS  11 limit editor PUTs daily 75→100; UI and DB agree
 PASS  12 AgentDetail Spend card: real daily/monthly usage, limits, hosting state

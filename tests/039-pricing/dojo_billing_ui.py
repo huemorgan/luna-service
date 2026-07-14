@@ -314,17 +314,17 @@ def main() -> None:
             page.wait_for_url(f"{BASE}/dashboard/billing")
             ok("3 dashboard header has a Billing link that routes to /dashboard/billing")
 
-            # 4 — billing page: trial banner, balances, packages disabled.
+            # 4 — Status tab (default): trial banner, balances, source bars.
             expect(page.get_by_text("Free trial.")).to_be_visible()
             expect(page.get_by_text("Balance", exact=True).first).to_be_visible()
             # 1800 gift − 122 charged = 1678.
             expect(page.get_by_text("1,678 cr").first).to_be_visible()
-            coming = page.get_by_role("button", name="Coming soon")
-            assert coming.count() == 3
-            for i in range(3):
-                expect(coming.nth(i)).to_be_disabled()
+            expect(page.get_by_text("Credit sources")).to_be_visible()
+            for bar in ("Gift & trial credits", "Bonus credits", "Bucket credits", "Top-up credits"):
+                expect(page.get_by_text(bar, exact=True)).to_be_visible()
+            expect(page.get_by_text("122 used · 1,678 left of 1,800")).to_be_visible()
             shot(page, "12-billing-overview.png")
-            ok("4 billing page: trial banner, 1,678 cr balance, 3 packages disabled until 007")
+            ok("4 Status tab: trial banner, 1,678 cr balance, source bars (gift 122 used)")
 
             # 5 — grants table shows the gift lot with burn order.
             expect(page.get_by_text("Credit lots")).to_be_visible()
@@ -332,7 +332,8 @@ def main() -> None:
             expect(page.get_by_text("#1")).to_be_visible()
             ok("5 credit lots: gift 1,678/1,800 remaining, burn order #1")
 
-            # 6 — usage: totals, trend bars, per-Luna progress.
+            # 6 — Usage tab: totals, trend bars, per-Luna progress.
+            page.get_by_role("button", name="Usage", exact=True).click()
             expect(page.get_by_text("Used in range")).to_be_visible()
             expect(page.get_by_text("122 cr").first).to_be_visible()  # 7d default range covers all
             expect(page.get_by_text("Per-Luna limits")).to_be_visible()
@@ -375,13 +376,21 @@ def main() -> None:
             assert len(lines) == 7  # 6 roots + header
             ok("9 actions.csv downloads 6 rows with the frozen header")
 
-            # 10 — statement shows the +1,800 grant and a running balance.
+            # 10 — Billing tab: packages disabled until 007, statement with
+            # the +1,800 grant and a running balance.
+            page.get_by_role("button", name="Billing", exact=True).click()
+            coming = page.get_by_role("button", name="Coming soon")
+            expect(coming).to_have_count(3)
+            for i in range(3):
+                expect(coming.nth(i)).to_be_disabled()
             expect(page.get_by_text("Statement")).to_be_visible()
             expect(page.get_by_text("+1,800")).to_be_visible()
             expect(page.get_by_text("trial gift")).to_be_visible()
-            ok("10 statement lists the trial grant and per-row running balance")
+            shot(page, "18-billing-tab-packages-statement.png")
+            ok("10 Billing tab: 3 packages disabled until 007; statement lists the trial grant")
 
-            # 11 — owner edits limits through the same-origin PUT.
+            # 11 — owner edits limits through the same-origin PUT (Usage tab).
+            page.get_by_role("button", name="Usage", exact=True).click()
             page.locator("button[title='Edit limits']").click()
             daily_input = page.locator("input[placeholder='none']").first
             daily_input.fill("100")

@@ -596,6 +596,21 @@ the buttons.
   like (React renders `{a} / {b}` as one text run); when a locator misses,
   read the aria snapshot before touching the component.
 
+### Addendum — tab split (2026-07-14)
+
+Roy asked for the billing page split into top tabs; shipped same day:
+**Status** (stat cards, new "Credit sources" consumption bars, hosting,
+credit lots), **Usage** (range stats, trend, breakdown, recent actions,
+CSV, limit editor), **Billing** (packages + statement). Tab state lives in
+`?tab=` via `useSearchParams`; block/trial banners stay above the tab bar.
+The source bars aggregate `/api/billing/grants` by `category` (gift+free
+merged as "Gift & trial"). Roy's recalled burn order (bucket → bonus →
+top-up) was inverted — the actual order is free → gift → bonus → top-up →
+bucket last; the bar hints state the real order. Dojo re-passed 12/12 with
+new screenshot 18. Two more Playwright lessons: `locator.count()` doesn't
+auto-wait (use `expect(...).to_have_count(n)`), and `get_by_text` needs
+`exact=True` when a label is echoed inside hint/note text.
+
 ### Plan reassessment
 
 - **007 (Stripe integration)**: the UI contract is now concrete — flip
