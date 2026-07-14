@@ -63,6 +63,14 @@ async def lifespan(app: FastAPI):
     from cloud.billing.seed import seed_billing
 
     async with _get_db() as db:
+        # With --workers N every worker runs this block concurrently; the
+        # check-then-insert seeds race and the loser dies on a unique
+        # violation (seen on the 0005 deploy). Serialize behind a
+        # transaction-scoped advisory lock: the second worker blocks until
+        # the first commits, then its existence checks see the rows.
+        if db.bind.dialect.name == "postgresql":
+            from cloud.runtime.exclusive import LOCK_STARTUP_SEED
+            await db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": LOCK_STARTUP_SEED})
         await seed_services(db)  # credential-gateway registry (insert-if-missing)
         await seed_models(db)  # Plan 018: system model catalog
         # 039: commercial pricing v1 + provider-cost v1. Runs after
