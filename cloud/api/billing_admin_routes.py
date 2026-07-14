@@ -758,3 +758,188 @@ async def sync_stripe_bindings(body: SyncBody, request: Request,
             }
     finally:
         await gw.aclose()
+
+
+# ── Operations & simulations (039/009) ───────────────────────────────────────
+
+@router.get("/ops")
+async def ops_overview(admin: User = Depends(require_admin)):
+    """Bounded counters + heartbeats. Cheap enough to render on page load;
+    the full invariant replay lives behind /ops/invariants."""
+    from cloud.billing import operations as ops_svc
+    async with get_db_session() as db:
+        return await ops_svc.ops_snapshot(db)
+
+
+@router.get("/ops/invariants")
+async def ops_invariants(admin: User = Depends(require_admin)):
+    from cloud.billing import operations as ops_svc
+    async with get_db_session() as db:
+        return await ops_svc.run_invariants(db)
+
+
+@router.get("/ops/alerts")
+async def ops_alerts(admin: User = Depends(require_admin)):
+    from cloud.billing.models import OpsAlert
+    async with get_db_session() as db:
+        rows = (await db.execute(
+            select(OpsAlert).order_by(OpsAlert.last_seen_at.desc())
+        )).scalars().all()
+        return {"alerts": [{
+            "alert_key": a.alert_key,
+            "severity": a.severity,
+            "message": a.message,
+            "status": a.status,
+            "value": a.value_json,
+            "threshold": a.threshold_json,
+            "first_seen_at": a.first_seen_at.isoformat() if a.first_seen_at else None,
+            "last_seen_at": a.last_seen_at.isoformat() if a.last_seen_at else None,
+            "resolved_at": a.resolved_at.isoformat() if a.resolved_at else None,
+        } for a in rows]}
+
+
+@router.post("/ops/alerts/evaluate")
+async def ops_alerts_evaluate(request: Request, admin: User = Depends(require_admin)):
+    from cloud.billing import operations as ops_svc
+    async with get_db_session() as db:
+        active = await ops_svc.evaluate_alerts(db)
+        _audit(db, request, admin, action="pricing.ops.alerts_evaluate",
+               target="ops:alerts", after={"active": [a["alert_key"] for a in active]})
+        await db.commit()
+        return {"active": active}
+
+
+def _sim_out(sim, *, with_result: bool = False) -> dict:
+    manifest = sim.manifest or {}
+    out = {
+        "id": str(sim.id),
+        "state": sim.state,
+        "filters": sim.filters,
+        "baseline_version_id": str(sim.baseline_version_id) if sim.baseline_version_id else None,
+        "candidate_version_id": str(sim.candidate_version_id) if sim.candidate_version_id else None,
+        "provider_cost_basis": sim.provider_cost_basis,
+        "transforms": sim.transforms,
+        "replay_mode": manifest.get("replay_mode"),
+        "funding_mode": manifest.get("funding_mode"),
+        "event_count": manifest.get("event_count"),
+        "config_hash": sim.config_hash,
+        "created_at": sim.created_at.isoformat() if sim.created_at else None,
+    }
+    if with_result:
+        out["result"] = sim.result
+    elif sim.result is not None:
+        out["result_hash"] = sim.result.get("result_hash")
+        out["error"] = sim.result.get("error")
+    return out
+
+
+class SimulationRequest(BaseModel):
+    filters: dict | None = None
+    baseline_version_id: uuid.UUID
+    candidate_version_id: uuid.UUID
+    provider_cost_basis: str = "original_snapshot"
+    provider_cost_version_id: uuid.UUID | None = None
+    transforms: dict | None = None
+    replay_mode: str = "full_demand"
+    funding_mode: str = "actual_grants"
+
+
+@router.post("/simulations")
+async def create_simulation(body: SimulationRequest, request: Request,
+                            admin: User = Depends(require_admin)):
+    from cloud.billing import simulator as sim_svc
+    async with get_db_session() as db:
+        try:
+            sim = await sim_svc.create_simulation(
+                db,
+                filters=body.filters,
+                baseline_version_id=body.baseline_version_id,
+                candidate_version_id=body.candidate_version_id,
+                provider_cost_basis=body.provider_cost_basis,
+                provider_cost_version_id=body.provider_cost_version_id,
+                transforms=body.transforms,
+                replay_mode=body.replay_mode,
+                funding_mode=body.funding_mode,
+                created_by=admin.id,
+            )
+        except sim_svc.SimulationError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+        _audit(db, request, admin, action="pricing.simulation.create",
+               target=f"simulation:{sim.id}", after=_sim_out(sim))
+        await db.commit()
+        return _sim_out(sim)
+
+
+@router.get("/simulations")
+async def list_simulations(admin: User = Depends(require_admin)):
+    from cloud.billing.models import PricingSimulation
+    async with get_db_session() as db:
+        rows = (await db.execute(
+            select(PricingSimulation).order_by(PricingSimulation.created_at.desc()).limit(100)
+        )).scalars().all()
+        return {"simulations": [_sim_out(s) for s in rows]}
+
+
+async def _sim_or_404(db, simulation_id: uuid.UUID):
+    from cloud.billing.models import PricingSimulation
+    sim = await db.get(PricingSimulation, simulation_id)
+    if sim is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Simulation not found")
+    return sim
+
+
+@router.get("/simulations/{simulation_id}")
+async def get_simulation(simulation_id: uuid.UUID, admin: User = Depends(require_admin)):
+    async with get_db_session() as db:
+        sim = await _sim_or_404(db, simulation_id)
+        return _sim_out(sim, with_result=True)
+
+
+@router.get("/simulations/{simulation_id}/csv")
+async def simulation_csv(simulation_id: uuid.UUID, admin: User = Depends(require_admin)):
+    from fastapi.responses import PlainTextResponse
+    from cloud.billing import simulator as sim_svc
+    async with get_db_session() as db:
+        sim = await _sim_or_404(db, simulation_id)
+        if sim.state != "succeeded" or sim.result is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Simulation has no result")
+        return PlainTextResponse(
+            sim_svc.result_csv(sim), media_type="text/csv",
+            headers={"Content-Disposition":
+                     f'attachment; filename="simulation-{sim.id}.csv"'},
+        )
+
+
+@router.post("/simulations/{simulation_id}/rerun")
+async def rerun_simulation(simulation_id: uuid.UUID, request: Request,
+                           admin: User = Depends(require_admin)):
+    """Rerun the stored manifest verbatim — the reproducibility path. Late
+    events or edited drafts can never change the result."""
+    from cloud.billing import simulator as sim_svc
+    async with get_db_session() as db:
+        sim = await _sim_or_404(db, simulation_id)
+        if not sim.manifest:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Simulation has no manifest")
+        rerun = await sim_svc.create_simulation(db, manifest=sim.manifest,
+                                                created_by=admin.id)
+        _audit(db, request, admin, action="pricing.simulation.rerun",
+               target=f"simulation:{sim.id}", after={"rerun_id": str(rerun.id)})
+        await db.commit()
+        return _sim_out(rerun)
+
+
+@router.post("/simulations/{simulation_id}/cancel")
+async def cancel_simulation(simulation_id: uuid.UUID, request: Request,
+                            admin: User = Depends(require_admin)):
+    async with get_db_session() as db:
+        sim = await _sim_or_404(db, simulation_id)
+        if sim.state in ("succeeded", "failed"):
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                f"Simulation already {sim.state}")
+        before = {"state": sim.state}
+        sim.state = "cancelled"
+        _audit(db, request, admin, action="pricing.simulation.cancel",
+               target=f"simulation:{sim.id}", before=before,
+               after={"state": "cancelled"})
+        await db.commit()
+        return _sim_out(sim)

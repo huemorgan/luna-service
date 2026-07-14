@@ -514,6 +514,9 @@ async def stale_hold_reaper_loop(session_factory, *, interval_seconds: float = 6
         try:
             async with session_factory() as session:
                 await reap_stale_holds_once(session)
+                from cloud.billing.operations import heartbeat as ops_heartbeat
+                await ops_heartbeat(session, "hold_reaper", None)
+                await session.commit()
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001

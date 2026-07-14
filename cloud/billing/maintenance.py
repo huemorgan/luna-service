@@ -85,6 +85,8 @@ async def maintenance_loop(
         try:
             async with session_factory() as session:
                 result = await maintenance_once(session)
+                from cloud.billing.operations import heartbeat
+                await heartbeat(session, "maintenance", result)
                 await session.commit()
                 if any(result.values()):
                     log.info("billing maintenance: %s", result)

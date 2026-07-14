@@ -1,0 +1,11 @@
+PASS  0 scratch DB created, migrated to head, seeded
+PASS  1 GET /ops returns integer counters on Postgres; dead money job visible
+PASS  2 invariants (trial balance / projection / remainders) hold on PG
+PASS  3 half-cost simulation ran via the real 5s worker loop: 12 → 9 credits
+PASS  4 CSV export streams per-account rows
+PASS  5 rerun by manifest → identical result_hash
+PASS  6 cancel before run: job executes but never publishes a result
+PASS  7 dead stripe.* job → dead_money_jobs critical alert active
+PASS  8 heartbeats: outbox_worker, maintenance, hold_reaper, alert_eval
+PASS  9 audit log records simulation create/rerun/cancel
+PASS  10 simulator wrote no rated_charges (ledger txns from seed: 1)

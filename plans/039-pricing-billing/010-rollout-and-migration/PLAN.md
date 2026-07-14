@@ -233,3 +233,37 @@ live):
   image is deployed to canaries (rollout step 3).
 - Luna `model_override` paths (dev/test convenience) bypass the metering
   wrapper by design — irrelevant to hosted images, which never set it.
+
+## Amendments from phase 009 (2026-07-15)
+
+- **The restore drill mechanism is built and proven**:
+  `scripts/restore_drill.py` dumps (or takes an existing `--dump-file`,
+  e.g. a downloaded Render backup), restores into a freshly created
+  isolated DB, checks the Alembic revision against the repo head, replays
+  all three ledger invariants, and exits 0 only when everything holds
+  (drill DB dropped unless `--keep`). A local drill passed on 2026-07-15
+  and an injected unbalanced posting was correctly detected (exit 1).
+  **The step-1 gate item is now specifically: run this script against a
+  production backup** — pg_dump/pg_restore are not on the dev host, so run
+  it where real pg tools exist or download the backup and use
+  `--dump-file`.
+- **Go/no-go telemetry for the mode flips is live**: `GET
+  /api/admin/pricing/ops` serves shadow `would_block` frequency by code
+  (7-day window), `dead_money_jobs`, webhook staleness, hosting/scheduled-
+  lot backlogs, and clawback drift; `GET /ops/invariants` replays trial
+  balance / projection drift / grant remainders on demand. The observe →
+  shadow → enforce decisions in steps 2–11 should cite these numbers, and
+  the alert loop (5-minute cadence, critical on dead stripe.* jobs and any
+  invariant break) must be quiet before each escalation.
+- **Migration dry runs have an evidence tool**: the simulator replays any
+  cohort's real usage under the v1 config (filters accept account_ids +
+  period), wallet-constrained with `candidate_products` funding to preview
+  post-migration block/debt behavior, per-account winners/losers CSV for
+  the cohort review. Manifest pinning means the dry-run evidence stays
+  reproducible after migration.
+- Alembic head is now `0006` (ops_alerts + ops_heartbeats); the deploy
+  migrates automatically.
+- All four billing background loops (outbox worker, maintenance,
+  stale-hold reaper, ops alert eval) stamp `ops_heartbeats` — a stale
+  heartbeat on the ops page is the first sign the advisory-lock worker
+  died; check it during every rollout step.

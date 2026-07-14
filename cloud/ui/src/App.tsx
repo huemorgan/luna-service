@@ -20,6 +20,8 @@ import PricingVersionsPage from './pages/admin/pricing/PricingVersionsPage';
 import PricingVersionDetailPage from './pages/admin/pricing/PricingVersionDetailPage';
 import PricingModelsPage from './pages/admin/pricing/PricingModelsPage';
 import PricingBucketsPage from './pages/admin/pricing/PricingBucketsPage';
+import PricingOpsPage from './pages/admin/pricing/PricingOpsPage';
+import PricingSimulationsPage from './pages/admin/pricing/PricingSimulationsPage';
 
 // Marketing site (plan 021) — public, unauthenticated routes.
 import MarketingLayout from './marketing/MarketingLayout';
@@ -66,6 +68,8 @@ export default function App() {
           <Route path="pricing/versions/:versionId" element={<PricingVersionDetailPage />} />
           <Route path="pricing/models" element={<PricingModelsPage />} />
           <Route path="pricing/buckets" element={<PricingBucketsPage />} />
+          <Route path="pricing/ops" element={<PricingOpsPage />} />
+          <Route path="pricing/simulations" element={<PricingSimulationsPage />} />
           <Route path="relay" element={<Navigate to="/admin/machines" replace />} />
           <Route path="changelog" element={<ChangelogPage />} />
         </Route>

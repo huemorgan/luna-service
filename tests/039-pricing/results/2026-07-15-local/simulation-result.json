@@ -1,0 +1,103 @@
+{
+  "delta": {
+    "credits": -3,
+    "rated_calls": 0,
+    "blocked_calls": 0,
+    "unpriced_calls": 0,
+    "blocked_credits": 0,
+    "hosting_credits": 0,
+    "subsidy_credits": null,
+    "accounts_in_debt": 0,
+    "margin_micro_usd": 0,
+    "vendor_micro_usd": -37500,
+    "accounts_hit_zero": 0,
+    "rounding_micro_usd": 7500,
+    "cash_basis_micro_usd": null,
+    "face_value_micro_usd": -30000,
+    "luna_absorbed_micro_usd": 0,
+    "gross_profit_cash_micro_usd": null,
+    "gross_profit_face_micro_usd": 7500
+  },
+  "labels": {
+    "cash_basis": "unavailable in full_demand replay",
+    "face_value": "credit face value (not cash revenue)"
+  },
+  "losers": [
+    {
+      "account_id": "bb4e8470-b5fa-4451-b5f1-f703baae1706",
+      "baseline_blocked": 0,
+      "baseline_credits": 12,
+      "candidate_blocked": 0,
+      "candidate_credits": 9
+    }
+  ],
+  "wallet": {},
+  "winners": [
+    {
+      "account_id": "bb4e8470-b5fa-4451-b5f1-f703baae1706",
+      "baseline_blocked": 0,
+      "baseline_credits": 12,
+      "candidate_blocked": 0,
+      "candidate_credits": 9
+    }
+  ],
+  "accounts": 1,
+  "baseline": {
+    "credits": 12,
+    "rated_calls": 3,
+    "blocked_calls": 0,
+    "unpriced_calls": 0,
+    "blocked_credits": 0,
+    "hosting_credits": 0,
+    "subsidy_credits": null,
+    "accounts_in_debt": 0,
+    "margin_micro_usd": 30000,
+    "vendor_micro_usd": 75000,
+    "accounts_hit_zero": 0,
+    "rounding_micro_usd": 15000,
+    "unrated_dimensions": [],
+    "cash_basis_micro_usd": null,
+    "face_value_micro_usd": 120000,
+    "luna_absorbed_micro_usd": 0,
+    "gross_profit_cash_micro_usd": null,
+    "gross_profit_face_micro_usd": 45000
+  },
+  "candidate": {
+    "credits": 9,
+    "rated_calls": 3,
+    "blocked_calls": 0,
+    "unpriced_calls": 0,
+    "blocked_credits": 0,
+    "hosting_credits": 0,
+    "subsidy_credits": null,
+    "accounts_in_debt": 0,
+    "margin_micro_usd": 30000,
+    "vendor_micro_usd": 37500,
+    "accounts_hit_zero": 0,
+    "rounding_micro_usd": 22500,
+    "unrated_dimensions": [],
+    "cash_basis_micro_usd": null,
+    "face_value_micro_usd": 90000,
+    "luna_absorbed_micro_usd": 0,
+    "gross_profit_cash_micro_usd": null,
+    "gross_profit_face_micro_usd": 52500
+  },
+  "event_count": 3,
+  "per_account": [
+    {
+      "account_id": "bb4e8470-b5fa-4451-b5f1-f703baae1706",
+      "baseline_blocked": 0,
+      "baseline_credits": 12,
+      "candidate_blocked": 0,
+      "candidate_credits": 9
+    }
+  ],
+  "replay_mode": "full_demand",
+  "result_hash": "606f3c192b6cee0ed43349f23ca77cc200f87c7a84c3f78bcb33dd4b40aaffef",
+  "funding_mode": "actual_grants",
+  "logical_calls": 3,
+  "missing_events": 0,
+  "algorithm_version": 1,
+  "unrated_dimensions": [],
+  "provider_cost_basis": "original_snapshot"
+}

@@ -1,0 +1,108 @@
+{
+  "generated_at": "2026-07-14T22:42:58.312674+00:00",
+  "holds": {
+    "open": {
+      "count": 0,
+      "credits": 0
+    },
+    "needs_reconciliation": {
+      "count": 0,
+      "credits": 0
+    }
+  },
+  "rated_charges": {},
+  "would_block": {
+    "window_days": 7,
+    "by_code": {},
+    "total": 0
+  },
+  "unrated_dimensions": [],
+  "worker": {
+    "by_type": {
+      "stripe.grant_for_invoice": {
+        "dead": 1
+      }
+    },
+    "dead": [
+      {
+        "job_type": "stripe.grant_for_invoice",
+        "count": 1
+      }
+    ],
+    "dead_money_jobs": 1,
+    "oldest_pending_age_seconds": null
+  },
+  "webhooks": {
+    "error": 0,
+    "stale_queued": 0
+  },
+  "hosting": {
+    "stuck_pending": 0,
+    "payment_due": 0,
+    "active_without_charge": 0
+  },
+  "scheduled_lots": {
+    "activation_backlog": 0
+  },
+  "clawback": {
+    "drifted": [],
+    "drifted_count": 0
+  },
+  "stripe_bindings": {
+    "test": [
+      "hobby_19",
+      "hobby_19_yearly",
+      "recurring_199",
+      "recurring_199_yearly",
+      "recurring_99",
+      "recurring_99_yearly",
+      "topup_10",
+      "topup_100",
+      "topup_25",
+      "topup_50"
+    ],
+    "live": [
+      "hobby_19",
+      "hobby_19_yearly",
+      "recurring_199",
+      "recurring_199_yearly",
+      "recurring_99",
+      "recurring_99_yearly",
+      "topup_10",
+      "topup_100",
+      "topup_25",
+      "topup_50"
+    ]
+  },
+  "negative_margin_calls_7d": 0,
+  "heartbeats": [
+    {
+      "name": "alert_eval",
+      "last_run_at": "2026-07-14T22:42:58.254748+00:00",
+      "detail": {
+        "active": 1
+      }
+    },
+    {
+      "name": "hold_reaper",
+      "last_run_at": "2026-07-14T22:42:58.205364+00:00",
+      "detail": null
+    },
+    {
+      "name": "maintenance",
+      "last_run_at": "2026-07-14T22:42:58.200538+00:00",
+      "detail": {
+        "expired": 0,
+        "renewed": 0,
+        "activated": 0
+      }
+    },
+    {
+      "name": "outbox_worker",
+      "last_run_at": "2026-07-14T22:42:58.202557+00:00",
+      "detail": {
+        "worker_id": "web-81915"
+      }
+    }
+  ]
+}

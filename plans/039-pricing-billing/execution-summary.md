@@ -880,3 +880,100 @@ version `0.36.006`.
   staging); context-differentiated constants unblocked once canaries run
   the new image. Amended.
 
+
+## Phase 009 — Simulator and operations (2026-07-15)
+
+### What was done
+
+- **Pricing simulator** (`cloud/billing/simulator.py`, ~1000 lines):
+  `create_simulation` pins a manifest (ordered billable-event ids, BOTH full
+  config JSONs, provider-cost version) so reruns are reproducible byte-for-
+  byte even after late events or edited drafts; transforms are exact
+  rationals parsed from decimal strings (global/per-model `cost_multiplier`,
+  `volume_multiplier`, full `llm_constants`/tier overrides) — no floats
+  anywhere in rating; replay modes `full_demand` and `wallet_constrained`
+  (SimWallet replays the real burn order, blocks at zero, tracks debt,
+  hit-zero and cash-vs-face basis); funding modes `actual_grants` and
+  `candidate_products` (Stripe payments remapped to candidate catalog);
+  hosting revenue replayed from config; per-account winners/losers + CSV;
+  result carries `result_hash`. Runs execute as a durable `pricing_sim`
+  outbox job — cancelled runs never publish (even when cancelled
+  mid-compute), retried jobs are idempotent, config errors fail the sim
+  while the job succeeds. 25 unit tests including a hand-calculated
+  aggregate fixture, exact half-cost integer identities, and a
+  never-mutates-production sweep.
+- **Operations module** (`cloud/billing/operations.py`, ~590 lines):
+  heartbeats table stamped by every background loop; ledger invariants
+  (journal trial balance, projection drift vs full replay, grant remainders
+  vs consumption history net of reversals); bounded counters — holds by
+  status with credits, rated charges by status, shadow `would_block` by code
+  (7d — the 010 go/no-go signal), unrated provider:model:dimension gaps,
+  outbox by type + dead + `dead_money_jobs` (stripe.*), webhook errors +
+  stale queued, hosting stuck-pending / payment_due / active-without-charge,
+  scheduled-lot activation backlog, clawback drift vs
+  `clawback_target_credits`, unbound Stripe product keys per livemode,
+  negative-margin calls. 11 alert rules (severity + dedupe windows,
+  thresholds all 0) upserted one row per key: active refreshes in place,
+  re-fire inside the window keeps `first_seen_at`, outside resets it.
+  `ops_loop` evaluates every 5 min under the billing advisory lock.
+  Migration `0006` adds `ops_alerts` + `ops_heartbeats`. 12 unit tests.
+- **Admin API** (`billing_admin_routes.py`): `GET /ops`, `GET
+  /ops/invariants`, `GET /ops/alerts`, audited `POST /ops/alerts/evaluate`;
+  simulations create/list/get/CSV/rerun/cancel with 400 on validation, 409
+  on illegal state, audit rows for every mutation. 6 API tests.
+- **Admin UI**: `PricingOpsPage` (alerts table + evaluate button, on-demand
+  invariant replay cards, counter grid with red alert accents, drill-downs
+  that render only when non-empty, heartbeat ages) and
+  `PricingSimulationsPage` (create form with version pickers + JSON
+  filters/transforms, run list with 3s polling while pending/running,
+  detail with baseline/candidate/Δ table + winners/losers, CSV download,
+  rerun/cancel). Nav under Pricing; `tsc -b` + vite build green.
+- **Restore drill** (`scripts/restore_drill.py`): pg_dump (or an existing
+  dump file) → CREATE DATABASE → pg_restore → alembic-head check → invariant
+  replay + ops snapshot → report JSON, exit 0 only if everything holds, drill
+  DB dropped unless `--keep`. Executed end-to-end against the docker PG:
+  PASSED on a seeded ledger; an injected unbalanced posting flipped it to
+  FAILED exit 1. (An UPDATE-based corruption attempt was rejected by 001's
+  append-only trigger — the trigger provably works.)
+- **Dojo** (`tests/039-pricing/dojo_ops_simulator.py`): 11 scenarios on real
+  Postgres + real uvicorn with all four background loops live — ops snapshot
+  JSONifies (Decimal-cast proof), invariants hold, half-cost simulation runs
+  through the REAL 5s worker loop (12 → 9 credits over 3 events), CSV, rerun
+  hash-identical, cancel-never-publishes, dead stripe.* job → critical alert,
+  all four heartbeats stamped, audit trail, zero `rated_charges` written.
+- **Regression**: full suite 579 passed / 1 skipped (43 new tests this
+  phase).
+
+### What was learned
+
+1. **Import ledger account constants, never literals**: `operations.py`
+   compared `ledger_account == "WALLET"` where the actual value is
+   `customer_wallet` — every healthy account looked drifted. The constants
+   (`WALLET`, `DEBT`) live in `cloud/billing/ledger.py`; string literals for
+   ledger accounts are a bug by construction.
+2. **Direct `CreditGrant()` construction needs `burn_priority`** — only
+   `create_grant()` fills it from the source-type lookup; a bare model
+   instance hits the NOT NULL.
+3. **The local dev DB (`lunaservice` on :5435) is a stale pre-Alembic
+   snapshot** — missing `agents.color` and `gateway_services.extra_env`, so
+   `cloud.db.migrate` correctly refuses to fingerprint-stamp it. Don't use
+   it as a drill/dojo source; create fresh DBs on the same server.
+4. **pg_dump/pg_restore aren't on the dev host** — only inside the postgres
+   container. docker-exec shims work for local drills; the production drill
+   runbook must run where real pg tools exist (or download a Render backup
+   and use `--dump-file`).
+5. **`_sim_out` must exclude manifest event-id lists** from list/detail
+   payloads — manifests scale with event count (up to 200k ids) and would
+   bloat every list response.
+6. **A dojo asserting on the real 5s loops needs no test hooks** — polling
+   the public API until the worker finishes is both simpler and stronger
+   than exposing run_once to the app.
+
+### Reassessment of future phases
+
+- **010**: restore-drill tooling and a completed local drill satisfy the
+  drill *mechanism*; the gate item for enforce mode is rerunning it against
+  a production backup. Ops go/no-go signals (would_block by code,
+  dead_money_jobs, invariants) are live at `GET /api/admin/pricing/ops`.
+  The simulator is the dry-run evidence tool for migration cohorts.
+  Amended.

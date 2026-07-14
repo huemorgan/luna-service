@@ -117,6 +117,9 @@ export const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
   completed: { bg: 'rgba(120,220,160,0.15)', fg: '#78dca0' },
   completed_with_failures: { bg: 'rgba(255,107,107,0.15)', fg: '#ff6b6b' },
   failed: { bg: 'rgba(255,107,107,0.15)', fg: '#ff6b6b' },
+  pending: { bg: 'rgba(122,162,255,0.15)', fg: '#7aa2ff' },
+  succeeded: { bg: 'rgba(120,220,160,0.15)', fg: '#78dca0' },
+  cancelled: { bg: 'rgba(160,160,160,0.15)', fg: '#a0a0a0' },
 };
 
 export function StatusPill({ status }: { status: string }) {

@@ -192,6 +192,9 @@ async def worker_loop(session_factory, *, worker_id: str, interval_seconds: floa
         try:
             async with session_factory() as session:
                 await run_once(session, worker_id=worker_id)
+                from cloud.billing.operations import heartbeat as ops_heartbeat
+                await ops_heartbeat(session, "outbox_worker", {"worker_id": worker_id})
+                await session.commit()
         except asyncio.CancelledError:
             raise
         except Exception:

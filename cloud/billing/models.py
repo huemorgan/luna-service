@@ -762,6 +762,40 @@ class StripePayment(Base):
     )
 
 
+class OpsAlert(Base):
+    """One row per alert key (039/009). Active alerts refresh in place; a
+    resolved alert re-firing inside its dedupe window reactivates the same
+    row instead of counting as a new incident."""
+
+    __tablename__ = "ops_alerts"
+    __table_args__ = (
+        CheckConstraint("severity IN ('info','warning','critical')", name="ck_oa_severity"),
+        CheckConstraint("status IN ('active','resolved')", name="ck_oa_status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    alert_key: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    severity: Mapped[str] = mapped_column(Text, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    value_json: Mapped[dict | None] = mapped_column(JSONB)
+    threshold_json: Mapped[dict | None] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="active")
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class OpsHeartbeat(Base):
+    """Last-run stamps for background loops (worker, maintenance, reaper,
+    alert evaluation) so the ops page can show a loop that silently died."""
+
+    __tablename__ = "ops_heartbeats"
+
+    name: Mapped[str] = mapped_column(Text, primary_key=True)
+    last_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    detail: Mapped[dict | None] = mapped_column(JSONB)
+
+
 class PricingSimulation(Base):
     __tablename__ = "pricing_simulations"
 
