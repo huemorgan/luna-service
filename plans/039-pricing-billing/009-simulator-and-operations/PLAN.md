@@ -125,3 +125,19 @@ touching production records, and operate the system: reconciliation, invariants,
 - Reaper/renewal visibility: the maintenance loop expires grants and
   renews periods on a 60 s cadence — ops page should show last-run
   timestamps for maintenance ticks like it does for the outbox worker.
+
+## Amendments from phase 008 (2026-07-14)
+
+- The customer usage API (`/api/billing/usage/summary`) already ships a
+  depletion projection: plain average of the selected range's daily trend,
+  `projection_is_estimate: true`, UI labels it "estimate". The simulator
+  must not invent a second customer-facing projection — reuse these
+  semantics (or refine them in place) so the admin simulation and the
+  customer number never disagree.
+- Customer-facing attribution groups by root action and counts multi-attempt
+  calls once (first-event-per-call). Simulator/ops views that reconcile
+  against customer numbers must use the same rule, or totals will differ
+  from what the customer sees on their own page.
+- Postgres returns `Decimal` for SUM aggregates where SQLite returns int —
+  cast before arithmetic; a Decimal/float mix 500ed in phase 008 and only
+  the PG dojo caught it.

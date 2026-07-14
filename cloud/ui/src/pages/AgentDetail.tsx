@@ -9,6 +9,7 @@ import { InfoCard } from '../components/InfoCard';
 import type { InfoRow } from '../components/InfoCard';
 import { ComingSoonCard } from '../components/ComingSoonCard';
 import type { ComingSoonRow } from '../components/ComingSoonCard';
+import { SpendCard } from '../components/SpendCard';
 import { SizePresetSelect } from '../components/SizePresetSelect';
 
 interface DetailPayload {
@@ -508,11 +509,7 @@ export default function AgentDetail() {
               description="Live usage signals — needs the metering pipeline."
               rows={coming_soon.activity}
             />
-            <ComingSoonCard
-              title="Spend"
-              description="Cost breakdown and limits — needs metering + billing."
-              rows={coming_soon.spend}
-            />
+            <SpendCard agentId={agent.id} />
           </div>
         </div>
 

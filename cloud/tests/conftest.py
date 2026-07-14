@@ -112,6 +112,7 @@ async def _patch_db(db_engine):
         patch("cloud.auth.deps.get_db_session", _test_session),
         patch("cloud.api.admin_routes.get_db_session", _test_session),
         patch("cloud.api.billing_admin_routes.get_db_session", _test_session),
+        patch("cloud.api.billing_routes.get_db_session", _test_session),
         patch("cloud.api.auth_routes.get_db_session", _test_session),
         patch("cloud.api.agent_routes.get_db_session", _test_session),
         patch("cloud.api.proxy.get_db_session", _test_session),

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   Moon, LogOut, Bot, Loader2, Plus, ExternalLink,
   RotateCcw, Square, Play, AlertTriangle, Shield, ChevronDown,
-  Settings, ArrowUpCircle, ChevronRight, CheckCircle2, Sparkles,
+  Settings, ArrowUpCircle, ChevronRight, CheckCircle2, Sparkles, CreditCard,
 } from 'lucide-react';
 
 interface UserInfo {
@@ -204,6 +204,14 @@ export default function Dashboard() {
           <span className="text-lg font-semibold" style={{ color: 'var(--text)' }}>Luna Service</span>
         </div>
         <div className="flex items-center gap-3">
+          <Link
+            to="/dashboard/billing"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors hover:opacity-80"
+            style={{ color: 'var(--moon)' }}
+          >
+            <CreditCard size={14} />
+            Billing
+          </Link>
           {user.is_admin && (
             <Link
               to="/admin"

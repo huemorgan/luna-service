@@ -45,3 +45,4 @@ test-results/
 
 # Dojo results screenshots can grow — keep summaries, ignore raw caches
 dojo-results/**/.cache/
+.stripe-dev.env

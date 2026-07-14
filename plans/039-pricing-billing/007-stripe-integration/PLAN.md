@@ -177,3 +177,26 @@ refunds/disputes. Test mode first; live mode is flipped during rollout (010).
   accepts `needs_reconciliation` holds; handlers should treat "hold
   missing/terminal" as activate-and-log-for-ops, never as a retryable
   error (retries can't fix it).
+
+## Amendments from phase 008 (2026-07-14)
+
+Phase 008 shipped the whole customer UI ahead of this phase, so 007's UI
+work shrinks to wiring, not building:
+
+- The single switch is `payments_enabled` (returned by both
+  `/api/public/pricing` and `/api/billing/summary`, currently hard false in
+  `cloud/api/billing_routes.py`). Flip it from Stripe configuration state,
+  not a bare env flag, so a misconfigured deploy degrades to "Coming soon"
+  instead of broken checkout buttons.
+- Replace the disabled package buttons (marketing `Pricing.tsx` and
+  `BillingPage.tsx` Packages section) with checkout-session links; add a
+  top-up picker over `topup_steps_usd_cents` (steps already rendered as
+  copy). Keep the disabled state as the `payments_enabled: false` branch.
+- Surface `recovery.payment_action_required` and `next_payment_retry_at`
+  in the billing-page banner — the payload fields already exist and render
+  paths are stubbed (`Banner` component); today they are always
+  false/null.
+- The dojo to extend is `tests/039-pricing/dojo_billing_ui.py` (scenario 4
+  asserts the disabled buttons; that assertion inverts under a
+  payments-enabled run). Remember: dojo mutations need `CLOUD_BASE_URL`
+  set to the dojo port or the same-origin guard 403s.

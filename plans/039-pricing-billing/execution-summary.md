@@ -529,3 +529,83 @@ All remaining phase plans amended with dated sections
   insert-only limits); POST_BASELINE_COLUMNS must be checked in the
   rollout runbook whenever prod is stamped; enforce-stage verification now
   includes the hosting dojo alongside the gateway dojo.
+
+## Phase 008 — Customer billing UI (2026-07-14)
+
+Executed out of order (before 006/007 Stripe) per Roy: "i want to see the
+packages first - stripe packages i think can be done later." Everything
+that needs payments renders as a disabled "Coming soon" button gated on
+`payments_enabled` from the API, so 007 only has to flip the flag and wire
+the buttons.
+
+### What was done
+
+- **Customer billing API** (`cloud/api/billing_routes.py`): `/api/public/pricing`
+  (unauthenticated, published-version-gated, 503 when unpublished) and
+  `/api/billing/*` — summary (balance, category split, holds, debt, trial,
+  hosting per agent, recovery payload), grants with burn order, products,
+  usage summary (range + trend + projected depletion + per-Luna limit
+  windows), breakdown by agent/service/plugin/action_type/model/root_action,
+  actions grouped by root action (retries counted once, plugin children
+  nested) + CSV export, statement with per-row running balance (window SUM
+  over posting seq), and owner-only PUT /limits/{agent_id} behind the CSRF
+  same-origin guard. Credits only — no margins, micro-USD, tiers, contexts,
+  SKUs or vendor costs anywhere in a customer payload (tests grep for the
+  tokens).
+- **Marketing /pricing rewritten** to be API-driven: trial / Hobby / Pro /
+  Power cards, monthly↔yearly toggle (yearly = per-month billed-yearly +
+  yearly gift credits), top-ups and always-on hosting cards; the old
+  "degrades gracefully" copy removed.
+- **Dashboard billing page** (`/dashboard/billing`): trial/exhaustion/
+  payment-due banners from the frozen 402 codes (`BLOCK_MESSAGES` maps all
+  seven), stat cards, hosting list, credit lots with burn order, package
+  cards (Coming soon), usage with range picker + trend bars + per-Luna
+  progress and an inline limit editor, breakdown pivots, expandable recent
+  actions + CSV link, statement with Load more.
+- **AgentDetail Spend card** replaces the Coming-soon placeholder: daily/
+  monthly usage vs limits, hosting state, link to the billing page.
+  Dashboard header gets a Billing link.
+- **Tests**: 17 new API tests (SQLite harness) — 446 passed / 1 skipped
+  total, no regressions. Browser dojo `dojo_billing_ui.py` 12/12 on
+  Postgres + real uvicorn + Playwright; screenshots 10–17 under
+  `tests/039-pricing/results/2026-07-14-local/`. Logs secret-scanned.
+
+### What was learned
+
+- **A `now` older than the grant's `effective_at` silently un-burns lots.**
+  The dojo captured `now` before the real signup created the trial grant and
+  passed it to `ledger.charge(now=...)`; burnability filters
+  `effective_at <= now`, so every charge went to DEBT while the wallet
+  moved normally — the page looked right except lots stayed full. Charges
+  in seeds should let `charge()` default its own clock.
+- **SQLite tests don't prove Postgres arithmetic.** `SUM()` comes back as
+  `Decimal` on PG and `int` on SQLite; `Decimal / float` raised a 500 in
+  `/usage/summary` that 17 green SQLite tests never saw. The dojo caught
+  it. Cast aggregates (`int(...)`) before mixing with floats.
+- **The CSRF same-origin guard needs `CLOUD_BASE_URL` in every dojo** that
+  drives a browser through a mutation — the browser sends a real Origin
+  and the guard compares against settings, not the request host.
+- **`asyncio.run()` cannot be called inside `sync_playwright`** (it keeps a
+  loop running on the thread); DB assertions from dojo scenarios must run
+  the coroutine on a fresh thread.
+- **Full-page screenshots capture unrevealed marketing sections** (reveal-
+  on-scroll IntersectionObserver); `reduced_motion="reduce"` in the
+  Playwright context uses the site's own reduced-motion CSS to show
+  everything and keeps screenshots deterministic.
+- Playwright `get_by_text` on multi-node JSX was NOT the problem it looked
+  like (React renders `{a} / {b}` as one text run); when a locator misses,
+  read the aria snapshot before touching the component.
+
+### Plan reassessment
+
+- **007 (Stripe integration)**: the UI contract is now concrete — flip
+  `payments_enabled`, replace the disabled buttons with checkout links, add
+  a top-up picker over `topup_steps_usd_cents`, and surface
+  `recovery.payment_action_required` / `next_payment_retry_at` in the
+  banner. No new pages needed. Amended in the phase file.
+- **009 (simulator/operations)**: the customer API's projection
+  (`projected_depletion_days`) is a plain range average and labeled an
+  estimate; 009's simulator should reuse the same endpoint semantics rather
+  than invent a second projection. Noted in the phase file.
+- **006 unchanged** (account setup already specced; keys live in
+  `.stripe-dev.env`).

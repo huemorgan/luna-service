@@ -152,3 +152,67 @@ Run: `python3 tests/039-pricing/dojo_hosting_lifecycle.py`. Evidence:
 - E's seed dates are chosen so exactly ONE renewal lands in the future
   (Jun 30 → Jul 31); older dates would chain a renewal per 60 s sweep until
   the balance ran dry and flip the account to `payment_due` mid-run.
+
+# 039/008 — Customer billing UI dojo scenarios
+
+Environment: dedicated Postgres database (`dojo039bill` on the docker PG,
+migrated to head), one real uvicorn app in enforce mode on port 8105 with
+`CLOUD_BASE_URL` pointed at the dojo port (the CSRF same-origin guard
+compares the browser's Origin against it), billing outbox worker on,
+forwarder/reconciler off, `FLY_API_TOKEN` present-but-bogus. The account is
+created through the REAL signup transaction (trial gift 1800), then one
+running Luna ("Mika") is seeded with an active hosting period, per-Luna
+limits 75/800/80%, and a week of varied usage: 7 rated calls across
+chat / playbook (with a composio plugin child) / scheduled / background,
+including a 2-attempt chat call that must be counted once. Matching
+`ledger.charge` postings burn the trial gift down to 1,678. Playwright
+headless chromium 1440×960 with `reduced_motion="reduce"` (the marketing
+site reveals sections on scroll; screenshots would capture blanks otherwise).
+
+Run: `python3 tests/039-pricing/dojo_billing_ui.py`. Evidence:
+`results/<date>-local/REPORT-billing-ui.txt` + screenshots 10–17 +
+`app-billing-ui.log`.
+
+## Scenarios
+
+1. **Marketing /pricing from the API** — trial card ($0, 1,800 credits,
+   28 days, 75/day, 1 active Luna), Hobby/Pro/Power from
+   `/api/public/pricing`, top-ups card and always-on hosting card;
+   no "degrade gracefully" copy anywhere.
+2. **Yearly toggle** — prices become per-month billed-yearly
+   ($100/mo billed yearly for Pro) and yearly gift credits appear
+   ("+10,000 gift credits each year").
+3. **Dashboard nav** — header Billing link routes to /dashboard/billing.
+4. **Billing overview** — trial banner (days left, active-Luna cap),
+   balance 1,678 cr, in-flight 0, debt 0, next expiry date; three package
+   cards render disabled "Coming soon" buttons (payments_enabled false
+   until 007).
+5. **Credit lots** — gift lot 1,678 / 1,800 remaining, expiry, status
+   active, burn order #1, cheapest-first note.
+6. **Usage** — 122 cr in 28d, today/month stats, est. days left, trend
+   bars, per-Luna row 49 / 75 cr daily with progress + 122 / 800 monthly.
+7. **Breakdown pivots** — Luna / Service / Plugin / Action type / Model /
+   Action buttons re-query; model shows claude-sonnet-5, plugin shows
+   whatsapp 4 cr.
+8. **Recent actions** — playbook run groups its composio plugin child
+   (22 + 4 = 26 cr), expanding reveals the child rows; the 2-attempt chat
+   shows 18 cr exactly once.
+9. **CSV export** — `/api/billing/usage/actions.csv` honours the session
+   cookie, 6 data rows, frozen header `time,luna,action,service,status,credits`.
+10. **Statement** — trial gift +1,800 row and a correct per-row running
+    balance ending at 1,678.
+11. **Limit editor** — owner edits daily 75→100 through the same-origin
+    PUT; the UI re-renders 49 / 100 cr and the DB row agrees.
+12. **AgentDetail Spend card** — real daily/monthly usage with "of 800 cr
+    limit" hint and hosting state (active · 999 cr until date).
+
+## Notes
+
+- `ledger.charge` must not be given a `now` older than the grant's
+  `effective_at`: burnability filters `effective_at <= now`, so a stale
+  `now` silently sends the charge to DEBT while the wallet balance still
+  moves — the page looks right except lots never shrink.
+- Inside `with sync_playwright()` an asyncio loop is already running on the
+  thread; `asyncio.run()` for DB assertions must happen on a fresh thread.
+- The customer API never sends margins, micro-USD, tiers, contexts, SKUs or
+  vendor costs; the API tests assert those tokens are absent from payloads.
