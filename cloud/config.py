@@ -58,6 +58,17 @@ class Settings(BaseSettings):
     # this global mode and the account override.
     billing_mode: str = "off"
 
+    # Plan 039/007: Stripe. The secret key must be a restricted key in prod
+    # (scopes listed in plans/039-pricing-billing/006-stripe-account-setup/
+    # test-mode-bindings.md). livemode is declared explicitly so a key that
+    # doesn't match the declared mode fails closed instead of charging the
+    # wrong environment. payments_enabled is DERIVED from these plus price
+    # bindings — a missing value degrades the UI to "Coming soon".
+    stripe_secret_key: str = ""
+    stripe_publishable_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_livemode: bool = False
+
     model_config = {"env_prefix": "CLOUD_"}
 
 

@@ -40,6 +40,7 @@ from cloud.billing.models import (
     RatedCharge,
 )
 from cloud.billing.rating import RatingUnavailable
+from cloud.billing.stripe_gateway import payments_enabled_for
 from cloud.db.models import Account, Agent, Membership, User
 from cloud.db.session import get_session as get_db_session
 
@@ -261,7 +262,7 @@ async def billing_summary(auth: tuple[User, Account] = Depends(require_active_ac
                 "payment_action_required": False,  # Stripe dunning lands in 007
                 "next_payment_retry_at": None,
             },
-            "payments_enabled": False,
+            "payments_enabled": await payments_enabled_for(db, config),
         }
 
 
@@ -313,7 +314,10 @@ async def my_products(auth: tuple[User, Account] = Depends(require_active_accoun
             config = await account_config(db, account.id)
         except RatingUnavailable:
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Pricing unavailable")
-        return {**_public_pricing(config), "payments_enabled": False}
+        return {
+            **_public_pricing(config),
+            "payments_enabled": await payments_enabled_for(db, config),
+        }
 
 
 # ── Usage ────────────────────────────────────────────────────────────────────

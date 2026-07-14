@@ -657,6 +657,104 @@ class BillingJob(Base):
     )
 
 
+# ── Stripe integration (039/007) ─────────────────────────────────────────────
+
+class StripePriceBinding(Base):
+    """Catalog product key → Stripe Price, per mode. Bindings gate checkout
+    activation; catalog publication (002) is deliberately decoupled from
+    Stripe. Amounts are recorded so a drift between the catalog and the
+    bound Price is detectable before money moves."""
+
+    __tablename__ = "stripe_price_bindings"
+    __table_args__ = (UniqueConstraint("livemode", "product_key"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    livemode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    product_key: Mapped[str] = mapped_column(Text, nullable=False)
+    stripe_product_id: Mapped[str] = mapped_column(Text, nullable=False)
+    stripe_price_id: Mapped[str] = mapped_column(Text, nullable=False)
+    price_usd_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    interval: Mapped[str | None] = mapped_column(Text)  # month | year | None (one-time)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+
+class StripeSubscription(Base):
+    """The account's single Luna Credits subscription (at most one, PK =
+    account). A mirror of Stripe state updated only from canonical objects
+    retrieved via the API — never from browser redirects. A downgrade lives
+    in `pending_product_key` until renewal applies it."""
+
+    __tablename__ = "stripe_subscriptions"
+
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("billing_accounts.account_id", ondelete="RESTRICT"), primary_key=True
+    )
+    stripe_subscription_id: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    product_key: Mapped[str] = mapped_column(Text, nullable=False)
+    stripe_price_id: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False)  # Stripe's status verbatim
+    current_period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    pending_product_key: Mapped[str | None] = mapped_column(Text)
+    payment_action_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    next_payment_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+
+class StripePayment(Base):
+    """Payment-level clawback accumulator: one row per VERIFIED money-in
+    payment (subscription invoice or top-up PaymentIntent). Refunds and
+    disputes both accumulate into `refunded_pretax_cents`/`clawed_credits`,
+    so the proportional reversal can never double-claw. Amounts are the
+    pretax product line — tax and fees map to zero credits."""
+
+    __tablename__ = "stripe_payments"
+    __table_args__ = (
+        UniqueConstraint("payment_ref"),
+        Index("ix_stripe_payments_account", "account_id"),
+        CheckConstraint("kind IN ('subscription','topup')", name="ck_sp_kind"),
+        CheckConstraint(
+            "dispute_status IS NULL OR dispute_status IN ('created','won','lost')",
+            name="ck_sp_dispute",
+        ),
+        CheckConstraint(
+            "refunded_pretax_cents >= 0 AND refunded_pretax_cents <= pretax_amount_cents",
+            name="ck_sp_refund_bounds",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("billing_accounts.account_id", ondelete="RESTRICT"), nullable=False
+    )
+    # "invoice:{id}" for subscription cycles, "pi:{id}" for top-ups.
+    payment_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    product_key: Mapped[str] = mapped_column(Text, nullable=False)
+    commercial_pricing_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("commercial_pricing_versions.id", ondelete="RESTRICT")
+    )
+    currency: Mapped[str] = mapped_column(Text, nullable=False, default="usd")
+    pretax_amount_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    tax_amount_cents: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    granted_credits: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    refunded_pretax_cents: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    clawed_credits: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    dispute_status: Mapped[str | None] = mapped_column(Text)
+    stripe_charge_id: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+
 class PricingSimulation(Base):
     __tablename__ = "pricing_simulations"
 
