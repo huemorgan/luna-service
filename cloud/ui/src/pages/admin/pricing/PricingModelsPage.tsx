@@ -147,7 +147,7 @@ function ConstantsSection({ t }: { t: Target }) {
           <tr style={{ color: 'var(--text-dim)' }}>
             <th className="text-left pr-4 py-1 font-medium">Context</th>
             {Object.keys(config.llm_constants[contexts[0]] ?? {}).map(tier => (
-              <th key={tier} className="text-left pr-4 py-1 font-medium">{tier}</th>
+              <th key={tier} className="text-left pr-4 py-1 font-medium">{tier} tier</th>
             ))}
           </tr>
         </thead>
@@ -157,9 +157,12 @@ function ConstantsSection({ t }: { t: Target }) {
               <td className="pr-4 py-1 font-semibold">{ctx}</td>
               {Object.keys(config.llm_constants[ctx]).map(tier => (
                 <td key={tier} className="pr-4 py-1">
-                  <input type="number" step="any" value={values[`${ctx}.${tier}`] ?? ''} readOnly={!t.isDraft}
-                    onChange={e => setValues(v => ({ ...v, [`${ctx}.${tier}`]: e.target.value }))}
-                    className="w-24 px-2 py-1 rounded-lg outline-none" style={inputStyle} />
+                  <span className="inline-flex items-center gap-1.5">
+                    <input type="number" step="any" value={values[`${ctx}.${tier}`] ?? ''} readOnly={!t.isDraft}
+                      onChange={e => setValues(v => ({ ...v, [`${ctx}.${tier}`]: e.target.value }))}
+                      className="w-24 px-2 py-1 rounded-lg outline-none" style={inputStyle} />
+                    <span style={{ color: 'var(--text-dim)' }}>credits/call</span>
+                  </span>
                 </td>
               ))}
             </tr>
