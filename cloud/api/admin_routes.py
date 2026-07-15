@@ -1564,12 +1564,16 @@ async def get_machine_env(machine_id: str, admin: User = Depends(require_admin))
 async def backfill_machine_env(
     request: Request,
     dry_run: bool = True,
+    keys: str = "",
     admin: User = Depends(require_admin),
 ):
     """Plan 029: push the gateway env block to any machine that is missing it.
 
     Only touches machines whose LIVE env lacks the LUNA_GATEWAY_URL/TOKEN pair,
     so healthy machines are skipped — no token rotation and no needless restart.
+    `keys` adds comma-separated sentinel vars, so a newly registered
+    provision_by_default service can be rolled out to existing machines
+    (e.g. keys=LUNA_XAI_API_KEY after adding the xai service).
     update_machine_env merges (never wipes) and restarts the machine in place.
     dry_run=true (default) reports what WOULD change without touching anything.
     """
@@ -1582,6 +1586,7 @@ async def backfill_machine_env(
 
     fly = FlyMachinesRuntime()
     sentinels = ("LUNA_GATEWAY_URL", "LUNA_GATEWAY_TOKEN")
+    sentinels += tuple(k.strip() for k in keys.split(",") if k.strip())
 
     async with get_db_session() as db:
         agents = (await db.execute(
