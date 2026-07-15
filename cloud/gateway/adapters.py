@@ -314,7 +314,11 @@ class OpenAIChatCollector(UsageCollector):
             cached = _int_or_none(details.get("cached_tokens"))
             if cached is not None:
                 flat["cached_tokens"] = cached
-        flat.pop("completion_tokens_details", None)
+        details = flat.pop("completion_tokens_details", None)
+        if isinstance(details, dict):
+            reasoning = _int_or_none(details.get("reasoning_tokens"))
+            if reasoning is not None:
+                flat["reasoning_tokens"] = reasoning
         self._merge_usage(flat)
 
     def _dimensions(self) -> dict[str, int]:
@@ -325,6 +329,18 @@ class OpenAIChatCollector(UsageCollector):
             "cached_input_tokens": cached,
             "output_tokens": self._raw.get("completion_tokens", 0),
         }
+
+
+class XAIChatCollector(OpenAIChatCollector):
+    """xAI's usage object EXCLUDES reasoning tokens from completion_tokens
+    (completion_tokens_details.reasoning_tokens is disjoint), but bills them at
+    the output rate — verified against usage.cost_in_usd_ticks. OpenAI folds
+    reasoning into completion_tokens, so only xAI adds it back."""
+
+    def _dimensions(self) -> dict[str, int]:
+        dims = super()._dimensions()
+        dims["output_tokens"] += self._raw.get("reasoning_tokens", 0)
+        return dims
 
 
 class OpenAIEmbeddingsCollector(OpenAIChatCollector):
@@ -339,8 +355,9 @@ _COLLECTORS = {
     "anthropic.messages": AnthropicMessagesCollector,
     "openai.chat": OpenAIChatCollector,
     "openai.embeddings": OpenAIEmbeddingsCollector,
-    # xAI is OpenAI-compatible — same usage object, same SSE framing.
-    "xai.chat": OpenAIChatCollector,
+    # xAI is OpenAI-compatible on the wire, but its completion_tokens excludes
+    # billed reasoning tokens — XAIChatCollector adds them back.
+    "xai.chat": XAIChatCollector,
 }
 
 # Adapters speaking the OpenAI chat protocol (usage shape + stream_options).

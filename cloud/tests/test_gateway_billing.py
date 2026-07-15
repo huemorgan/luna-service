@@ -81,19 +81,30 @@ async def test_route_classification():
 
 
 async def test_xai_chat_adapter_openai_compatible():
-    # xai.chat reuses the OpenAI collector — verify registration + usage parse
-    # + stream_options injection on streaming bodies.
+    # xai.chat speaks the OpenAI protocol but excludes reasoning tokens from
+    # completion_tokens while billing them as output (verified against a live
+    # response's cost_in_usd_ticks) — the collector must add them back.
     c = adapters.make_collector("xai.chat", "application/json")
     c.feed(json.dumps({
         "id": "resp-1", "model": "grok-4.5",
         "usage": {"prompt_tokens": 120, "completion_tokens": 30,
-                  "prompt_tokens_details": {"cached_tokens": 20}},
+                  "prompt_tokens_details": {"cached_tokens": 20},
+                  "completion_tokens_details": {"reasoning_tokens": 129}},
     }).encode())
     facts = c.finish(200, {})
     assert facts.dimensions == {
-        "input_tokens": 100, "cached_input_tokens": 20, "output_tokens": 30,
+        "input_tokens": 100, "cached_input_tokens": 20, "output_tokens": 159,
     }
     assert facts.model == "grok-4.5"
+
+    # OpenAI folds reasoning into completion_tokens — no double count there.
+    c = adapters.make_collector("openai.chat", "application/json")
+    c.feed(json.dumps({
+        "id": "resp-2", "model": "gpt-4o",
+        "usage": {"prompt_tokens": 10, "completion_tokens": 40,
+                  "completion_tokens_details": {"reasoning_tokens": 30}},
+    }).encode())
+    assert c.finish(200, {}).dimensions["output_tokens"] == 40
 
     body = {"model": "grok-4.5", "stream": True, "messages": []}
     out = adapters.prepare_managed_body("xai.chat", body, json.dumps(body).encode())
