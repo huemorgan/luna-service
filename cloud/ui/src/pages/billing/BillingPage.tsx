@@ -115,13 +115,13 @@ function Progress({ used, limit, warnPct }: { used: number; limit: number | null
   );
 }
 
-// ── Credit source consumption bar (Status tab) ──────────────────────────────
+// ── Credit source bar (Status tab): filled = remaining, drains as it burns ──
 
 function SourceBar({ label, hint, granted, remaining }: {
   label: string; hint: string; granted: number; remaining: number;
 }) {
   const used = granted - remaining;
-  const pct = granted > 0 ? Math.min(100, Math.round((used / granted) * 100)) : 0;
+  const pct = granted > 0 ? Math.min(100, Math.round((remaining / granted) * 100)) : 0;
   return (
     <div className="flex items-center gap-4 text-sm flex-wrap">
       <div className="w-40 flex-shrink-0">
