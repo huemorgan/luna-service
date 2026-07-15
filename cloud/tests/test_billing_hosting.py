@@ -93,7 +93,7 @@ async def test_trial_gift_exactly_once(db_session, account):
     assert len(lots) == 1
     assert lots[0].original_credits == 1800
     assert lots[0].source_type == "gift" and lots[0].visible_category == "gift"
-    assert lots[0].expires_at == NOW + timedelta(days=28)
+    assert lots[0].expires_at == NOW + timedelta(days=14)
     assert await ledger.posted_balance(db_session, account.id) == 1800
 
 
@@ -419,7 +419,7 @@ async def test_maintenance_expires_trial_gift(db_session, account):
     await grants.grant_trial_gift(db_session, account.id, now=NOW)
     assert await ledger.posted_balance(db_session, account.id) == 1800
 
-    after = NOW + timedelta(days=28)
+    after = NOW + timedelta(days=14)
     counts = await maintenance.maintenance_once(db_session, now=after)
     assert counts["expired"] == 1
     assert await ledger.posted_balance(db_session, account.id) == 0
