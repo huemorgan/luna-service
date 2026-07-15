@@ -353,7 +353,10 @@ function CreditsBar({ billing, grants }: {
   billing: BillingSummaryLight;
   grants: GrantLight[] | null;
 }) {
-  const total = Math.max(0, billing.posted_balance_credits);
+  // Show the real balance — a negative (overdrawn) account must read as
+  // negative, not 0. Only the bar geometry clamps at zero.
+  const total = billing.posted_balance_credits;
+  const barTotal = Math.max(0, total);
   const segments = Object.entries(billing.balances)
     .filter(([, v]) => v > 0)
     .map(([k, v]) => ({ key: k, credits: v, ...(CREDIT_COLORS[k] ?? { color: '#94a3b8', label: k }) }));
@@ -365,7 +368,7 @@ function CreditsBar({ billing, grants }: {
     g.status === 'active' && g.remaining_credits > 0
     && (!g.expires_at || new Date(g.expires_at).getTime() > now));
   const monthTotal = usable.reduce((s, g) => s + g.original_credits, 0);
-  const fillPct = monthTotal > 0 ? Math.min(100, (total / monthTotal) * 100) : (total > 0 ? 100 : 0);
+  const fillPct = monthTotal > 0 ? Math.min(100, (barTotal / monthTotal) * 100) : (barTotal > 0 ? 100 : 0);
   const lowCredits = total <= 0 || (monthTotal > 0 && fillPct <= 20);
 
   return (
@@ -379,7 +382,7 @@ function CreditsBar({ billing, grants }: {
       <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
         <div className="flex items-baseline gap-3">
           <span className="font-semibold" style={{ color: 'var(--text)' }}>Total Account Credits</span>
-          <span className="text-lg font-bold tabular-nums" style={{ color: 'var(--moon)' }}>
+          <span className="text-lg font-bold tabular-nums" style={{ color: total < 0 ? '#ff6b6b' : 'var(--moon)' }}>
             {total.toLocaleString()}
           </span>
         </div>
@@ -403,12 +406,12 @@ function CreditsBar({ billing, grants }: {
         </div>
       </div>
       <div className="h-2.5 rounded-full overflow-hidden flex" style={{ background: 'var(--ink-lighter)' }}>
-        {total > 0 && segments.map(s => (
+        {barTotal > 0 && segments.map(s => (
           <div
             key={s.key}
             title={s.label}
             className="h-full"
-            style={{ width: `${(s.credits / total) * fillPct}%`, background: s.color }}
+            style={{ width: `${(s.credits / barTotal) * fillPct}%`, background: s.color }}
           />
         ))}
       </div>
