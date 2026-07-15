@@ -59,6 +59,21 @@ _CATALOG: dict[tuple[str, str, str], RouteClass] = {
     ("xai", "GET", "/models/*"): _FREE,
     ("xai", "GET", "/language-models"): _FREE,
     ("xai", "GET", "/language-models/*"): _FREE,
+    # Image generation (041). Gemini rows are explicit per model — a /models/*
+    # wildcard would also swallow :countTokens / :streamGenerateContent and
+    # arbitrary text models, which must stay deny-by-default. The model is in
+    # the PATH, not the body (adapters.extract_model handles that).
+    ("gemini", "POST", "/models/gemini-3-pro-image:generateContent"):
+        _billed("gemini.generate", "image_gen"),
+    ("gemini", "POST", "/models/gemini-2.5-flash-image:generateContent"):
+        _billed("gemini.generate", "image_gen"),
+    ("gemini", "GET", "/models"): _FREE,
+    ("gemini", "GET", "/models/*"): _FREE,
+    # /images/edits is multipart form-data — extract_model scans the form.
+    ("openai", "POST", "/images/generations"): _billed("openai.images", "image_gen"),
+    ("openai", "POST", "/images/edits"): _billed("openai.images", "image_gen"),
+    ("openai", "POST", "/v1/images/generations"): _billed("openai.images", "image_gen"),
+    ("openai", "POST", "/v1/images/edits"): _billed("openai.images", "image_gen"),
 }
 
 

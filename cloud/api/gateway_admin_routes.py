@@ -417,7 +417,7 @@ async def list_agents_light(admin: User = Depends(require_admin)):
 
 # ── Models catalog (Plan 018) ──────────────────────────────────────────────────
 
-_VALID_KINDS = {"reasoning", "summarization", "embedding"}
+_VALID_KINDS = {"reasoning", "summarization", "embedding", "image"}
 
 
 class ModelCreate(BaseModel):

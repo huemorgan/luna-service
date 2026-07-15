@@ -124,6 +124,153 @@ async def test_route_path_normalization():
     assert route_catalog.classify("anthropic", "POST", "/v1//messages/").kind == "billed"
 
 
+# ── Image generation (041) ───────────────────────────────────────────────────
+
+async def test_image_route_classification():
+    for model in ("gemini-3-pro-image", "gemini-2.5-flash-image"):
+        r = route_catalog.classify("gemini", "POST", f"models/{model}:generateContent")
+        assert r.kind == "billed" and r.adapter == "gemini.generate" and r.sku == "image_gen"
+    assert route_catalog.classify("gemini", "GET", "models").kind == "free"
+    assert route_catalog.classify("gemini", "GET", "models/gemini-3-pro-image").kind == "free"
+    # Deny-by-default holds for everything the explicit rows don't name.
+    assert route_catalog.classify(
+        "gemini", "POST", "models/gemini-3-pro-image:streamGenerateContent") is None
+    assert route_catalog.classify(
+        "gemini", "POST", "models/gemini-3-pro-image:countTokens") is None
+    assert route_catalog.classify("gemini", "POST", "models/gemini-2.5-pro:generateContent") is None
+
+    for path in ("images/generations", "images/edits",
+                 "v1/images/generations", "v1/images/edits"):
+        r = route_catalog.classify("openai", "POST", path)
+        assert r.kind == "billed" and r.adapter == "openai.images" and r.sku == "image_gen"
+    assert route_catalog.classify("openai", "POST", "images/variations") is None
+
+
+async def test_extract_model():
+    # Default: JSON body (existing adapters keep their behavior).
+    assert adapters.extract_model("openai.chat", {"model": "gpt-4o"}, "chat/completions") == "gpt-4o"
+    assert adapters.extract_model("openai.chat", None, "chat/completions") is None
+    # Gemini: the model rides in the path, not the body.
+    assert adapters.extract_model(
+        "gemini.generate", None, "models/gemini-3-pro-image:generateContent"
+    ) == "gemini-3-pro-image"
+    assert adapters.extract_model(
+        "gemini.generate", None, "/models/gemini-2.5-flash-image:generateContent"
+    ) == "gemini-2.5-flash-image"
+    # openai.images JSON body.
+    assert adapters.extract_model(
+        "openai.images", {"model": "gpt-image-1"}, "images/generations"
+    ) == "gpt-image-1"
+    # openai.images multipart (images/edits): model is a form field.
+    boundary = "----x"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="image"; filename="s.png"\r\n'
+        "Content-Type: image/png\r\n\r\n"
+    ).encode() + b"\x89PNG\r\n\x1a\nBINARY\r\n" + (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="model"\r\n\r\n'
+        "gpt-image-1\r\n"
+        f"--{boundary}--\r\n"
+    ).encode()
+    assert adapters.extract_model(
+        "openai.images", None, "images/edits",
+        f"multipart/form-data; boundary={boundary}", body,
+    ) == "gpt-image-1"
+    assert adapters.extract_model(
+        "openai.images", None, "images/edits",
+        f"multipart/form-data; boundary={boundary}", b"no model here",
+    ) is None
+
+
+async def test_gemini_generate_adapter():
+    c = adapters.make_collector("gemini.generate", "application/json")
+    c.feed(json.dumps({
+        "responseId": "resp-g1", "modelVersion": "gemini-3-pro-image",
+        "usageMetadata": {
+            "promptTokenCount": 24,
+            "candidatesTokenCount": 1147,
+            "thoughtsTokenCount": 80,
+            "candidatesTokensDetails": [
+                {"modality": "IMAGE", "tokenCount": 1120},
+                {"modality": "TEXT", "tokenCount": 27},
+            ],
+        },
+    }).encode())
+    facts = c.finish(200, {})
+    # 1120 image tokens at the image rate; 27 text + 80 thinking at text rate.
+    assert facts.dimensions == {
+        "input_tokens": 24, "output_image_tokens": 1120, "output_text_tokens": 107,
+    }
+    assert facts.model == "gemini-3-pro-image"
+    assert facts.provider_response_id == "resp-g1"
+
+    # No per-modality detail → all candidate tokens billed as image output
+    # (image-model-only route; the expensive dimension is the safe default).
+    c = adapters.make_collector("gemini.generate", "application/json")
+    c.feed(json.dumps({
+        "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 1290},
+    }).encode())
+    assert c.finish(200, {}).dimensions == {
+        "input_tokens": 10, "output_image_tokens": 1290,
+    }
+
+    # Oversized inline-image body → head/tail scan finds usageMetadata.
+    c = adapters.make_collector("gemini.generate", "application/json")
+    head = (b'{"candidates":[{"content":{"parts":[{"inlineData":{"data":"'
+            + b"A" * (3 * 1024 * 1024) + b'"}}]}}],')
+    tail = (b'"usageMetadata":{"promptTokenCount":24,"candidatesTokenCount":1290,'
+            b'"candidatesTokensDetails":[{"modality":"IMAGE","tokenCount":1290}]},'
+            b'"modelVersion":"gemini-2.5-flash-image","responseId":"resp-g2"}')
+    _feed_split(c, head + tail, size=64 * 1024)
+    facts = c.finish(200, {})
+    assert facts.dimensions == {"input_tokens": 24, "output_image_tokens": 1290}
+    assert facts.model == "gemini-2.5-flash-image"
+
+
+async def test_openai_images_adapter():
+    c = adapters.make_collector("openai.images", "application/json")
+    c.feed(json.dumps({
+        "created": 1, "data": [{"b64_json": "AAAA"}],
+        "usage": {
+            "input_tokens": 60, "output_tokens": 4160, "total_tokens": 4220,
+            "input_tokens_details": {"text_tokens": 50, "image_tokens": 10},
+        },
+    }).encode())
+    assert c.finish(200, {}).dimensions == {
+        "input_text_tokens": 50, "input_image_tokens": 10, "output_tokens": 4160,
+    }
+
+    # Missing detail split → all input billed as text; total preserved.
+    c = adapters.make_collector("openai.images", "application/json")
+    c.feed(json.dumps({"usage": {"input_tokens": 60, "output_tokens": 1056}}).encode())
+    assert c.finish(200, {}).dimensions == {
+        "input_text_tokens": 60, "output_tokens": 1056,
+    }
+
+    # Oversized b64 payload → the default `usage` scan still bills.
+    c = adapters.make_collector("openai.images", "application/json")
+    payload = (b'{"created":1,"data":[{"b64_json":"' + b"B" * (3 * 1024 * 1024)
+               + b'"}],"usage":{"input_tokens":60,"output_tokens":4160,'
+               b'"input_tokens_details":{"text_tokens":50,"image_tokens":10}}}')
+    _feed_split(c, payload, size=64 * 1024)
+    assert c.finish(200, {}).dimensions == {
+        "input_text_tokens": 50, "input_image_tokens": 10, "output_tokens": 4160,
+    }
+
+
+async def test_image_estimates():
+    est = adapters.estimate_dimensions("gemini.generate", {}, 400)
+    assert est == {"input_tokens": 100, "output_image_tokens": 2000}
+    # Huge reference-image bodies don't inflate the text-priced input estimate.
+    est = adapters.estimate_dimensions("gemini.generate", {}, 4 * 1024 * 1024)
+    assert est["input_tokens"] == 4000
+    est = adapters.estimate_dimensions("openai.images", {"n": 2}, 200)
+    assert est == {"input_text_tokens": 50, "output_tokens": 12480}
+    est = adapters.estimate_dimensions("openai.images", None, 2_000_000)
+    assert est == {"input_text_tokens": 4000, "output_tokens": 6240}
+
+
 # ── Adapters: Anthropic ──────────────────────────────────────────────────────
 
 def _feed_split(collector, payload: bytes, size: int = 7):

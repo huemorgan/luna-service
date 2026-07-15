@@ -267,11 +267,10 @@ async def prepare(
             if not rating.sku_enabled(config, route.sku):
                 unpriced_reason = "sku_disabled"
             else:
-                model = None
-                if isinstance(body_json, dict):
-                    raw_model = body_json.get("model")
-                    if isinstance(raw_model, str) and raw_model:
-                        model = raw_model
+                model = usage_adapters.extract_model(
+                    route.adapter, body_json, path,
+                    headers.get("content-type", ""), body,
+                )
                 ctx.requested_model = model
                 ctx.canonical_model = (
                     canonical_model(catalog or [], ctx.provider, model) if model else None

@@ -14,6 +14,7 @@ content.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 
 # Never buffer unbounded response bodies: full-parse small JSON bodies, and
@@ -351,6 +352,118 @@ class OpenAIEmbeddingsCollector(OpenAIChatCollector):
         return {"input_tokens": self._raw.get("prompt_tokens", 0)}
 
 
+class GeminiGenerateCollector(UsageCollector):
+    """POST /models/{model}:generateContent — JSON (streamGenerateContent is
+    not a billed route). Gemini reports `usageMetadata` with per-modality
+    output detail: IMAGE candidate tokens carry the image-output rate, the
+    remainder plus thinking tokens the text-output rate. Inline-image
+    responses are MBs of base64, so the oversized scan targets
+    `usageMetadata`. When the per-modality detail is absent, every candidate
+    token is treated as an image token — this is an image-model-only route,
+    and the expensive dimension is the safe default."""
+
+    def _handle_event(self, data: dict) -> None:
+        self._handle_document(data)
+
+    def _handle_document(self, data: dict) -> None:
+        model = data.get("modelVersion")
+        if isinstance(model, str) and model:
+            self.model = model
+        rid = data.get("responseId")
+        if isinstance(rid, str) and rid:
+            self.response_id = rid
+        usage = data.get("usageMetadata")
+        if isinstance(usage, dict):
+            self._merge_gemini_usage(usage)
+
+    def _handle_oversized(self, body: _BoundedBody) -> None:
+        usage = body.scan("usageMetadata")
+        if isinstance(usage, dict):
+            self._merge_gemini_usage(usage)
+        model = body.scan("modelVersion")
+        if isinstance(model, str):
+            self.model = self.model or model
+        rid = body.scan("responseId")
+        if isinstance(rid, str):
+            self.response_id = self.response_id or rid
+
+    def _merge_gemini_usage(self, usage: dict) -> None:
+        flat: dict[str, int] = {}
+        for src, dst in (
+            ("promptTokenCount", "prompt_tokens"),
+            ("candidatesTokenCount", "candidates_tokens"),
+            ("thoughtsTokenCount", "thoughts_tokens"),
+        ):
+            value = _int_or_none(usage.get(src))
+            if value is not None:
+                flat[dst] = value
+        details = usage.get("candidatesTokensDetails")
+        if isinstance(details, list):
+            image = sum(
+                _int_or_none(d.get("tokenCount")) or 0
+                for d in details
+                if isinstance(d, dict) and d.get("modality") == "IMAGE"
+            )
+            flat["candidates_image_tokens"] = image
+            self._raw.setdefault("candidates_details_seen", 1)
+        self._merge_usage(flat)
+
+    def _dimensions(self) -> dict[str, int]:
+        candidates = self._raw.get("candidates_tokens", 0)
+        if self._raw.get("candidates_details_seen"):
+            image = min(self._raw.get("candidates_image_tokens", 0), candidates)
+        else:
+            image = candidates
+        return {
+            "input_tokens": self._raw.get("prompt_tokens", 0),
+            "output_image_tokens": image,
+            "output_text_tokens": candidates - image + self._raw.get("thoughts_tokens", 0),
+        }
+
+
+class OpenAIImagesCollector(UsageCollector):
+    """POST /images/generations and /images/edits — JSON, or SSE when the
+    request streams partial images (usage rides the *.completed event).
+    `usage` splits input into text/image via input_tokens_details;
+    output_tokens are image-output tokens. b64_json payloads are MBs, so
+    the oversized scan matters. Missing detail bills all input as text —
+    the cheaper dimension, and the total is preserved."""
+
+    def _handle_event(self, data: dict) -> None:
+        self._handle_document(data)
+
+    def _handle_document(self, data: dict) -> None:
+        self._capture_identity(data)
+        usage = data.get("usage")
+        if isinstance(usage, dict):
+            self._merge_images_usage(usage)
+
+    def _handle_oversized(self, body: _BoundedBody) -> None:
+        usage = body.scan("usage")
+        if isinstance(usage, dict):
+            self._merge_images_usage(usage)
+
+    def _merge_images_usage(self, usage: dict) -> None:
+        flat = dict(usage)
+        details = flat.pop("input_tokens_details", None)
+        if isinstance(details, dict):
+            for src, dst in (("text_tokens", "input_text_tokens"),
+                             ("image_tokens", "input_image_tokens")):
+                value = _int_or_none(details.get(src))
+                if value is not None:
+                    flat[dst] = value
+        self._merge_usage(flat)
+
+    def _dimensions(self) -> dict[str, int]:
+        total_in = self._raw.get("input_tokens", 0)
+        text = self._raw.get("input_text_tokens", total_in)
+        return {
+            "input_text_tokens": min(text, total_in) if total_in else text,
+            "input_image_tokens": self._raw.get("input_image_tokens", 0),
+            "output_tokens": self._raw.get("output_tokens", 0),
+        }
+
+
 _COLLECTORS = {
     "anthropic.messages": AnthropicMessagesCollector,
     "openai.chat": OpenAIChatCollector,
@@ -358,6 +471,8 @@ _COLLECTORS = {
     # xAI is OpenAI-compatible on the wire, but its completion_tokens excludes
     # billed reasoning tokens — XAIChatCollector adds them back.
     "xai.chat": XAIChatCollector,
+    "gemini.generate": GeminiGenerateCollector,
+    "openai.images": OpenAIImagesCollector,
 }
 
 # Adapters speaking the OpenAI chat protocol (usage shape + stream_options).
@@ -366,6 +481,39 @@ _OPENAI_CHAT_COMPAT = ("openai.chat", "xai.chat")
 
 def make_collector(adapter: str, content_type: str) -> UsageCollector:
     return _COLLECTORS[adapter](content_type)
+
+
+def _multipart_field(body: bytes, name: str) -> str | None:
+    """Scan a multipart body for one small text field. Bounded on purpose:
+    first match only, value capped at 200 bytes, file parts never decoded."""
+    pattern = rb'name="' + re.escape(name.encode()) + rb'"\r\n\r\n([^\r\n]{1,200})'
+    match = re.search(pattern, body)
+    if match is None:
+        return None
+    try:
+        return match.group(1).decode("utf-8").strip() or None
+    except UnicodeDecodeError:
+        return None
+
+
+def extract_model(
+    adapter: str, body_json: dict | None, path: str,
+    content_type: str = "", body: bytes = b"",
+) -> str | None:
+    """Requested model for tier/coverage resolution. Most adapters carry it in
+    the JSON body; Gemini encodes it in the URL path
+    (/models/{model}:generateContent) and multipart uploads (images/edits)
+    carry it as a form field."""
+    if adapter == "gemini.generate":
+        segment = path.rstrip("/").rpartition("/")[2]
+        return segment.partition(":")[0] or None
+    if isinstance(body_json, dict):
+        model = body_json.get("model")
+        if isinstance(model, str) and model:
+            return model
+    if adapter == "openai.images" and "multipart/form-data" in (content_type or ""):
+        return _multipart_field(body, "model")
+    return None
 
 
 def estimate_dimensions(
@@ -379,6 +527,15 @@ def estimate_dimensions(
     body = body_json if isinstance(body_json, dict) else {}
     if adapter == "openai.embeddings":
         return {"input_tokens": est_input}
+    if adapter == "gemini.generate":
+        # Reference images inflate body_len enormously — input is text-priced,
+        # so cap the estimate; the hold is dominated by one 4K output image
+        # (2000 image tokens). Settlement uses real usage.
+        return {"input_tokens": min(est_input, 4000), "output_image_tokens": 2000}
+    if adapter == "openai.images":
+        n = _int_or_none(body.get("n")) or 1
+        # Worst case: high-quality 1024x1536 ≈ 6240 output tokens per image.
+        return {"input_text_tokens": min(est_input, 4000), "output_tokens": 6240 * n}
     if adapter == "anthropic.messages":
         max_out = _int_or_none(body.get("max_tokens"))
     else:

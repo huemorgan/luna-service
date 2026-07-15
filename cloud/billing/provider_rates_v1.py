@@ -94,4 +94,41 @@ PROVIDER_RATES_V1: list[tuple[str, str, str, str, int, int, str]] = [
      "https://docs.x.ai/docs/models"),
     ("xai", "grok-build-0.1", "cached_input_tokens", "token", 1, 5,  # $0.20/Mtok
      "https://docs.x.ai/docs/models"),
+    # Image generation (041). Gemini bills output images as IMAGE-modality
+    # candidate tokens (flash: 1290 tok ≈ $0.039/image; 3-pro: 1120 tok ≈
+    # $0.134 at 1K/2K, 2000 tok ≈ $0.24 at 4K); text + thinking output is a
+    # separate cheaper dimension.
+    ("gemini", "gemini-3-pro-image", "input_tokens", "token", 2, 1,        # $2.00/Mtok
+     "https://ai.google.dev/gemini-api/docs/pricing"),
+    ("gemini", "gemini-3-pro-image", "output_image_tokens", "token", 120, 1,
+     "https://ai.google.dev/gemini-api/docs/pricing"),
+    ("gemini", "gemini-3-pro-image", "output_text_tokens", "token", 12, 1,
+     "https://ai.google.dev/gemini-api/docs/pricing"),
+    ("gemini", "gemini-2.5-flash-image", "input_tokens", "token", 3, 10,   # $0.30/Mtok
+     "https://ai.google.dev/gemini-api/docs/pricing"),
+    ("gemini", "gemini-2.5-flash-image", "output_image_tokens", "token", 30, 1,
+     "https://ai.google.dev/gemini-api/docs/pricing"),
+    ("gemini", "gemini-2.5-flash-image", "output_text_tokens", "token", 5, 2,  # $2.50/Mtok
+     "https://ai.google.dev/gemini-api/docs/pricing"),
+    # OpenAI images API splits input into text/image dimensions; output tokens
+    # are image tokens. gpt-image-1 is deprecated (retires 2026-10-23) — 1.5
+    # and mini are pre-priced so a plugin bump needs no new cost version.
+    ("openai", "gpt-image-1", "input_text_tokens", "token", 5, 1,
+     "https://developers.openai.com/api/docs/models/gpt-image-1"),
+    ("openai", "gpt-image-1", "input_image_tokens", "token", 10, 1,
+     "https://developers.openai.com/api/docs/models/gpt-image-1"),
+    ("openai", "gpt-image-1", "output_tokens", "token", 40, 1,
+     "https://developers.openai.com/api/docs/models/gpt-image-1"),
+    ("openai", "gpt-image-1.5", "input_text_tokens", "token", 5, 1,
+     "https://developers.openai.com/api/docs/pricing"),
+    ("openai", "gpt-image-1.5", "input_image_tokens", "token", 8, 1,
+     "https://developers.openai.com/api/docs/pricing"),
+    ("openai", "gpt-image-1.5", "output_tokens", "token", 32, 1,
+     "https://developers.openai.com/api/docs/pricing"),
+    ("openai", "gpt-image-1-mini", "input_text_tokens", "token", 2, 1,
+     "https://developers.openai.com/api/docs/pricing"),
+    ("openai", "gpt-image-1-mini", "input_image_tokens", "token", 5, 2,   # $2.50/Mtok
+     "https://developers.openai.com/api/docs/pricing"),
+    ("openai", "gpt-image-1-mini", "output_tokens", "token", 8, 1,
+     "https://developers.openai.com/api/docs/pricing"),
 ]

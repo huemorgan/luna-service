@@ -49,9 +49,17 @@ def commercial_v1_config() -> dict:
             "grok-4.5",
             "grok-4.3",
             "grok-build-0.1",
+            # Image-generation models (041) — margin llm_constants[context][mid].
+            "gemini-3-pro-image",
+            "gemini-2.5-flash-image",
+            "gpt-image-1",  # deprecated upstream, retires 2026-10-23
+            "gpt-image-1.5",
+            "gpt-image-1-mini",
         ],
         "skus": [
             {"key": "llm_call", "service": "llm", "formula": "vendor_plus_context_constant",
+             "constants": {}, "enabled": True},
+            {"key": "image_gen", "service": "image", "formula": "vendor_plus_context_constant",
              "constants": {}, "enabled": True},
             {"key": "hosting_month", "service": "hosting", "formula": "fixed_credits",
              "constants": {"price_credits": 999}, "enabled": True},
