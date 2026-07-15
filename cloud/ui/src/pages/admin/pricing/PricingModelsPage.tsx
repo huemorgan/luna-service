@@ -128,10 +128,11 @@ function TierListsSection({ t }: { t: Target }) {
 
 function ConstantsSection({ t }: { t: Target }) {
   const config = t.target!.config!;
+  // Stored as integer micro-USD; shown/edited as credits (1 credit = 10000 µ$ = 1¢).
   const [values, setValues] = useState<Record<string, string>>(() => {
     const out: Record<string, string> = {};
     for (const [ctx, tiers] of Object.entries(config.llm_constants)) {
-      for (const [tier, v] of Object.entries(tiers)) out[`${ctx}.${tier}`] = String(v);
+      for (const [tier, v] of Object.entries(tiers)) out[`${ctx}.${tier}`] = String(v / 10_000);
     }
     return out;
   });
@@ -140,7 +141,7 @@ function ConstantsSection({ t }: { t: Target }) {
 
   return (
     <Section title="LLM constants"
-      hint="Per-context, per-tier rating constants (integers). Contexts (agent/direct/forge) are internal classification — never customer-visible.">
+      hint="Margin in credits added on top of vendor cost per LLM call (1 credit = $0.01). Contexts (agent/direct/forge) are internal classification — never customer-visible.">
       <table className="text-xs" style={{ color: 'var(--text)' }}>
         <thead>
           <tr style={{ color: 'var(--text-dim)' }}>
@@ -156,7 +157,7 @@ function ConstantsSection({ t }: { t: Target }) {
               <td className="pr-4 py-1 font-semibold">{ctx}</td>
               {Object.keys(config.llm_constants[ctx]).map(tier => (
                 <td key={tier} className="pr-4 py-1">
-                  <input type="number" value={values[`${ctx}.${tier}`] ?? ''} readOnly={!t.isDraft}
+                  <input type="number" step="any" value={values[`${ctx}.${tier}`] ?? ''} readOnly={!t.isDraft}
                     onChange={e => setValues(v => ({ ...v, [`${ctx}.${tier}`]: e.target.value }))}
                     className="w-24 px-2 py-1 rounded-lg outline-none" style={inputStyle} />
                 </td>
@@ -169,7 +170,7 @@ function ConstantsSection({ t }: { t: Target }) {
         <SaveButton onClick={() => t.saveConfig(c => {
           for (const [key, raw] of Object.entries(values)) {
             const [ctx, tier] = key.split('.');
-            c.llm_constants[ctx][tier] = Number(raw);
+            c.llm_constants[ctx][tier] = Math.round(Number(raw) * 10_000);
           }
         })} />
       )}
