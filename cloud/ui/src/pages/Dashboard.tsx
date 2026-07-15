@@ -34,6 +34,18 @@ interface AgentIdentity {
   avatar_url: string | null;
 }
 
+interface BillingSummaryLight {
+  posted_balance_credits: number;
+  balances: { paid: number; bonus: number; gift: number; free: number; topup: number };
+}
+
+interface GrantLight {
+  original_credits: number;
+  remaining_credits: number;
+  status: string;
+  expires_at: string | null;
+}
+
 interface PluginStatus {
   name: string;
   installed_version?: string | null;
@@ -76,6 +88,8 @@ function timeAgo(iso: string): string {
 export default function Dashboard() {
   const [data, setData] = useState<UserInfo | null>(null);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [billing, setBilling] = useState<BillingSummaryLight | null>(null);
+  const [grants, setGrants] = useState<GrantLight[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -90,6 +104,9 @@ export default function Dashboard() {
       ]);
       setData(me);
       setAgents(ag);
+      // Best-effort — the credits bar just doesn't render if billing is off.
+      fetch('/api/billing/summary').then(r => r.ok ? r.json() : null).then(setBilling).catch(() => {});
+      fetch('/api/billing/grants').then(r => r.ok ? r.json() : null).then(setGrants).catch(() => {});
     } catch {
       window.location.href = '/';
     } finally {
@@ -227,6 +244,8 @@ export default function Dashboard() {
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-10">
+        {billing && <CreditsBar billing={billing} grants={grants} />}
+
         {/* Title bar */}
         <div className="flex items-center justify-between mb-8">
           <h2 className="text-2xl font-bold" style={{ color: 'var(--text)' }}>My Agents</h2>
@@ -309,6 +328,7 @@ export default function Dashboard() {
                 agent={agent}
                 identity={identities[agent.id] || null}
                 isLoading={actionLoading === agent.id}
+                noCredits={billing != null && billing.posted_balance_credits <= 0}
                 onAction={handleAction}
                 onUpgrade={handleUpgrade}
               />
@@ -320,12 +340,89 @@ export default function Dashboard() {
   );
 }
 
+// One color per credit type — the same segments the account bar is built from.
+const CREDIT_COLORS: Record<string, { color: string; label: string }> = {
+  paid: { color: '#facc15', label: 'Plan credits' },
+  topup: { color: '#60a5fa', label: 'Top-up credits' },
+  bonus: { color: '#a78bfa', label: 'Bonus credits' },
+  gift: { color: '#34d399', label: 'Gift credits' },
+  free: { color: '#94a3b8', label: 'Free credits' },
+};
+
+function CreditsBar({ billing, grants }: {
+  billing: BillingSummaryLight;
+  grants: GrantLight[] | null;
+}) {
+  const total = Math.max(0, billing.posted_balance_credits);
+  const segments = Object.entries(billing.balances)
+    .filter(([, v]) => v > 0)
+    .map(([k, v]) => ({ key: k, credits: v, ...(CREDIT_COLORS[k] ?? { color: '#94a3b8', label: k }) }));
+
+  // The month's pool = original size of the currently usable lots; the fill
+  // fraction is what's left of it. Under 20% → time to buy more.
+  const now = Date.now();
+  const usable = (grants ?? []).filter(g =>
+    g.status === 'active' && g.remaining_credits > 0
+    && (!g.expires_at || new Date(g.expires_at).getTime() > now));
+  const monthTotal = usable.reduce((s, g) => s + g.original_credits, 0);
+  const fillPct = monthTotal > 0 ? Math.min(100, (total / monthTotal) * 100) : (total > 0 ? 100 : 0);
+  const lowCredits = total <= 0 || (monthTotal > 0 && fillPct <= 20);
+
+  return (
+    <div
+      className="rounded-2xl p-4 border mb-6"
+      style={{
+        background: 'linear-gradient(135deg, rgba(250,204,21,0.05), var(--surface) 60%)',
+        borderColor: 'rgba(250,204,21,0.35)',
+      }}
+    >
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+        <div className="flex items-baseline gap-3">
+          <span className="font-semibold" style={{ color: 'var(--text)' }}>Total Account Credits</span>
+          <span className="text-lg font-bold tabular-nums" style={{ color: 'var(--moon)' }}>
+            {total.toLocaleString()}
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          {lowCredits && (
+            <Link
+              to="/dashboard/billing?tab=billing"
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:scale-105"
+              style={{ background: 'var(--moon)', color: 'var(--ink)' }}
+            >
+              Get more credits
+            </Link>
+          )}
+          <Link
+            to="/dashboard/billing?tab=usage"
+            className="text-xs transition-colors hover:opacity-80"
+            style={{ color: 'var(--moon)' }}
+          >
+            See full usage review →
+          </Link>
+        </div>
+      </div>
+      <div className="h-2.5 rounded-full overflow-hidden flex" style={{ background: 'var(--ink-lighter)' }}>
+        {total > 0 && segments.map(s => (
+          <div
+            key={s.key}
+            title={s.label}
+            className="h-full"
+            style={{ width: `${(s.credits / total) * fillPct}%`, background: s.color }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function AgentCard({
-  agent, identity, isLoading, onAction, onUpgrade,
+  agent, identity, isLoading, noCredits, onAction, onUpgrade,
 }: {
   agent: AgentInfo;
   identity: AgentIdentity | null;
   isLoading: boolean;
+  noCredits: boolean;
   onAction: (id: string, action: 'start' | 'stop' | 'retry') => void;
   onUpgrade: (id: string, mode: 'upgrade_only' | 'update_plugins_then_upgrade') => Promise<string | null>;
 }) {
@@ -386,6 +483,16 @@ function AgentCard({
                 </span>
               )}
             </div>
+            {noCredits && (
+              <Link
+                to="/dashboard/billing?tab=billing"
+                className="inline-flex items-center gap-1.5 mt-2 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors hover:opacity-80"
+                style={{ background: 'rgba(250,204,21,0.1)', border: '1px solid rgba(250,204,21,0.3)', color: '#facc15' }}
+              >
+                <CreditCard size={11} />
+                No credits — this agent can't work
+              </Link>
+            )}
             {(agent.status === 'error' || stuckProvisioning) && agent.error_message && (
               <div
                 className="flex items-start gap-2 mt-2 rounded-lg px-3 py-2 text-xs"

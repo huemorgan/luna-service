@@ -43,6 +43,15 @@ async def test_catalog_shape():
         assert key in playbook.DEFAULT_KEYS
 
 
+async def test_v2_scenario_items_present():
+    for key in ("playbooks.create_fib", "playbooks.run_fib",
+                "imagegen.describe", "persona.t800"):
+        assert key in playbook.BY_KEY, f"missing {key}"
+    # run_fib depends on create_fib having run first; default order must hold.
+    order = list(playbook.DEFAULT_KEYS)
+    assert order.index("playbooks.create_fib") < order.index("playbooks.run_fib")
+
+
 # ── Fake driver: emits billable events the way the gateway would ─────────────
 
 class FakeDriver:
@@ -280,6 +289,31 @@ async def test_item_medians_ignore_failures_and_background():
     assert "__background__" not in m
 
 
+async def test_item_stats_averages_and_failures():
+    a, b = _step("chat.hello", 10), _step("chat.hello", 30)
+    a.llm_requests, a.input_tokens, a.output_tokens, a.latency_ms = 2, 1000, 100, 2000
+    b.llm_requests, b.input_tokens, b.output_tokens, b.latency_ms = 4, 3000, 300, 4000
+    steps = [
+        a, b,
+        _step("chat.hello", 999, status="failed"),
+        _step("imagegen.one", 50, status="failed"),
+        _step("__background__", 500),
+    ]
+    rows = profiles.item_stats(steps)
+    by = {r["item_key"]: r for r in rows}
+    hello = by["chat.hello"]
+    assert hello["samples"] == 2 and hello["failed"] == 1
+    assert hello["avg_credits"] == 20 and hello["median_credits"] == 20
+    assert hello["avg_llm_requests"] == 3
+    assert hello["avg_input_tokens"] == 2000 and hello["avg_output_tokens"] == 200
+    assert hello["avg_latency_ms"] == 3000
+    # An action whose every repetition failed still shows up, flagged.
+    img = by["imagegen.one"]
+    assert img["samples"] == 0 and img["failed"] == 1 and img["avg_credits"] == 0
+    assert "__background__" not in by
+    assert rows[0]["item_key"] == "chat.hello"  # most expensive first
+
+
 async def test_projection_math():
     steps = [
         _step("chat.hello", 20, vendor=60_000, margin=12_000),
@@ -397,6 +431,7 @@ async def test_run_lifecycle_via_api(admin_client, db_session, account, sample_a
     detail = (await admin_client.get(
         f"/api/admin/pricing/benchmark/runs/{run['id']}")).json()
     assert detail["steps"] == [] and detail["medians"] == {}
+    assert detail["averages"] == []
 
     events = (await admin_client.get(
         f"/api/admin/pricing/benchmark/runs/{run['id']}/events")).json()["events"]

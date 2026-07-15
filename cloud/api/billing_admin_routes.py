@@ -1223,6 +1223,7 @@ async def get_benchmark_run(run_id: uuid.UUID, admin: User = Depends(require_adm
         d = _run_dict(run, agent.slug if agent else None)
         d["steps"] = [_step_dict(s) for s in steps]
         d["medians"] = bprofiles.item_medians(steps)
+        d["averages"] = bprofiles.item_stats(steps)
         return d
 
 
@@ -1263,6 +1264,7 @@ async def export_benchmark_run(run_id: uuid.UUID, admin: User = Depends(require_
         d = _run_dict(run, agent.slug if agent else None)
         d["steps"] = [{**_step_dict(s), "events": by_step.get(str(s.id), [])} for s in steps]
         d["medians"] = bprofiles.item_medians(steps)
+        d["averages"] = bprofiles.item_stats(steps)
         return d
 
 

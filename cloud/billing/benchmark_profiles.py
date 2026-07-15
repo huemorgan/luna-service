@@ -85,6 +85,48 @@ def item_medians(steps: list) -> dict[str, dict[str, float]]:
     return out
 
 
+def item_stats(steps: list) -> list[dict]:
+    """Per-action averages over a run's repetitions, most expensive first.
+
+    Built for performance work as much as pricing: avg LLM requests and token
+    volume per action are the levers agent optimization can move, credits are
+    what the customer sees. Failed repetitions are excluded from the averages
+    but counted, so a flaky action is visible instead of skewing the mean.
+    """
+    ok: dict[str, list] = {}
+    failed: dict[str, int] = {}
+    for s in steps:
+        if s.item_key.startswith("__"):
+            continue
+        if s.status == "succeeded":
+            ok.setdefault(s.item_key, []).append(s)
+        elif s.status == "failed":
+            failed[s.item_key] = failed.get(s.item_key, 0) + 1
+
+    def _row(key: str, group: list) -> dict:
+        n = len(group)
+        avg = lambda vals: round(sum(v or 0 for v in vals) / n, 2) if n else 0.0  # noqa: E731
+        return {
+            "item_key": key,
+            "samples": n,
+            "failed": failed.get(key, 0),
+            "avg_credits": avg(s.credits for s in group),
+            "median_credits": median(s.credits or 0 for s in group) if n else 0,
+            "avg_vendor_cost_micro_usd": avg(s.vendor_cost_micro_usd for s in group),
+            "avg_llm_requests": avg(s.llm_requests for s in group),
+            "avg_input_tokens": avg(s.input_tokens for s in group),
+            "avg_output_tokens": avg(s.output_tokens for s in group),
+            "avg_cache_read_tokens": avg(s.cache_read_tokens for s in group),
+            "avg_cache_write_tokens": avg(s.cache_write_tokens for s in group),
+            "avg_latency_ms": avg(s.latency_ms for s in group),
+        }
+
+    rows = [_row(key, group) for key, group in ok.items()]
+    rows += [_row(key, []) for key in failed if key not in ok]
+    rows.sort(key=lambda r: (-r["avg_credits"], r["item_key"]))
+    return rows
+
+
 def background_daily(steps: list) -> dict[str, float]:
     """Scale the idle window sample to a 24h day."""
     item = BY_KEY.get(BACKGROUND_ITEM)

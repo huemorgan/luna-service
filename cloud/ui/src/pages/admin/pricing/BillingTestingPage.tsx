@@ -39,9 +39,18 @@ interface Step {
   error: string | null;
 }
 
+interface ActionAvg {
+  item_key: string; samples: number; failed: number;
+  avg_credits: number; median_credits: number; avg_vendor_cost_micro_usd: number;
+  avg_llm_requests: number; avg_input_tokens: number; avg_output_tokens: number;
+  avg_cache_read_tokens: number; avg_cache_write_tokens: number;
+  avg_latency_ms: number;
+}
+
 interface RunDetail extends RunSummary {
   steps: Step[];
   medians: Record<string, { credits: number; vendor_cost_micro_usd: number; samples: number }>;
+  averages: ActionAvg[];
 }
 
 interface TrigEvent {
@@ -231,7 +240,7 @@ export default function BillingTestingPage() {
       )}
 
       {selected && playbook && (
-        <RunDetailCard run={selected} presets={playbook.presets} onClose={() => setSelected(null)} />
+        <RunDetailCard run={selected} playbook={playbook} onClose={() => setSelected(null)} />
       )}
     </div>
   );
@@ -431,13 +440,15 @@ function RunForm({ playbook, targets, onCreated, onError }: {
   );
 }
 
-function RunDetailCard({ run, presets, onClose }: {
+function RunDetailCard({ run, playbook, onClose }: {
   run: RunDetail;
-  presets: Record<string, Record<string, number>>;
+  playbook: Playbook;
   onClose: () => void;
 }) {
   const [events, setEvents] = useState<TrigEvent[] | null>(null);
   const [eventStep, setEventStep] = useState<string>('');
+  const [showSteps, setShowSteps] = useState(false);
+  const titles = Object.fromEntries(playbook.items.map(i => [i.key, i.title]));
 
   const loadEvents = async (stepId: string) => {
     setEventStep(stepId);
@@ -477,6 +488,62 @@ function RunDetailCard({ run, presets, onClose }: {
         </div>
       )}
 
+      {run.averages && run.averages.length > 0 && (
+        <div className="mb-4">
+          <div className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--text-dim)' }}>
+            Action averages · per repetition, over {run.repetitions} rep{run.repetitions === 1 ? '' : 's'}
+          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr style={{ color: 'var(--text-dim)' }} className="text-left">
+                <th className="pb-2 font-medium">Action</th>
+                <th className="pb-2 font-medium text-right">Samples</th>
+                <th className="pb-2 font-medium text-right">Avg credits</th>
+                <th className="pb-2 font-medium text-right">Median</th>
+                <th className="pb-2 font-medium text-right">Avg vendor $</th>
+                <th className="pb-2 font-medium text-right">Avg LLM calls</th>
+                <th className="pb-2 font-medium text-right">Avg tokens in/out</th>
+                <th className="pb-2 font-medium text-right">Avg latency</th>
+              </tr>
+            </thead>
+            <tbody style={{ color: 'var(--text)' }}>
+              {run.averages.map(a => (
+                <tr key={a.item_key} className="border-t" style={{ borderColor: 'var(--ink-lighter)' }}>
+                  <td className="py-1.5 pr-2">
+                    <span className="font-mono">{a.item_key}</span>
+                    <span className="ml-2" style={{ color: 'var(--text-dim)' }}>{titles[a.item_key] ?? ''}</span>
+                    {a.failed > 0 && (
+                      <span className="ml-2" style={{ color: '#ff6b6b' }}>{a.failed} failed</span>
+                    )}
+                  </td>
+                  <td className="py-1.5 pr-2 text-right font-mono">{a.samples}</td>
+                  <td className="py-1.5 pr-2 text-right font-mono font-semibold">
+                    {a.avg_credits.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                  </td>
+                  <td className="py-1.5 pr-2 text-right font-mono" style={{ color: 'var(--text-dim)' }}>
+                    {a.median_credits.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                  </td>
+                  <td className="py-1.5 pr-2 text-right font-mono">{usd(a.avg_vendor_cost_micro_usd)}</td>
+                  <td className="py-1.5 pr-2 text-right font-mono">
+                    {a.avg_llm_requests.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                  </td>
+                  <td className="py-1.5 pr-2 text-right font-mono">
+                    {Math.round(a.avg_input_tokens).toLocaleString()}/{Math.round(a.avg_output_tokens).toLocaleString()}
+                  </td>
+                  <td className="py-1.5 text-right font-mono">{(a.avg_latency_ms / 1000).toFixed(1)}s</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <button onClick={() => setShowSteps(s => !s)}
+        className="text-xs font-semibold uppercase tracking-wide mb-2 hover:opacity-80 block"
+        style={{ color: 'var(--text-dim)' }}>
+        {showSteps ? '▾' : '▸'} Individual steps · {run.steps.length}
+      </button>
+      {showSteps && (
       <table className="w-full text-sm mb-4">
         <thead>
           <tr style={{ color: 'var(--text-dim)' }} className="text-left text-xs">
@@ -516,6 +583,14 @@ function RunDetailCard({ run, presets, onClose }: {
           ))}
         </tbody>
       </table>
+      )}
+
+      {!events && (
+        <button onClick={() => loadEvents('')} className="text-xs hover:opacity-80 mb-4 block"
+          style={{ color: 'var(--moon)' }}>
+          show trigger log — everything that fired, verbatim quantities
+        </button>
+      )}
 
       {events && (
         <div className="mb-4">
@@ -565,7 +640,7 @@ function RunDetailCard({ run, presets, onClose }: {
         </div>
       )}
 
-      <ProjectionPanel runId={run.id} presets={presets} />
+      <ProjectionPanel runId={run.id} presets={playbook.presets} />
     </div>
   );
 }

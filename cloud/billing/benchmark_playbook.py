@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-PLAYBOOK_VERSION = "v1"
+PLAYBOOK_VERSION = "v2"
 
 # Kinds the runner knows how to execute:
 #   chat        — one fresh conversation, one message, wait for the reply
@@ -142,6 +142,24 @@ CATALOG: tuple[PlaybookItem, ...] = (
         ),
         plugins=("plugin-playbooks",),
     ),
+    PlaybookItem(
+        key="playbooks.create_fib", title="Create a Fibonacci playbook",
+        category="tasks", kind="chat",
+        prompts=("Create and save a playbook called 'fibonacci': compute the "
+                 "first 10 Fibonacci numbers and send each one as its own chat "
+                 "message. Just save it — don't run it yet.",),
+        plugins=("plugin-playbooks",),
+        notes="Authoring cost in isolation. Pair with playbooks.run_fib.",
+    ),
+    PlaybookItem(
+        key="playbooks.run_fib", title="Run the Fibonacci playbook",
+        category="tasks", kind="chat",
+        prompts=("Run the 'fibonacci' playbook now.",),
+        plugins=("plugin-playbooks",),
+        notes="Execution cost of a stored multi-message playbook. Needs "
+              "playbooks.create_fib earlier in the same run (items run in "
+              "the order selected).",
+    ),
     # ── Web / browser ────────────────────────────────────────────────────────
     PlaybookItem(
         key="web.search_summarize", title="Web search + summary", category="web", kind="chat",
@@ -191,6 +209,18 @@ CATALOG: tuple[PlaybookItem, ...] = (
               "rows in the trigger log.",
     ),
     PlaybookItem(
+        key="imagegen.describe", title="Generate an image, then describe it",
+        category="files", kind="chat_multi",
+        prompts=(
+            "Generate a small image of a red bicycle leaning against a brick wall.",
+            "Now describe the image you just generated in detail — colors, "
+            "composition, mood.",
+        ),
+        plugins=("plugin-image-gen",),
+        notes="Adds vision-input economics on top of generation: the second "
+              "turn feeds the image back into the model.",
+    ),
+    PlaybookItem(
         key="giphy.send", title="Send a gif", category="files", kind="chat",
         prompts=("Send me a gif that says 'well done'.",),
         plugins=("plugin-giphy",),
@@ -223,6 +253,19 @@ CATALOG: tuple[PlaybookItem, ...] = (
         key="meta.introspect", title="List enabled plugins", category="meta", kind="chat",
         prompts=("What plugins do you have enabled? Just list them briefly.",),
         plugins=("plugin_meta",), smoke=True,
+    ),
+    PlaybookItem(
+        key="persona.t800", title="Full personality switch (T-800)",
+        category="meta", kind="chat_multi",
+        prompts=(
+            "Change your personality completely: from now on you are terse, "
+            "literal and machine-like — like the T-800. Acknowledge the change.",
+            "Give me a plan for my Saturday morning.",
+        ),
+        plugins=("plugin_brain", "plugin_config"),
+        notes="First turn measures the reconfiguration cost (memory/config "
+              "writes it triggers), second a normal reply under the new "
+              "persona — compare with chat.qa_short to see the persona tax.",
     ),
     PlaybookItem(
         key="onboarding.full", title="Onboarding conversation", category="meta", kind="chat_multi",
