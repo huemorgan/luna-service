@@ -144,7 +144,7 @@ async def test_seeded_config_contents(db_session):
     v1 = await seed_commercial_v1(db_session)
     config = v1.config_json
     assert config["trial"] == {
-        "gift_credits": 1_800, "days": 28,
+        "gift_credits": 1_800, "days": 14,
         "daily_limit_credits": 75, "monthly_limit_credits": 800,
         "active_luna_cap": 1,
     }

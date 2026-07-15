@@ -139,7 +139,7 @@ export default function Pricing() {
                   <span className="amt">$0<small> to start</small></span>
                   <ul>
                     <li>{fmt(trial.gift_credits ?? 0)} credits included</li>
-                    <li>{trial.days ?? 28} days to explore</li>
+                    <li>{trial.days ?? 14} days to explore</li>
                     <li>Up to {fmt(trial.daily_limit_credits ?? 0)} credits/day</li>
                     <li>{trial.active_luna_cap ?? 1} active Luna</li>
                   </ul>

@@ -110,7 +110,7 @@ def commercial_v1_config() -> dict:
              "price_usd_cents": 10_000, "paid_credits": 10_000, "bonus_credits": 0},
         ],
         "trial": {
-            "gift_credits": 1_800, "days": 28,
+            "gift_credits": 1_800, "days": 14,
             "daily_limit_credits": 75, "monthly_limit_credits": 800,
             "active_luna_cap": 1,
         },
