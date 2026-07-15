@@ -158,10 +158,10 @@ function ConstantsSection({ t }: { t: Target }) {
               {Object.keys(config.llm_constants[ctx]).map(tier => (
                 <td key={tier} className="pr-4 py-1">
                   <span className="inline-flex items-center gap-1.5">
+                    <span style={{ color: 'var(--text-dim)' }}>credits/call</span>
                     <input type="number" step="any" value={values[`${ctx}.${tier}`] ?? ''} readOnly={!t.isDraft}
                       onChange={e => setValues(v => ({ ...v, [`${ctx}.${tier}`]: e.target.value }))}
                       className="w-24 px-2 py-1 rounded-lg outline-none" style={inputStyle} />
-                    <span style={{ color: 'var(--text-dim)' }}>credits/call</span>
                   </span>
                 </td>
               ))}
@@ -234,9 +234,12 @@ function SkuSection({ t }: { t: Target }) {
         </table>
       </div>
       <label className="flex items-center gap-2 text-xs mb-1" style={{ color: 'var(--text-dim)' }}>
-        Hosting price (credits / Luna / month)
-        <input type="number" value={hosting} readOnly={!t.isDraft} onChange={e => setHosting(e.target.value)}
-          className="w-28 px-2 py-1 rounded-lg outline-none" style={inputStyle} />
+        Hosting price (per Luna / month)
+        <span className="inline-flex items-center gap-1.5">
+          <span>credits</span>
+          <input type="number" value={hosting} readOnly={!t.isDraft} onChange={e => setHosting(e.target.value)}
+            className="w-28 px-2 py-1 rounded-lg outline-none" style={inputStyle} />
+        </span>
       </label>
       {t.isDraft && <SaveButton onClick={save} />}
     </Section>

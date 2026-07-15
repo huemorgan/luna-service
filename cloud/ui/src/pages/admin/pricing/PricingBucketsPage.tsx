@@ -84,7 +84,8 @@ function Editor({ t }: { t: Target }) {
     Object.fromEntries(Object.entries(config.migration_gift).map(([k, v]) => [k, String(v)])));
   const [products, setProducts] = useState(() => config.products.map(p => ({
     ...p,
-    price_usd_cents_s: String(p.price_usd_cents),
+    // Stored as cents; shown/edited as dollars.
+    price_usd_s: String(p.price_usd_cents / 100),
     paid_credits_s: String(p.paid_credits),
     bonus_credits_s: String(p.bonus_credits ?? 0),
   })));
@@ -92,9 +93,9 @@ function Editor({ t }: { t: Target }) {
   const save = () => t.saveConfig(c => {
     c.trial = Object.fromEntries(Object.entries(trial).map(([k, v]) => [k, Number(v)]));
     c.migration_gift = Object.fromEntries(Object.entries(migration).map(([k, v]) => [k, Number(v)]));
-    c.products = products.map(({ price_usd_cents_s, paid_credits_s, bonus_credits_s, ...p }) => ({
+    c.products = products.map(({ price_usd_s, paid_credits_s, bonus_credits_s, ...p }) => ({
       ...p,
-      price_usd_cents: Number(price_usd_cents_s),
+      price_usd_cents: Math.round(Number(price_usd_s) * 100),
       paid_credits: Number(paid_credits_s),
       bonus_credits: Number(bonus_credits_s),
     }));
@@ -115,7 +116,7 @@ function Editor({ t }: { t: Target }) {
               <th className="text-left px-3 py-2 font-medium">Key</th>
               <th className="text-left px-3 py-2 font-medium">Kind</th>
               <th className="text-left px-3 py-2 font-medium">Interval</th>
-              <th className="text-right px-3 py-2 font-medium">Price (¢)</th>
+              <th className="text-right px-3 py-2 font-medium">Price</th>
               <th className="text-right px-3 py-2 font-medium">Paid credits</th>
               <th className="text-right px-3 py-2 font-medium">Bonus credits</th>
               <th className="text-left px-3 py-2 font-medium">Stripe</th>
@@ -128,17 +129,17 @@ function Editor({ t }: { t: Target }) {
                 <td className="px-3 py-2">{p.kind}</td>
                 <td className="px-3 py-2">{(p.interval as string) ?? '—'}</td>
                 <td className="px-3 py-2 text-right">
-                  <NumCell value={p.price_usd_cents_s} readOnly={!t.isDraft}
-                    onChange={v => setProducts(r => r.map((x, j) => j === i ? { ...x, price_usd_cents_s: v } : x))}
+                  <NumCell unit="$" value={p.price_usd_s} readOnly={!t.isDraft}
+                    onChange={v => setProducts(r => r.map((x, j) => j === i ? { ...x, price_usd_s: v } : x))}
                     inputStyle={inputStyle} />
                 </td>
                 <td className="px-3 py-2 text-right">
-                  <NumCell value={p.paid_credits_s} readOnly={!t.isDraft}
+                  <NumCell unit="credits" value={p.paid_credits_s} readOnly={!t.isDraft}
                     onChange={v => setProducts(r => r.map((x, j) => j === i ? { ...x, paid_credits_s: v } : x))}
                     inputStyle={inputStyle} />
                 </td>
                 <td className="px-3 py-2 text-right">
-                  <NumCell value={p.bonus_credits_s} readOnly={!t.isDraft || p.kind === 'topup'}
+                  <NumCell unit="credits" value={p.bonus_credits_s} readOnly={!t.isDraft || p.kind === 'topup'}
                     onChange={v => setProducts(r => r.map((x, j) => j === i ? { ...x, bonus_credits_s: v } : x))}
                     inputStyle={inputStyle} />
                 </td>
@@ -173,9 +174,12 @@ function NumberCard({ title, values, setValues, readOnly, inputStyle }: {
         {Object.entries(values).map(([k, v]) => (
           <label key={k} className="flex items-center justify-between gap-2 text-xs" style={{ color: 'var(--text)' }}>
             <span style={{ color: 'var(--text-dim)' }}>{k.replaceAll('_', ' ')}</span>
-            <input type="number" value={v} readOnly={readOnly}
-              onChange={e => setValues(x => ({ ...x, [k]: e.target.value }))}
-              className="w-28 px-2 py-1 rounded-lg outline-none text-right" style={inputStyle} />
+            <span className="inline-flex items-center gap-1.5">
+              <span style={{ color: 'var(--text-dim)' }}>{unitForKey(k)}</span>
+              <input type="number" value={v} readOnly={readOnly}
+                onChange={e => setValues(x => ({ ...x, [k]: e.target.value }))}
+                className="w-28 px-2 py-1 rounded-lg outline-none text-right" style={inputStyle} />
+            </span>
           </label>
         ))}
       </div>
@@ -183,14 +187,25 @@ function NumberCard({ title, values, setValues, readOnly, inputStyle }: {
   );
 }
 
-function NumCell({ value, onChange, readOnly, inputStyle }: {
+function unitForKey(k: string): string {
+  if (k.includes('credits') || k === 'credits') return 'credits';
+  if (k.includes('days') || k === 'days') return 'days';
+  if (k.includes('cap')) return 'lunas';
+  return '';
+}
+
+function NumCell({ value, onChange, readOnly, inputStyle, unit }: {
   value: string;
   onChange: (v: string) => void;
   readOnly: boolean;
   inputStyle: React.CSSProperties;
+  unit: string;
 }) {
   return (
-    <input type="number" value={value} readOnly={readOnly} onChange={e => onChange(e.target.value)}
-      className="w-24 px-2 py-1 rounded-lg outline-none text-right" style={inputStyle} />
+    <span className="inline-flex items-center gap-1.5">
+      <span style={{ color: 'var(--text-dim)' }}>{unit}</span>
+      <input type="number" step="any" value={value} readOnly={readOnly} onChange={e => onChange(e.target.value)}
+        className="w-24 px-2 py-1 rounded-lg outline-none text-right" style={inputStyle} />
+    </span>
   );
 }

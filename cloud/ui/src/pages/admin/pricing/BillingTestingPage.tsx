@@ -679,10 +679,13 @@ function ProjectionPanel({ runId, presets }: { runId: string; presets: Record<st
           </select>
         </label>
         <label className="text-xs" style={{ color: 'var(--text-dim)' }}>
-          Hosting credits / month
-          <input type="number" min={0} value={hosting}
-            onChange={e => setHosting(Math.max(0, Number(e.target.value) || 0))}
-            className="mt-1 block w-28 rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
+          Hosting / month
+          <span className="mt-1 flex items-center gap-1.5">
+            <span>credits</span>
+            <input type="number" min={0} value={hosting}
+              onChange={e => setHosting(Math.max(0, Number(e.target.value) || 0))}
+              className="block w-28 rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
+          </span>
         </label>
         <button onClick={run}
           className="px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:opacity-90"
