@@ -46,6 +46,19 @@ _CATALOG: dict[tuple[str, str, str], RouteClass] = {
     ("openai", "POST", "/v1/embeddings"): _billed("openai.embeddings", "llm_call"),
     ("openai", "GET", "/v1/models"): _FREE,
     ("openai", "GET", "/v1/models/*"): _FREE,
+    # OpenAI-compatible SDKs pointed at /proxy/{slug} append BARE paths — the
+    # /v1 lives in the service's upstream_url. Real Luna traffic arrives as
+    # /chat/completions, so the bare variants are the ones that actually match;
+    # the /v1-prefixed rows above are kept for direct callers.
+    ("openai", "POST", "/chat/completions"): _billed("openai.chat", "llm_call"),
+    ("openai", "POST", "/embeddings"): _billed("openai.embeddings", "llm_call"),
+    ("openai", "GET", "/models"): _FREE,
+    ("openai", "GET", "/models/*"): _FREE,
+    ("xai", "POST", "/chat/completions"): _billed("xai.chat", "llm_call"),
+    ("xai", "GET", "/models"): _FREE,
+    ("xai", "GET", "/models/*"): _FREE,
+    ("xai", "GET", "/language-models"): _FREE,
+    ("xai", "GET", "/language-models/*"): _FREE,
 }
 
 

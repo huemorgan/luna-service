@@ -68,6 +68,37 @@ async def test_route_classification():
     emb = route_catalog.classify("openai", "POST", "v1/embeddings")
     assert emb.adapter == "openai.embeddings"
 
+    # OpenAI-compatible SDKs against /proxy/{slug} send BARE paths (the /v1
+    # lives in upstream_url) — the bare variants must classify identically.
+    assert route_catalog.classify("openai", "POST", "chat/completions").adapter == "openai.chat"
+    assert route_catalog.classify("openai", "POST", "embeddings").adapter == "openai.embeddings"
+    assert route_catalog.classify("openai", "GET", "models").kind == "free"
+
+    grok = route_catalog.classify("xai", "POST", "chat/completions")
+    assert grok.kind == "billed" and grok.adapter == "xai.chat" and grok.sku == "llm_call"
+    assert route_catalog.classify("xai", "GET", "models").kind == "free"
+    assert route_catalog.classify("xai", "GET", "models/grok-4.5").kind == "free"
+
+
+async def test_xai_chat_adapter_openai_compatible():
+    # xai.chat reuses the OpenAI collector — verify registration + usage parse
+    # + stream_options injection on streaming bodies.
+    c = adapters.make_collector("xai.chat", "application/json")
+    c.feed(json.dumps({
+        "id": "resp-1", "model": "grok-4.5",
+        "usage": {"prompt_tokens": 120, "completion_tokens": 30,
+                  "prompt_tokens_details": {"cached_tokens": 20}},
+    }).encode())
+    facts = c.finish(200, {})
+    assert facts.dimensions == {
+        "input_tokens": 100, "cached_input_tokens": 20, "output_tokens": 30,
+    }
+    assert facts.model == "grok-4.5"
+
+    body = {"model": "grok-4.5", "stream": True, "messages": []}
+    out = adapters.prepare_managed_body("xai.chat", body, json.dumps(body).encode())
+    assert json.loads(out)["stream_options"] == {"include_usage": True}
+
 
 async def test_route_unknown_is_none():
     assert route_catalog.classify("anthropic", "POST", "v1/complete") is None

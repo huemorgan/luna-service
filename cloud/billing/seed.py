@@ -46,6 +46,9 @@ def commercial_v1_config() -> dict:
             "gpt-4o-mini",
             "text-embedding-3-small",
             "text-embedding-3-large",
+            "grok-4.5",
+            "grok-4.3",
+            "grok-build-0.1",
         ],
         "skus": [
             {"key": "llm_call", "service": "llm", "formula": "vendor_plus_context_constant",

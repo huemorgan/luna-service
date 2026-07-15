@@ -700,9 +700,6 @@ export default function BillingPage() {
                             <span className="tabular-nums w-24 text-right" style={{ color: 'var(--text)' }}>
                               {credits(r.credits)}
                             </span>
-                            <span className="tabular-nums w-16 text-right text-xs" style={{ color: 'var(--text-dim)' }}>
-                              {r.calls} calls
-                            </span>
                           </div>
                         );
                       })}

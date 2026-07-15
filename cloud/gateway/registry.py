@@ -31,6 +31,16 @@ SEED_SERVICES: list[dict] = [
         "provision_by_default": True,
     },
     {
+        # xAI (Grok) — OpenAI-compatible API. Same /v1-in-upstream trick as
+        # OpenAI: Luna's XAIProvider appends bare paths (/chat/completions).
+        "slug": "xai",
+        "display_name": "xAI",
+        "upstream_url": "https://api.x.ai/v1",
+        "auth_style": "header:Authorization:Bearer",
+        "enabled": True,
+        "provision_by_default": True,
+    },
+    {
         # Luna has no LUNA_TAVILY_BASE_URL support yet (007.001 pending) —
         # registered but not provisioned through the proxy.
         "slug": "tavily",

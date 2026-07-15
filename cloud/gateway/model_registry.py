@@ -71,6 +71,25 @@ SEED_MODELS: list[dict] = [
         "aliases": ["embed-large", "embedding-large"],
         "input_cost": 0.13, "output_cost": 0.0,
     },
+    # ---- xAI (Grok) ---- prices from GET /v1/language-models, 2026-07-15
+    {
+        "provider": "xai", "model": "grok-4.5",
+        "label": "Grok 4.5", "context_window": 500000,
+        "kinds": ["reasoning"], "aliases": ["grok", "grok-4.5-latest"],
+        "input_cost": 2.0, "output_cost": 6.0,
+    },
+    {
+        "provider": "xai", "model": "grok-4.3",
+        "label": "Grok 4.3", "context_window": 1000000,
+        "kinds": ["reasoning", "summarization"], "aliases": ["grok-4.3-latest"],
+        "input_cost": 1.25, "output_cost": 2.5,
+    },
+    {
+        "provider": "xai", "model": "grok-build-0.1",
+        "label": "Grok Build 0.1", "context_window": 256000,
+        "kinds": ["reasoning"], "aliases": ["grok-build", "grok-build-latest"],
+        "input_cost": 1.0, "output_cost": 2.0,
+    },
 ]
 
 

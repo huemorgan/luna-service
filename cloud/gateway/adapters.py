@@ -339,7 +339,12 @@ _COLLECTORS = {
     "anthropic.messages": AnthropicMessagesCollector,
     "openai.chat": OpenAIChatCollector,
     "openai.embeddings": OpenAIEmbeddingsCollector,
+    # xAI is OpenAI-compatible — same usage object, same SSE framing.
+    "xai.chat": OpenAIChatCollector,
 }
+
+# Adapters speaking the OpenAI chat protocol (usage shape + stream_options).
+_OPENAI_CHAT_COMPAT = ("openai.chat", "xai.chat")
 
 
 def make_collector(adapter: str, content_type: str) -> UsageCollector:
@@ -372,7 +377,7 @@ def prepare_managed_body(adapter: str, body_json: dict | None, body: bytes) -> b
     """Managed-flow request rewrite: OpenAI chat streams only report usage
     when stream_options.include_usage is set — inject it so every managed
     stream is billable. Returns the body unchanged otherwise."""
-    if adapter != "openai.chat" or not isinstance(body_json, dict):
+    if adapter not in _OPENAI_CHAT_COMPAT or not isinstance(body_json, dict):
         return body
     if body_json.get("stream") is not True:
         return body
