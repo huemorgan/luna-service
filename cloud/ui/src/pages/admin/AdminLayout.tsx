@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Moon, Shield, Package, Server, ScrollText, ArrowLeft, LogOut, Loader2, User, ChevronDown, ChevronRight, KeyRound, SlidersHorizontal, MessageCircle, Clock, Blocks, Coins, LayoutDashboard, GitBranch, Cpu, Wallet, Activity, FlaskConical } from 'lucide-react';
+import { Moon, Shield, Package, Server, ScrollText, ArrowLeft, LogOut, Loader2, User, ChevronDown, ChevronRight, KeyRound, SlidersHorizontal, MessageCircle, Clock, Blocks, Coins, LayoutDashboard, GitBranch, Cpu, Wallet, Activity, FlaskConical, Gauge } from 'lucide-react';
 
 interface UserInfo {
   user: { id: string; email: string; name: string | null; avatar_url: string | null; is_admin: boolean };
@@ -27,6 +27,7 @@ const PRICING_ITEMS = [
   { to: '/admin/pricing/buckets', label: 'Credit buckets', icon: Wallet },
   { to: '/admin/pricing/ops', label: 'Operations', icon: Activity },
   { to: '/admin/pricing/simulations', label: 'Simulator', icon: FlaskConical },
+  { to: '/admin/pricing/testing', label: 'Billing testing', icon: Gauge },
 ];
 
 const NAV_BOTTOM = [

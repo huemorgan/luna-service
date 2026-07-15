@@ -825,3 +825,110 @@ class PricingSimulation(Base):
     state: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
     result: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+# ── Cost benchmark (plan 040) ─────────────────────────────────────────────────
+
+class BenchmarkRun(Base):
+    """One live-fire cost benchmark against a designated test agent. Only
+    aggregates and playbook item keys are stored — prompts live in the
+    versioned catalog in code, never in the database."""
+
+    __tablename__ = "benchmark_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('pending','running','succeeded','failed','aborted')",
+            name="ck_bench_run_state",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"))
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("billing_accounts.account_id", ondelete="RESTRICT"), nullable=False
+    )
+    image_version: Mapped[str | None] = mapped_column(Text)
+    playbook_version: Mapped[str] = mapped_column(Text, nullable=False)
+    item_keys: Mapped[list] = mapped_column(JSONB, nullable=False)
+    repetitions: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    state: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    progress: Mapped[dict | None] = mapped_column(JSONB)
+    totals: Mapped[dict | None] = mapped_column(JSONB)
+    error: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class BenchmarkStep(Base):
+    """One playbook item execution (one repetition) with its measured cost."""
+
+    __tablename__ = "benchmark_steps"
+    __table_args__ = (
+        Index("ix_bstep_run", "run_id", "seq"),
+        CheckConstraint(
+            "status IN ('running','succeeded','failed','skipped')",
+            name="ck_bench_step_status",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("benchmark_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    item_key: Mapped[str] = mapped_column(Text, nullable=False)  # '__background__' collects run noise
+    repetition: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="running")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    llm_requests: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    cache_read_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    cache_write_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    per_model: Mapped[dict | None] = mapped_column(JSONB)
+    credits: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    vendor_cost_micro_usd: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    margin_micro_usd: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    error: Mapped[str | None] = mapped_column(Text)
+
+
+class BenchmarkStepEvent(Base):
+    """Trigger log: one row per billable event observed inside a step window,
+    ordered — the raw material for later optimization work. Token quantities
+    are stored verbatim from the metering dimensions."""
+
+    __tablename__ = "benchmark_step_events"
+    __table_args__ = (
+        Index("ix_bsev_run", "run_id"),
+        Index("ix_bsev_step", "step_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("benchmark_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    step_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("benchmark_steps.id", ondelete="CASCADE"), nullable=False
+    )
+    billable_event_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("billable_events.id", ondelete="SET NULL")
+    )
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    call_id: Mapped[str | None] = mapped_column(Text)
+    service: Mapped[str] = mapped_column(Text, nullable=False)
+    sku: Mapped[str | None] = mapped_column(Text)
+    provider: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(Text)
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    quantities: Mapped[dict | None] = mapped_column(JSONB)
+    vendor_cost_micro_usd: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    # Credits are rated per logical call; the call's credits sit on its final
+    # attempt row so summing a step's events never double-counts.
+    credits: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    cost_source: Mapped[str | None] = mapped_column(Text)

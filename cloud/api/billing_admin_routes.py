@@ -1038,3 +1038,269 @@ async def cancel_simulation(simulation_id: uuid.UUID, request: Request,
                after={"state": "cancelled"})
         await db.commit()
         return _sim_out(sim)
+
+
+# ── Cost benchmark (plan 040) ─────────────────────────────────────────────────
+
+from cloud.billing import benchmark as benchmark_svc  # noqa: E402
+from cloud.billing import benchmark_profiles as bprofiles  # noqa: E402
+from cloud.billing import benchmark_playbook as bplaybook  # noqa: E402
+from cloud.billing.models import BenchmarkRun, BenchmarkStep, BenchmarkStepEvent  # noqa: E402
+from cloud.db.models import Agent  # noqa: E402
+
+
+def _run_dict(run: BenchmarkRun, agent_slug: str | None = None) -> dict:
+    return {
+        "id": str(run.id),
+        "agent_id": str(run.agent_id),
+        "agent_slug": agent_slug,
+        "account_id": str(run.account_id),
+        "image_version": run.image_version,
+        "playbook_version": run.playbook_version,
+        "item_keys": run.item_keys,
+        "repetitions": run.repetitions,
+        "state": run.state,
+        "progress": run.progress,
+        "totals": run.totals,
+        "error": run.error,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "created_at": run.created_at.isoformat() if run.created_at else None,
+    }
+
+
+def _step_dict(s: BenchmarkStep) -> dict:
+    return {
+        "id": str(s.id), "seq": s.seq, "item_key": s.item_key,
+        "repetition": s.repetition, "status": s.status,
+        "started_at": s.started_at.isoformat() if s.started_at else None,
+        "finished_at": s.finished_at.isoformat() if s.finished_at else None,
+        "latency_ms": s.latency_ms, "llm_requests": s.llm_requests,
+        "input_tokens": s.input_tokens, "output_tokens": s.output_tokens,
+        "cache_read_tokens": s.cache_read_tokens,
+        "cache_write_tokens": s.cache_write_tokens,
+        "per_model": s.per_model, "credits": s.credits,
+        "vendor_cost_micro_usd": s.vendor_cost_micro_usd,
+        "margin_micro_usd": s.margin_micro_usd, "error": s.error,
+    }
+
+
+def _event_dict(e: BenchmarkStepEvent) -> dict:
+    return {
+        "id": str(e.id), "step_id": str(e.step_id),
+        "billable_event_id": str(e.billable_event_id) if e.billable_event_id else None,
+        "ts": e.ts.isoformat() if e.ts else None,
+        "call_id": e.call_id, "service": e.service, "sku": e.sku,
+        "provider": e.provider, "model": e.model,
+        "attempt_number": e.attempt_number, "quantities": e.quantities,
+        "vendor_cost_micro_usd": e.vendor_cost_micro_usd,
+        "credits": e.credits, "cost_source": e.cost_source,
+    }
+
+
+@router.get("/benchmark/playbook")
+async def benchmark_playbook(admin: User = Depends(require_admin)):
+    return {
+        "playbook_version": bplaybook.PLAYBOOK_VERSION,
+        "items": [
+            {"key": i.key, "title": i.title, "category": i.category,
+             "kind": i.kind, "smoke": i.smoke,
+             "default_included": i.default_included,
+             "plugins": list(i.plugins), "notes": i.notes,
+             "window_seconds": i.window_seconds}
+            for i in bplaybook.CATALOG
+        ],
+        "smoke_keys": list(bplaybook.SMOKE_KEYS),
+        "default_keys": list(bplaybook.DEFAULT_KEYS),
+        "coverage": bplaybook.coverage(),
+        "uncovered_plugins": bplaybook.uncovered_plugins(),
+        "presets": bprofiles.PRESET_PROFILES,
+    }
+
+
+@router.get("/benchmark/targets")
+async def benchmark_targets(admin: User = Depends(require_admin)):
+    async with get_db_session() as db:
+        agents = (await db.execute(
+            select(Agent).where(Agent.deleted_at.is_(None)).order_by(Agent.created_at.desc())
+        )).scalars().all()
+        return {
+            "targets": [
+                {"id": str(a.id), "slug": a.slug, "name": a.name, "status": a.status}
+                for a in agents if benchmark_svc.is_benchmark_target(a)
+            ]
+        }
+
+
+class TargetFlagRequest(BaseModel):
+    target: bool
+    reason: str = ""
+
+
+@router.post("/benchmark/targets/{agent_id}")
+async def set_benchmark_target(agent_id: uuid.UUID, body: TargetFlagRequest,
+                               request: Request, admin: User = Depends(require_admin)):
+    reason = _require_reason(body.reason)
+    async with get_db_session() as db:
+        agent = await db.get(Agent, agent_id)
+        if agent is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
+        overrides = dict(agent.config_overrides or {})
+        before = bool((overrides.get("benchmark") or {}).get("target"))
+        bench = dict(overrides.get("benchmark") or {})
+        bench["target"] = body.target
+        overrides["benchmark"] = bench
+        agent.config_overrides = overrides
+        _audit(db, request, admin, action="pricing.benchmark.target",
+               target=f"agent:{agent.slug}", reason=reason,
+               before={"target": before}, after={"target": body.target})
+        await db.commit()
+    return {"agent_id": str(agent_id), "target": body.target}
+
+
+class BenchmarkRunRequest(BaseModel):
+    agent_id: uuid.UUID
+    item_keys: list[str] | None = None
+    repetitions: int = Field(default=3, ge=1, le=10)
+    smoke: bool = False
+    reason: str = ""
+
+
+@router.post("/benchmark/runs", status_code=status.HTTP_201_CREATED)
+async def start_benchmark_run(body: BenchmarkRunRequest, request: Request,
+                              admin: User = Depends(require_admin)):
+    reason = _require_reason(body.reason)
+    keys = body.item_keys
+    if keys is None and body.smoke:
+        keys = list(bplaybook.SMOKE_KEYS)
+    async with get_db_session() as db:
+        agent = await db.get(Agent, body.agent_id)
+        if agent is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
+        try:
+            run = await benchmark_svc.start_run(
+                db, agent=agent, created_by=admin.id,
+                item_keys=keys, repetitions=body.repetitions,
+            )
+        except benchmark_svc.BenchmarkError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+        _audit(db, request, admin, action="pricing.benchmark.run.started",
+               target=f"agent:{agent.slug}", reason=reason,
+               after={"run_id": str(run.id), "items": len(run.item_keys),
+                      "repetitions": run.repetitions})
+        await db.commit()
+        return _run_dict(run, agent.slug)
+
+
+@router.get("/benchmark/runs")
+async def list_benchmark_runs(limit: int = 25, admin: User = Depends(require_admin)):
+    async with get_db_session() as db:
+        rows = (await db.execute(
+            select(BenchmarkRun, Agent.slug)
+            .join(Agent, Agent.id == BenchmarkRun.agent_id)
+            .order_by(BenchmarkRun.created_at.desc())
+            .limit(min(max(limit, 1), 100))
+        )).all()
+        return {"runs": [_run_dict(run, slug) for run, slug in rows]}
+
+
+async def _get_run(db, run_id: uuid.UUID) -> BenchmarkRun:
+    run = await db.get(BenchmarkRun, run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Run not found")
+    return run
+
+
+@router.get("/benchmark/runs/{run_id}")
+async def get_benchmark_run(run_id: uuid.UUID, admin: User = Depends(require_admin)):
+    async with get_db_session() as db:
+        run = await _get_run(db, run_id)
+        agent = await db.get(Agent, run.agent_id)
+        steps = (await db.execute(
+            select(BenchmarkStep).where(BenchmarkStep.run_id == run.id)
+            .order_by(BenchmarkStep.seq.asc())
+        )).scalars().all()
+        d = _run_dict(run, agent.slug if agent else None)
+        d["steps"] = [_step_dict(s) for s in steps]
+        d["medians"] = bprofiles.item_medians(steps)
+        return d
+
+
+@router.get("/benchmark/runs/{run_id}/events")
+async def get_benchmark_events(run_id: uuid.UUID, step_id: uuid.UUID | None = None,
+                               limit: int = 500, offset: int = 0,
+                               admin: User = Depends(require_admin)):
+    async with get_db_session() as db:
+        await _get_run(db, run_id)
+        q = (select(BenchmarkStepEvent)
+             .where(BenchmarkStepEvent.run_id == run_id)
+             .order_by(BenchmarkStepEvent.ts.asc())
+             .limit(min(max(limit, 1), 2000)).offset(max(offset, 0)))
+        if step_id is not None:
+            q = q.where(BenchmarkStepEvent.step_id == step_id)
+        events = (await db.execute(q)).scalars().all()
+        return {"events": [_event_dict(e) for e in events]}
+
+
+@router.get("/benchmark/runs/{run_id}/export")
+async def export_benchmark_run(run_id: uuid.UUID, admin: User = Depends(require_admin)):
+    """The full run — aggregates plus the complete trigger log — as one JSON
+    document for offline optimization analysis."""
+    async with get_db_session() as db:
+        run = await _get_run(db, run_id)
+        agent = await db.get(Agent, run.agent_id)
+        steps = (await db.execute(
+            select(BenchmarkStep).where(BenchmarkStep.run_id == run.id)
+            .order_by(BenchmarkStep.seq.asc())
+        )).scalars().all()
+        events = (await db.execute(
+            select(BenchmarkStepEvent).where(BenchmarkStepEvent.run_id == run.id)
+            .order_by(BenchmarkStepEvent.ts.asc())
+        )).scalars().all()
+        by_step: dict[str, list[dict]] = {}
+        for e in events:
+            by_step.setdefault(str(e.step_id), []).append(_event_dict(e))
+        d = _run_dict(run, agent.slug if agent else None)
+        d["steps"] = [{**_step_dict(s), "events": by_step.get(str(s.id), [])} for s in steps]
+        d["medians"] = bprofiles.item_medians(steps)
+        return d
+
+
+@router.post("/benchmark/runs/{run_id}/abort")
+async def abort_benchmark_run(run_id: uuid.UUID, request: Request,
+                              admin: User = Depends(require_admin)):
+    async with get_db_session() as db:
+        run = await _get_run(db, run_id)
+        if run.state in ("succeeded", "failed", "aborted"):
+            return {"state": run.state}
+        before = run.state
+        run.state = "aborted"
+        run.finished_at = datetime.now(timezone.utc)
+        _audit(db, request, admin, action="pricing.benchmark.run.aborted",
+               target=f"run:{run_id}", before={"state": before},
+               after={"state": "aborted"})
+        await db.commit()
+        return {"state": "aborted"}
+
+
+class ProjectionRequest(BaseModel):
+    run_id: uuid.UUID
+    preset: str | None = None
+    profile: dict[str, int] | None = None
+    hosting_credits: int = Field(default=999, ge=0)
+
+
+@router.post("/benchmark/projection")
+async def benchmark_projection(body: ProjectionRequest, admin: User = Depends(require_admin)):
+    profile = body.profile
+    if profile is None:
+        if body.preset not in bprofiles.PRESET_PROFILES:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                f"preset must be one of {list(bprofiles.PRESET_PROFILES)}")
+        profile = bprofiles.PRESET_PROFILES[body.preset]
+    async with get_db_session() as db:
+        run = await _get_run(db, body.run_id)
+        steps = (await db.execute(
+            select(BenchmarkStep).where(BenchmarkStep.run_id == run.id)
+        )).scalars().all()
+        return bprofiles.project(steps, profile, hosting_credits=body.hosting_credits)

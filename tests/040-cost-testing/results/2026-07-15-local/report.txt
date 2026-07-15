@@ -1,0 +1,11 @@
+PASS  0 scratch DB migrated to head; 0008 benchmark tables exist
+PASS  1 playbook endpoint: full plugin coverage, presets present
+PASS  2 target flag: reason enforced, flag visible
+PASS  3 run executed by the durable worker end-to-end
+PASS  4 attribution: 2×chat.hello = 8 credits, tokens/model/vendor$ per step, background bucket present
+PASS  5 trigger log: verbatim quantities, linked events, export document
+PASS  6 wallet drained 500 → 492; rated charges settled for real
+PASS  7 driver auth: derived proxy secret, creator email, bearer token
+PASS  8 projection: regular preset → 1119.0 credits/month
+PASS  9 abort: run stopped after 1 of 10 steps
+PASS  10 audit rows: target flag, run start, abort

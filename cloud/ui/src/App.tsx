@@ -22,6 +22,7 @@ import PricingModelsPage from './pages/admin/pricing/PricingModelsPage';
 import PricingBucketsPage from './pages/admin/pricing/PricingBucketsPage';
 import PricingOpsPage from './pages/admin/pricing/PricingOpsPage';
 import PricingSimulationsPage from './pages/admin/pricing/PricingSimulationsPage';
+import BillingTestingPage from './pages/admin/pricing/BillingTestingPage';
 
 // Marketing site (plan 021) — public, unauthenticated routes.
 import MarketingLayout from './marketing/MarketingLayout';
@@ -70,6 +71,7 @@ export default function App() {
           <Route path="pricing/buckets" element={<PricingBucketsPage />} />
           <Route path="pricing/ops" element={<PricingOpsPage />} />
           <Route path="pricing/simulations" element={<PricingSimulationsPage />} />
+          <Route path="pricing/testing" element={<BillingTestingPage />} />
           <Route path="relay" element={<Navigate to="/admin/machines" replace />} />
           <Route path="changelog" element={<ChangelogPage />} />
         </Route>
