@@ -26,6 +26,9 @@ from cloud.api.scheduler_agent_routes import router as scheduler_agent_router
 from cloud.api.stripe_webhook_routes import router as stripe_webhook_router
 from cloud.api.scheduler_routes import relay_router as scheduler_relay_router
 from cloud.api.scheduler_routes import router as scheduler_router
+from cloud.api.telegram_agent_routes import router as telegram_agent_router
+from cloud.api.telegram_routes import relay_router as telegram_relay_router
+from cloud.api.telegram_routes import router as telegram_router
 from cloud.api.whatsapp_agent_routes import router as whatsapp_agent_router
 from cloud.api.whatsapp_routes import relay_router as whatsapp_relay_router
 from cloud.api.whatsapp_routes import router as whatsapp_router
@@ -61,6 +64,7 @@ async def lifespan(app: FastAPI):
     from cloud.gateway.registry import seed_services
     from cloud.gateway.model_registry import seed_models
     from cloud.billing.seed import seed_billing
+    from cloud.telegram.provision import seed_supported_plugin
 
     async with _get_db() as db:
         # With --workers N every worker runs this block concurrently; the
@@ -73,6 +77,7 @@ async def lifespan(app: FastAPI):
             await db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": LOCK_STARTUP_SEED})
         await seed_services(db)  # credential-gateway registry (insert-if-missing)
         await seed_models(db)  # Plan 018: system model catalog
+        await seed_supported_plugin(db)  # conditional on a real marketplace URL
         # 039: commercial pricing v1 + provider-cost v1. Runs after
         # seed_models — publish validates tier coverage of enabled models.
         await seed_billing(db)
@@ -241,6 +246,10 @@ def create_app() -> FastAPI:
     app.include_router(scheduler_agent_router)
     app.include_router(scheduler_agent_router, prefix="/proxy")
     app.include_router(scheduler_relay_router)
+    app.include_router(telegram_router)
+    app.include_router(telegram_agent_router)
+    app.include_router(telegram_agent_router, prefix="/proxy")
+    app.include_router(telegram_relay_router)
     app.include_router(gateway_proxy_router)
     app.include_router(proxy_router)
 

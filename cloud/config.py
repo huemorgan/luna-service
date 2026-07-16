@@ -53,6 +53,15 @@ class Settings(BaseSettings):
     scheduler_service_url: str = ""
     scheduler_service_admin_key: str = ""
 
+    # Telegram multi-account gateway monitoring + tenant provisioning (plan 045).
+    # Bot tokens pass through the control plane once and are never persisted here.
+    telegram_gateway_url: str = ""
+    telegram_gateway_admin_key: str = ""
+    # Canonical official marketplace; startup advertises plugin-telegram there.
+    telegram_plugin_marketplace_url: str = (
+        "https://marketplaces.com.ai/mp/official/"
+    )
+
     # Plan 039: global billing mode — off | observe | shadow | enforce.
     # Per-account enforcement overrides (039/010) resolve as the maximum of
     # this global mode and the account override.

@@ -14,6 +14,7 @@ import DefaultEnvPage from './pages/admin/DefaultEnvPage';
 import ModelsPage from './pages/admin/ModelsPage';
 import ServicesPage from './pages/admin/ServicesPage';
 import WhatsAppPage from './pages/admin/WhatsAppPage';
+import TelegramPage from './pages/admin/TelegramPage';
 import SchedulerPage from './pages/admin/SchedulerPage';
 import PricingOverviewPage from './pages/admin/pricing/PricingOverviewPage';
 import PricingVersionsPage from './pages/admin/pricing/PricingVersionsPage';
@@ -67,6 +68,7 @@ export default function App() {
           <Route path="machines" element={<MachinesPage />} />
           <Route path="services" element={<ServicesPage />} />
           <Route path="whatsapp" element={<WhatsAppPage />} />
+          <Route path="telegram" element={<TelegramPage />} />
           <Route path="scheduler" element={<SchedulerPage />} />
           <Route path="pricing" element={<PricingOverviewPage />} />
           <Route path="pricing/versions" element={<PricingVersionsPage />} />

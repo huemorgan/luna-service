@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Moon, Shield, Package, Server, ScrollText, ArrowLeft, LogOut, Loader2, User, ChevronDown, ChevronRight, KeyRound, SlidersHorizontal, MessageCircle, Clock, Blocks, Coins, LayoutDashboard, GitBranch, Cpu, Wallet, Activity, FlaskConical, Gauge } from 'lucide-react';
+import { Moon, Shield, Package, Server, ScrollText, ArrowLeft, LogOut, Loader2, User, ChevronDown, ChevronRight, KeyRound, SlidersHorizontal, MessageCircle, Clock, Send, Blocks, Coins, LayoutDashboard, GitBranch, Cpu, Wallet, Activity, FlaskConical, Gauge, Menu, X } from 'lucide-react';
 
 interface UserInfo {
   user: { id: string; email: string; name: string | null; avatar_url: string | null; is_admin: boolean };
@@ -17,6 +17,7 @@ const NAV_TOP = [
 
 const SERVICE_ITEMS = [
   { to: '/admin/whatsapp', label: 'WhatsApp', icon: MessageCircle },
+  { to: '/admin/telegram', label: 'Telegram', icon: Send },
   { to: '/admin/scheduler', label: 'Scheduler', icon: Clock },
 ];
 
@@ -56,6 +57,7 @@ export default function AdminLayout() {
   const [loading, setLoading] = useState(true);
   const [servicesOpen, setServicesOpen] = useState(true);
   const [pricingOpen, setPricingOpen] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -90,6 +92,15 @@ export default function AdminLayout() {
         style={{ borderColor: 'var(--ink-lighter)', background: 'var(--surface)' }}
       >
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="md:hidden"
+            onClick={() => setMenuOpen(open => !open)}
+            aria-label={menuOpen ? 'Close admin navigation' : 'Open admin navigation'}
+            aria-expanded={menuOpen}
+          >
+            {menuOpen ? <X size={22} /> : <Menu size={22} />}
+          </button>
           <Moon size={24} style={{ color: 'var(--moon)' }} />
           <span className="text-lg font-semibold" style={{ color: 'var(--text)' }}>Luna Service</span>
           <span
@@ -102,8 +113,11 @@ export default function AdminLayout() {
         <ProfileMenu user={user} />
       </header>
 
-      <div className="flex flex-1">
-        <nav className="w-56 border-r p-4 flex flex-col gap-1" style={{ borderColor: 'var(--ink-lighter)', background: 'var(--surface)' }}>
+      <div className="flex flex-1 min-w-0">
+        <nav
+          className={`${menuOpen ? 'flex' : 'hidden'} md:flex absolute md:static top-[77px] bottom-0 left-0 z-40 w-56 border-r p-4 flex-col gap-1 overflow-y-auto`}
+          style={{ borderColor: 'var(--ink-lighter)', background: 'var(--surface)' }}
+        >
           <Link
             to="/dashboard"
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm mb-3 transition-colors hover:opacity-80"
@@ -152,7 +166,7 @@ export default function AdminLayout() {
           {NAV_BOTTOM.map(item => <NavItem key={item.to} item={item} />)}
         </nav>
 
-        <main className="flex-1 p-8 overflow-auto">
+        <main className="flex-1 min-w-0 p-4 md:p-8 overflow-auto">
           <Outlet />
         </main>
       </div>
