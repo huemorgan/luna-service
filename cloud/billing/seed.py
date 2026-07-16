@@ -35,7 +35,10 @@ def commercial_v1_config() -> dict:
             "direct": {"top": 10_000, "mid": 5_000},
             "forge": {"top": 50_000, "mid": 50_000},
         },
-        "top_tier_models": ["claude-opus-4-6"],
+        # Tier is a capability judgment (frontier vs workhorse), not a vendor
+        # cost bracket: grok-4.5 and gpt-5.5 are flagship reasoning models even
+        # though their token rates sit at or below sonnet's.
+        "top_tier_models": ["claude-opus-4-6", "gpt-5.5", "grok-4.5"],
         # Explicit coverage: a model in neither list is not billable (fails
         # closed at rating). Publish rejects uncovered enabled gateway models.
         "mid_tier_models": [
@@ -46,7 +49,6 @@ def commercial_v1_config() -> dict:
             "gpt-4o-mini",
             "text-embedding-3-small",
             "text-embedding-3-large",
-            "grok-4.5",
             "grok-4.3",
             "grok-build-0.1",
             # Image-generation models (041) — margin llm_constants[context][mid].

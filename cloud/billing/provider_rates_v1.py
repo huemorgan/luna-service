@@ -67,6 +67,15 @@ PROVIDER_RATES_V1: list[tuple[str, str, str, str, int, int, str]] = [
      "https://platform.openai.com/docs/pricing"),
     ("openai", "gpt-4o-mini", "cached_input_tokens", "token", 3, 40,  # $0.075/Mtok
      "https://platform.openai.com/docs/pricing"),
+    # GPT-5.5 — retrieved 2026-07-16. Prompts >272k tokens are surcharged
+    # (2× input, 1.5× output) but the usage object doesn't split them out —
+    # billed at the base rate (known undercount on rare huge prompts).
+    ("openai", "gpt-5.5", "input_tokens", "token", 5, 1,
+     "https://developers.openai.com/api/docs/models/gpt-5.5"),
+    ("openai", "gpt-5.5", "output_tokens", "token", 30, 1,
+     "https://developers.openai.com/api/docs/models/gpt-5.5"),
+    ("openai", "gpt-5.5", "cached_input_tokens", "token", 1, 2,   # $0.50/Mtok
+     "https://developers.openai.com/api/docs/models/gpt-5.5"),
     ("openai", "text-embedding-3-small", "input_tokens", "token", 1, 50,   # $0.02/Mtok
      "https://platform.openai.com/docs/pricing"),
     ("openai", "text-embedding-3-large", "input_tokens", "token", 13, 100,  # $0.13/Mtok

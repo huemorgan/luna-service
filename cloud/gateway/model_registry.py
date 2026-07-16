@@ -48,6 +48,12 @@ SEED_MODELS: list[dict] = [
     },
     # ---- OpenAI ----
     {
+        "provider": "openai", "model": "gpt-5.5",
+        "label": "GPT-5.5", "context_window": 1050000,
+        "kinds": ["reasoning"], "aliases": ["gpt5.5", "gpt-5.5-latest"],
+        "input_cost": 5.0, "output_cost": 30.0,
+    },
+    {
         "provider": "openai", "model": "gpt-4o",
         "label": "GPT-4o", "context_window": 128000,
         "kinds": ["reasoning", "summarization"], "aliases": ["gpt4o", "4o"],
