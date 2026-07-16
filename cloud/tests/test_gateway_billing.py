@@ -146,6 +146,37 @@ async def test_image_route_classification():
     assert route_catalog.classify("openai", "POST", "images/variations") is None
 
 
+# ── Composio (043) ───────────────────────────────────────────────────────────
+
+async def test_composio_route_classification():
+    # Everything plugin-connectors calls through the proxy is free (043) —
+    # Composio is flat-rate to Luna, no per-call provider spend to meter.
+    free = [
+        ("GET", "toolkits"),
+        ("GET", "toolkits/gmail"),
+        ("GET", "tools"),
+        ("POST", "tools/execute/GMAIL_SEND_EMAIL"),
+        ("POST", "auth_configs"),
+        ("POST", "connected_accounts"),
+        ("POST", "connected_accounts/link"),
+        ("GET", "connected_accounts/ca_123"),
+        ("DELETE", "connected_accounts/ca_123"),
+        ("GET", "triggers_types"),
+        ("POST", "trigger_instances/GMAIL_NEW_GMAIL_MESSAGE/upsert"),
+        ("DELETE", "trigger_instances/manage/ti_123"),
+    ]
+    for method, path in free:
+        r = route_catalog.classify("composio", method, path)
+        assert r is not None and r.kind == "free", (method, path)
+    # Deny-by-default for everything else, including wrong wildcard arity.
+    assert route_catalog.classify("composio", "POST", "toolkits") is None
+    assert route_catalog.classify("composio", "GET", "tools/execute/x") is None
+    assert route_catalog.classify("composio", "POST", "trigger_instances/a/b/upsert") is None
+    assert route_catalog.classify("composio", "DELETE", "trigger_instances/ti_123") is None
+    assert route_catalog.classify("composio", "POST", "tools/execute/a/b") is None
+    assert route_catalog.classify("composio", "POST", "connected_accounts/ca_123") is None
+
+
 async def test_extract_model():
     # Default: JSON body (existing adapters keep their behavior).
     assert adapters.extract_model("openai.chat", {"model": "gpt-4o"}, "chat/completions") == "gpt-4o"

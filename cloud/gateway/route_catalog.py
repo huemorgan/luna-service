@@ -35,8 +35,9 @@ def _billed(adapter: str, sku: str) -> RouteClass:
 
 _FREE = RouteClass(kind="free", adapter=None, sku=None)
 
-# (service_slug, METHOD, normalized path) -> RouteClass. A trailing "*"
-# matches exactly one extra path segment (e.g. GET /v1/models/{id}).
+# (service_slug, METHOD, normalized path) -> RouteClass. A "*" segment
+# matches exactly one path segment, in any position (e.g. GET /v1/models/{id},
+# POST /trigger_instances/{slug}/upsert). At most one "*" per entry.
 _CATALOG: dict[tuple[str, str, str], RouteClass] = {
     ("anthropic", "POST", "/v1/messages"): _billed("anthropic.messages", "llm_call"),
     ("anthropic", "POST", "/v1/messages/count_tokens"): _FREE,
@@ -74,6 +75,22 @@ _CATALOG: dict[tuple[str, str, str], RouteClass] = {
     ("openai", "POST", "/images/edits"): _billed("openai.images", "image_gen"),
     ("openai", "POST", "/v1/images/generations"): _billed("openai.images", "image_gen"),
     ("openai", "POST", "/v1/images/edits"): _billed("openai.images", "image_gen"),
+    # Composio (043): connector management + tool execution ride the proxy;
+    # all free — Composio is flat-rate to Luna ("Included with Luna Cloud").
+    # Per-execute metering is deferred until enforcement can rate model-less
+    # per-request SKUs. Path list mirrors plugin-connectors' composio driver.
+    ("composio", "GET", "/toolkits"): _FREE,
+    ("composio", "GET", "/toolkits/*"): _FREE,
+    ("composio", "GET", "/tools"): _FREE,
+    ("composio", "POST", "/tools/execute/*"): _FREE,
+    ("composio", "POST", "/auth_configs"): _FREE,
+    ("composio", "POST", "/connected_accounts"): _FREE,
+    ("composio", "POST", "/connected_accounts/link"): _FREE,
+    ("composio", "GET", "/connected_accounts/*"): _FREE,
+    ("composio", "DELETE", "/connected_accounts/*"): _FREE,
+    ("composio", "GET", "/triggers_types"): _FREE,
+    ("composio", "POST", "/trigger_instances/*/upsert"): _FREE,
+    ("composio", "DELETE", "/trigger_instances/manage/*"): _FREE,
 }
 
 
@@ -93,8 +110,13 @@ def classify(service_slug: str, method: str, path: str) -> RouteClass | None:
     exact = _CATALOG.get((service_slug, method, norm))
     if exact is not None:
         return exact
-    # Single-segment wildcard: /v1/models/claude-x → /v1/models/*
-    head, _, tail = norm.rpartition("/")
-    if head and tail:
-        return _CATALOG.get((service_slug, method, f"{head}/*"))
+    # Single-segment wildcard: exactly one segment replaced by "*", tried
+    # tail-first (/v1/models/claude-x → /v1/models/*, then
+    # /trigger_instances/GMAIL_NEW_MSG/upsert → /trigger_instances/*/upsert).
+    segments = norm.split("/")[1:]
+    for i in reversed(range(len(segments))):
+        candidate = "/" + "/".join([*segments[:i], "*", *segments[i + 1:]])
+        hit = _CATALOG.get((service_slug, method, candidate))
+        if hit is not None:
+            return hit
     return None
