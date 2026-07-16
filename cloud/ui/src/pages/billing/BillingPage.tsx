@@ -326,6 +326,11 @@ export default function BillingPage() {
 
   const paymentDue = summary?.hosting.filter(h => h.state === 'payment_due') ?? [];
   const trendMax = Math.max(1, ...(usage?.trend.map(t => t.credits) ?? [0]));
+  // Round the axis top up to a clean number (1/2/2.5/5 × 10^n) so ticks are readable.
+  const trendPow = Math.pow(10, Math.floor(Math.log10(trendMax)));
+  const trendCeil = ([1, 2, 2.5, 5, 10].find(m => m * trendPow >= trendMax) ?? 10) * trendPow;
+  const trendTicks = [trendCeil, trendCeil / 2, 0];
+  const [showLimits, setShowLimits] = useState(false);
   const [interval, setInterval_] = useState<'month' | 'year'>('month');
   const plans = products?.products.filter(p => p.kind === 'subscription' && p.interval === interval) ?? [];
   const topups = products?.products.filter(p => p.kind === 'topup') ?? [];
@@ -609,29 +614,53 @@ export default function BillingPage() {
                       </div>
 
                       {usage.trend.length > 0 && (
-                        <div className="mb-6">
-                          <div className="flex items-end gap-1 h-24">
-                            {usage.trend.map(t => (
-                              <div key={t.day} className="flex-1 rounded-t"
-                                title={`${t.day}: ${t.credits.toLocaleString()} cr`}
-                                style={{
-                                  height: `${Math.max(3, (t.credits / trendMax) * 100)}%`,
-                                  background: 'var(--moon)', opacity: 0.75, minWidth: 3,
-                                }} />
+                        <div className="mb-6 flex gap-2">
+                          <div className="relative h-24 w-14 shrink-0 text-xs tabular-nums text-right"
+                            style={{ color: 'var(--text-dim)' }}>
+                            {trendTicks.map(v => (
+                              <span key={v} className="absolute right-0 -translate-y-1/2"
+                                style={{ top: `${100 - (v / trendCeil) * 100}%` }}>
+                                {v.toLocaleString()}
+                              </span>
                             ))}
                           </div>
-                          <div className="flex justify-between text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
-                            <span>{usage.trend[0].day}</span>
-                            <span>{usage.trend[usage.trend.length - 1].day}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="relative h-24">
+                              {trendTicks.map(v => (
+                                <div key={v} className="absolute inset-x-0"
+                                  style={{ top: `${100 - (v / trendCeil) * 100}%`, height: 1, background: 'var(--ink-lighter)' }} />
+                              ))}
+                              <div className="absolute inset-0 flex items-end justify-around gap-1">
+                                {usage.trend.map(t => (
+                                  <div key={t.day} className="flex-1 flex justify-center items-end h-full" style={{ minWidth: 3 }}>
+                                    <div className="w-full rounded-t"
+                                      title={`${t.day}: ${t.credits.toLocaleString()} cr`}
+                                      style={{
+                                        height: `${Math.max(3, (t.credits / trendCeil) * 100)}%`,
+                                        background: 'var(--moon)', opacity: 0.75, minWidth: 3, maxWidth: 24,
+                                      }} />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="flex justify-between text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
+                              <span>{usage.trend[0].day}</span>
+                              <span>{usage.trend[usage.trend.length - 1].day}</span>
+                            </div>
                           </div>
                         </div>
                       )}
 
-                      {/* Per-Luna limits */}
+                      {/* Per-Luna limits — collapsed by default */}
                       <div className="mb-2">
-                        <div className="text-xs uppercase tracking-wider mb-3" style={{ color: 'var(--text-dim)' }}>
-                          Per-Luna limits
-                        </div>
+                        <button type="button" onClick={() => setShowLimits(s => !s)}
+                          className="flex items-center gap-1.5 text-xs uppercase tracking-wider mb-3 hover:underline"
+                          style={{ color: 'var(--text-dim)' }}>
+                          <span className="inline-block transition-transform"
+                            style={{ transform: showLimits ? 'rotate(90deg)' : 'none' }}>▸</span>
+                          Set limits per agent
+                        </button>
+                        {showLimits && <>
                         <div className="space-y-3">
                           {usage.per_luna.map(l => (
                             <div key={l.agent_id} className="flex items-center justify-between gap-4 text-sm flex-wrap">
@@ -663,6 +692,7 @@ export default function BillingPage() {
                         <p className="text-xs mt-3" style={{ color: 'var(--text-dim)' }}>
                           Limits cap what each Luna can spend (hosting excluded). Only the account owner can change them.
                         </p>
+                        </>}
                       </div>
                     </>
                   )}
