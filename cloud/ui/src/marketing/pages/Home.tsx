@@ -226,7 +226,7 @@ export default function Home() {
             {[
               ['Physical isolation', 'Own microVM, database, vault key and subprocesses — per tenant.'],
               ['A vault we can\'t read', 'Per-tenant key. Secrets never reach the LLM, or us.'],
-              ['We never look at your data', 'No conversation telemetry. Your work stays yours.'],
+              ['Your work stays yours', 'Your IP is yours; credentials stay sealed. We learn from usage to improve Luna — never to act in your accounts.'],
               ['Transparent audit', 'A clear record of what ran, what changed, and why.'],
             ].map(([title, body]) => (
               <Reveal key={title}>

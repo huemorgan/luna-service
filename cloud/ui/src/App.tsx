@@ -33,6 +33,8 @@ import Marketplace from './marketing/pages/Marketplace';
 import Pricing from './marketing/pages/Pricing';
 import Security from './marketing/pages/Security';
 import About from './marketing/pages/About';
+import Terms from './marketing/pages/Terms';
+import Privacy from './marketing/pages/Privacy';
 
 export default function App() {
   return (
@@ -47,6 +49,8 @@ export default function App() {
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/security" element={<Security />} />
           <Route path="/about" element={<About />} />
+          <Route path="/terms" element={<Terms />} />
+          <Route path="/privacy" element={<Privacy />} />
         </Route>
 
         <Route path="/dashboard" element={<Dashboard />} />

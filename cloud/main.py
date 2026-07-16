@@ -176,7 +176,7 @@ def create_app() -> FastAPI:
     # the SPA 404 fallback and emit real text/xml for crawlers.
     MARKETING_PATHS = (
         "/", "/products/hosting", "/products/open-source", "/products/marketplace",
-        "/pricing", "/security", "/about",
+        "/pricing", "/security", "/about", "/terms", "/privacy",
     )
 
     @app.get("/robots.txt")

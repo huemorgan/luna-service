@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import Brand from '../components/Brand';
-import { StartFree } from '../components/cta';
+import { StartFree, LoginGate } from '../components/cta';
 import { useSession } from '../lib/session';
-import { PRODUCTS, LOGIN_URL } from '../lib/constants';
+import { PRODUCTS } from '../lib/constants';
 
 export default function Header() {
   const { loggedIn } = useSession();
@@ -70,7 +70,7 @@ export default function Header() {
           {/* Desktop actions */}
           <div className="hdr-actions">
             {!loggedIn && (
-              <a className="btn btn-link btn-sm" href={LOGIN_URL}>Sign in</a>
+              <LoginGate label="Sign in" className="btn btn-link btn-sm" />
             )}
             <StartFree size="btn-sm" withGoogle />
           </div>
@@ -102,7 +102,7 @@ export default function Header() {
             <Link to="/pricing">Pricing</Link>
             <Link to="/security">Security</Link>
             <Link to="/about">About</Link>
-            {!loggedIn && <a href={LOGIN_URL}>Sign in</a>}
+            {!loggedIn && <LoginGate label="Sign in" className="mkt-drawer-signin" />}
             <div className="drawer-cta"><StartFree withGoogle /></div>
           </div>
         )}

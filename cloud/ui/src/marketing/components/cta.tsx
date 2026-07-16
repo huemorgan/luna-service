@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useSession } from '../lib/session';
 import {
   LOGIN_URL,
@@ -7,7 +9,67 @@ import {
 } from '../lib/constants';
 import { GoogleG } from './icons';
 
-/** The one CTA that matters. Logged out → "Start free" into Google OAuth.
+/** 044 — consent step shown before the Google OAuth redirect. The agreement
+ *  box is checked by default; unchecking it disables the continue button.
+ *  Acceptance (version + timestamp) is recorded server-side on callback. */
+function ConsentModal({ onClose }: { onClose: () => void }) {
+  const [agree, setAgree] = useState(true);
+  return (
+    <div className="consent-overlay" onClick={onClose} role="dialog" aria-modal="true">
+      <div className="consent-card" onClick={e => e.stopPropagation()}>
+        <h3>Continue to Luna</h3>
+        <label className="consent-row">
+          <input
+            type="checkbox"
+            checked={agree}
+            onChange={e => setAgree(e.target.checked)}
+          />
+          <span>
+            I agree to the <Link to="/terms" onClick={onClose}>Terms of Service</Link> and{' '}
+            <Link to="/privacy" onClick={onClose}>Privacy Policy</Link>
+          </span>
+        </label>
+        <a
+          href={LOGIN_URL}
+          className={`btn btn-primary ${agree ? '' : 'disabled'}`.trim()}
+          aria-disabled={!agree}
+          onClick={e => { if (!agree) e.preventDefault(); }}
+        >
+          <GoogleG />
+          Continue with Google
+        </a>
+        <p className="consent-note">
+          By continuing you agree to the Terms of Service and acknowledge the
+          Privacy Policy.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** Trigger that gates any login entry point behind the consent step. */
+export function LoginGate({
+  label,
+  className = '',
+  withGoogle = false,
+}: {
+  label: string;
+  className?: string;
+  withGoogle?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button className={className} onClick={() => setOpen(true)}>
+        {withGoogle && <GoogleG />}
+        {label}
+      </button>
+      {open && <ConsentModal onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+/** The one CTA that matters. Logged out → consent step, then Google OAuth.
  *  Logged in → "Go to your Luna" into the dashboard. */
 export function StartFree({
   size = '',
@@ -27,10 +89,11 @@ export function StartFree({
     );
   }
   return (
-    <a href={LOGIN_URL} className={`btn btn-primary ${size} ${className}`.trim()}>
-      {withGoogle && <GoogleG />}
-      Start free
-    </a>
+    <LoginGate
+      label="Start free"
+      withGoogle={withGoogle}
+      className={`btn btn-primary ${size} ${className}`.trim()}
+    />
   );
 }
 

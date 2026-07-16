@@ -35,7 +35,7 @@ export default function Security() {
             {[
               ['Physical per-tenant isolation', 'Each tenant gets its own microVM, database, vault key and MCP subprocesses. No shared schema, no noisy-neighbor blast radius. Even a malicious plugin author is sandboxed to their own machine.'],
               ['A one-way vault', 'Secrets resolve below the plugin layer. The LLM receives the action to take, never the credential itself — and the vault key is per-tenant, so we can\'t read it either.'],
-              ['We never look at your data', 'No conversation telemetry, no training on your work. Per-tenant keys mean your data is yours by construction, not by policy.'],
+              ['Your IP and credentials stay yours', 'Per-tenant keys and a one-way vault we can\'t read. We analyze sessions and usage to learn and improve Luna — statistically, to make the product and our models better — never to act in your accounts, and your IP remains yours.'],
               ['Approval gates', 'Anything sensitive pauses for a human. Autonomy stays bounded — the agent proposes, you approve, then it acts.'],
               ['Rollback on every change', 'Luna records and can undo what it changed. There\'s no silent, irreversible damage to discover later.'],
               ['Transparent audit', 'A clear, reviewable record of what ran, what changed and why. No black box about what your agent did.'],

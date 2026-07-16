@@ -24,6 +24,12 @@ router = APIRouter(tags=["auth"])
 
 _states: dict[str, str] = {}  # state → redirect_to (simple in-memory for MVP)
 
+# 044: current Terms of Service version (its effective date). Every login
+# path shows "By continuing you agree to the Terms" before the OAuth
+# redirect, so a login under this version is recorded as acceptance. Bump
+# when the published terms materially change.
+TOS_VERSION = "2026-07-16"
+
 
 def _get_identity_provider(settings: Settings):
     if settings.identity_provider == "google":
@@ -109,6 +115,9 @@ async def _upsert_user_and_account(info: UserInfo) -> tuple[User, Account]:
                 user.name = info.name
             if info.avatar_url:
                 user.avatar_url = info.avatar_url
+            if user.tos_version != TOS_VERSION:
+                user.tos_version = TOS_VERSION
+                user.tos_accepted_at = datetime.now(timezone.utc)
             await db.flush()
         else:
             user = User(
@@ -117,6 +126,8 @@ async def _upsert_user_and_account(info: UserInfo) -> tuple[User, Account]:
                 name=info.name,
                 avatar_url=info.avatar_url,
                 last_login_at=datetime.now(timezone.utc),
+                tos_version=TOS_VERSION,
+                tos_accepted_at=datetime.now(timezone.utc),
             )
             db.add(user)
             await db.flush()

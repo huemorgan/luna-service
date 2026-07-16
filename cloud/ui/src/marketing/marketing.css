@@ -350,3 +350,21 @@
   .mkt .moon-stage .moon__glow{opacity:1}
   .mkt .reveal{opacity:1;transform:none}
 }
+
+/* 044 — legal pages + signup consent */
+.mkt .legal-doc{max-width:76ch;margin:0 auto}
+.mkt .legal-doc h1{font-family:var(--font-display);font-weight:700;letter-spacing:-.02em;font-size:clamp(28px,4.5vw,44px);line-height:1.08;margin-bottom:10px}
+.mkt .legal-doc h2{font-family:var(--font-display);font-weight:600;font-size:20px;letter-spacing:-.01em;margin:34px 0 4px}
+.mkt .legal-doc p{color:var(--text-dim);font-size:15px;line-height:1.65;margin-top:12px}
+.mkt .legal-doc ul{margin:12px 0 0 18px;display:grid;gap:8px}
+.mkt .legal-doc li{color:var(--text-dim);font-size:15px;line-height:1.6;list-style:disc}
+.mkt .legal-doc strong{color:var(--text)}
+.mkt .legal-doc a{color:var(--text);text-decoration:underline;text-underline-offset:3px}
+.mkt .btn.disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+.mkt .consent-overlay{position:fixed;inset:0;z-index:120;background:rgba(4,5,10,.72);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px;animation:menuIn var(--dur) var(--ease-out)}
+.mkt .consent-card{width:min(420px,100%);border-radius:var(--r-lg);background:var(--bg-3);border:1px solid var(--hairline-2);box-shadow:0 40px 90px -30px #000,var(--glow-violet);padding:26px;display:grid;gap:16px}
+.mkt .consent-card h3{font-family:var(--font-display);font-weight:600;font-size:20px;letter-spacing:-.01em}
+.mkt .consent-row{display:flex;align-items:flex-start;gap:10px;font-size:14px;color:var(--text-dim);cursor:pointer}
+.mkt .consent-row input{margin-top:3px;accent-color:var(--violet);width:15px;height:15px;flex:none}
+.mkt .consent-row a{color:var(--text);text-decoration:underline;text-underline-offset:3px}
+.mkt .consent-note{color:var(--text-faint);font-size:12px;line-height:1.5}

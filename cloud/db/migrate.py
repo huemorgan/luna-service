@@ -50,6 +50,7 @@ BASELINE_REVISION = "0001"
 # migration that touches a CORE_TABLES table.
 POST_BASELINE_COLUMNS: dict[str, set[str]] = {
     "agents": {"deleted_at"},  # 0004
+    "users": {"tos_version", "tos_accepted_at"},  # 0009
 }
 
 

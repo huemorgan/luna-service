@@ -29,9 +29,14 @@ export default function Footer() {
             <Link to="/about">About</Link>
             <Link to="/products/open-source">Open platform promise</Link>
           </div>
+          <div className="col">
+            <b>Legal</b>
+            <Link to="/terms">Terms of Service</Link>
+            <Link to="/privacy">Privacy Policy</Link>
+          </div>
         </div>
         <p className="sg-note" style={{ marginTop: 36 }}>
-          © {new Date().getFullYear()} Luna · There are no limits to what Luna can be.
+          © {new Date().getFullYear()} Luna · operated by Novalystrix · There are no limits to what Luna can be.
         </p>
       </div>
     </footer>
