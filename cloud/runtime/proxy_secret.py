@@ -21,3 +21,18 @@ def derive_proxy_secret(root_secret: str, agent_id: str) -> str:
     info = f"luna-proxy-v1:{agent_id}".encode()
     okm = hmac.new(prk, info + b"\x01", hashlib.sha256).hexdigest()
     return okm
+
+
+def derive_jwt_secret(root_secret: str, agent_id: str) -> str:
+    """Derive an agent-specific LUNA_JWT_SECRET from the root secret.
+
+    Plan 042: Fly machines have an ephemeral HOME, so Luna's fallback of
+    persisting a random JWT secret on disk rotates on every restart and
+    invalidates all outstanding tokens. Injecting this stable derived value
+    keeps tokens valid across restarts while staying distinct per agent —
+    and distinct from the proxy/relay derivations via the info string.
+    """
+    prk = hmac.new(root_secret.encode(), agent_id.encode(), hashlib.sha256).digest()
+    info = f"luna-jwt-v1:{agent_id}".encode()
+    okm = hmac.new(prk, info + b"\x01", hashlib.sha256).hexdigest()
+    return okm

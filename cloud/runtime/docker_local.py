@@ -55,6 +55,9 @@ class DockerLocalRuntime:
             "LUNA_CORS_ORIGINS": "*",
             "LUNA_LOG_LEVEL": "INFO",
         }
+        # Plan 042: same stable per-agent JWT secret as the Fly runtime, for parity.
+        if spec.jwt_secret:
+            env_vars["LUNA_JWT_SECRET"] = spec.jwt_secret
         for k, v in spec.llm_keys.items():
             env_vars[k] = v
 

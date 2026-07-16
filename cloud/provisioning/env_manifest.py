@@ -26,6 +26,7 @@ from cloud.runtime.fly_machines import files_env
 # template these show a placeholder instead of a fixed value.
 DYNAMIC_VARS: frozenset[str] = frozenset({
     "LUNA_TRUSTED_PROXY_SECRET",
+    "LUNA_JWT_SECRET",
     "LUNA_DATABASE_URL",
     "LUNA_VAULT_MASTER_KEY",
     "LUNA_GATEWAY_TOKEN",
@@ -83,6 +84,7 @@ def _entry(name: str, *, value: str | None = None, placeholder: str | None = Non
 # Human placeholders for the dynamic per-agent vars (shown in the template view).
 _PLACEHOLDERS: dict[str, str] = {
     "LUNA_TRUSTED_PROXY_SECRET": "{{per-agent proxy secret (derived)}}",
+    "LUNA_JWT_SECRET": "{{per-agent JWT secret (derived)}}",
     "LUNA_DATABASE_URL": "{{per-agent isolated Postgres URL}}",
     "LUNA_VAULT_MASTER_KEY": "{{per-tenant vault key (derived)}}",
     "LUNA_GATEWAY_TOKEN": "{{per-agent device token (lsv1-…)}}",
@@ -103,6 +105,8 @@ async def default_env_manifest(db: AsyncSession, image_config: dict) -> list[dic
         _entry("LUNA_AUTH_MODE", value="trusted_proxy", source="platform"),
         _entry("LUNA_TRUSTED_PROXY_SECRET",
                placeholder=_PLACEHOLDERS["LUNA_TRUSTED_PROXY_SECRET"], source="platform"),
+        _entry("LUNA_JWT_SECRET",
+               placeholder=_PLACEHOLDERS["LUNA_JWT_SECRET"], source="platform"),
         _entry("LUNA_DATABASE_URL",
                placeholder=_PLACEHOLDERS["LUNA_DATABASE_URL"], source="platform"),
         _entry("LUNA_VAULT_MASTER_KEY",

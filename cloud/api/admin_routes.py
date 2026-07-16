@@ -1629,6 +1629,13 @@ async def backfill_machine_env(
                     agent_overrides=agent.config_overrides,
                 )
                 await db.commit()
+            # Plan 042: derived platform secrets ride along, so a machine
+            # missing LUNA_JWT_SECRET (keys=LUNA_JWT_SECRET) actually gets it —
+            # build_gateway_env only covers the gateway block.
+            root_proxy_secret = os.environ.get("CLOUD_TRUSTED_PROXY_SECRET")
+            if root_proxy_secret:
+                from cloud.runtime.proxy_secret import derive_jwt_secret
+                env["LUNA_JWT_SECRET"] = derive_jwt_secret(root_proxy_secret, str(agent_id))
             await fly.update_machine_env(ref, env)
             row["status"] = "updated"
             row["pushed_keys"] = sorted(env.keys())

@@ -33,6 +33,9 @@ class AgentSpec(BaseModel):
     db_url: str
     vault_key: str  # hex-encoded 32 bytes
     trusted_proxy_secret: str
+    # Plan 042: stable per-agent JWT signing secret. Empty means "let Luna
+    # self-manage" (pre-042 behavior — ephemeral on Fly, persistent locally).
+    jwt_secret: str = ""
     llm_keys: dict[str, str] = {}
     image_tag: str = "local-luna-luna:latest"
     image_config: dict = {}

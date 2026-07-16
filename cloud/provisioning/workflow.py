@@ -30,7 +30,7 @@ from cloud.relay.secrets import derive_relay_secret
 from cloud.runtime.base import AgentSpec
 from cloud.runtime.docker_local import DockerLocalRuntime
 from cloud.runtime.fly_machines import FlyMachinesRuntime
-from cloud.runtime.proxy_secret import derive_proxy_secret
+from cloud.runtime.proxy_secret import derive_jwt_secret, derive_proxy_secret
 from cloud.vault.keygen import derive_tenant_vault_key
 
 log = logging.getLogger(__name__)
@@ -124,6 +124,9 @@ async def _provision_core(
 
     root_proxy_secret = os.environ.get("CLOUD_TRUSTED_PROXY_SECRET", secrets.token_urlsafe(32))
     proxy_secret = derive_proxy_secret(root_proxy_secret, str(agent_id))
+    # Plan 042: stable per-agent JWT secret so machine restarts don't
+    # invalidate every outstanding token (Fly HOME is ephemeral).
+    jwt_secret = derive_jwt_secret(root_proxy_secret, str(agent_id))
 
     # 3. Gateway env: proxy base URLs + tenant token — no real provider keys.
     #    Plan 016: pass image_config + agent overrides for per-service env vars.
@@ -171,6 +174,7 @@ async def _provision_core(
         db_url=luna_db_url,
         vault_key=vault_key.hex(),
         trusted_proxy_secret=proxy_secret,
+        jwt_secret=jwt_secret,
         llm_keys=llm_keys,
         image_tag=image_tag,
         image_config=effective_image_config,

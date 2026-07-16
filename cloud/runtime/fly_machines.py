@@ -189,6 +189,10 @@ class FlyMachinesRuntime:
             "LUNA_CORS_ORIGINS": "*",
             "LUNA_LOG_LEVEL": "INFO",
         }
+        # Plan 042: stable per-agent JWT secret — without it Luna persists a
+        # random secret in the ephemeral HOME and every restart logs everyone out.
+        if spec.jwt_secret:
+            env_vars["LUNA_JWT_SECRET"] = spec.jwt_secret
         for k, v in spec.llm_keys.items():
             env_vars[k] = v
 
