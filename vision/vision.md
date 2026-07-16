@@ -11,7 +11,7 @@
 **The product:** sign up with Google → wait ~60 seconds → land in your own private Luna at `you.luna.com.ai` (or path-based equivalent on `luna.com.ai`). Your Luna remembers you across sessions, has its own credentials vault, runs its own MCP servers, and eventually writes and executes code in its own sandbox. Other users' Lunas can't see yours, can't touch your data, can't influence what your Luna does.
 
 **The split:**
-- **Luna OSS** = the agent. MIT licensed. Anyone can self-host on a $5 VPS.
+- **Luna OSS** = the agent. AGPL-3.0 core, Apache-2.0 plugin SDK + marketplace protocol (see `LICENSING.md` in the luna repo). Anyone can self-host on a $5 VPS. AGPL §13 is no burden for us — the hosted service runs unmodified OSS Luna, and any modification we make ships back to the public repo anyway.
 - **Luna Service** = the SaaS. Private repo. Runs many Lunas, handles signup, billing, lifecycle, isolation, support.
 
 **The bet:** developers will adopt and contribute to OSS Luna; non-developers and convenience-seekers will pay for Luna Service. The OSS funnels into the hosted product. Neither hurts the other.
@@ -361,7 +361,7 @@ Luna Service is the **commercial home** for Luna. The OSS project benefits:
 - **Plugin ecosystem:** Hosted users will request and pay for plugins. Plugin authors can build for the largest Luna deployment. Most plugins remain OSS; some are commercial.
 - **Marketing:** Luna Service is the visible front of the project. People discover Luna via Luna Service and many install OSS too.
 
-OSS Luna stays MIT and complete. We never gate features behind hosted-only. We never artificially limit OSS. If hosted Luna gets a new feature, the OSS Luna it runs on top of gets it too.
+OSS Luna stays open source (AGPL-3.0) and complete. We never gate features behind hosted-only. We never artificially limit OSS. If hosted Luna gets a new feature, the OSS Luna it runs on top of gets it too.
 
 The few things kept proprietary are:
 - The control plane code itself (signup, billing, provisioning logic — has no value to OSS users)
