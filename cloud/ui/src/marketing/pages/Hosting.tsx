@@ -44,7 +44,7 @@ export default function Hosting() {
             {[
               ['Unified billing · any model', 'Access every model and service under one credit system — switch Opus / Sonnet / Haiku / GPT / Gemini freely. One usage meter.'],
               ['Physical isolation', 'Your own microVM, database schema, vault key and MCP subprocesses. Not a shared row in someone\'s table.'],
-              ['We never see your data', 'Per-tenant keys, no conversation telemetry. Your work stays yours.'],
+              ['Your work stays yours', 'Per-tenant keys; your IP stays yours. We learn from usage to improve Luna — never to act in your accounts.'],
               ['Always-on & triggers', '"Email me a summary at 9am." Scheduled, autonomous work — even while you sleep. (Paid plans.)'],
               ['Fleet dashboard', 'Run many agents — one per project or client — with costs visible at a glance.'],
               ['Polished, mobile-first UX', 'A first-class interface on every device, from the first second.'],

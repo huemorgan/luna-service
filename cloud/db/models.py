@@ -33,6 +33,10 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # 044: version of the Terms of Service in force when the user last
+    # signed in through the consent-bearing login flow.
+    tos_version: Mapped[str | None] = mapped_column(Text)
+    tos_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     memberships: Mapped[list[Membership]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
