@@ -1,0 +1,7 @@
+PASS  S1 top bar Usage/Billing separate; /dashboard/usage loads
+PASS  S2 four sections; shared scale (chat peak 100% vs telegram 2%)
+PASS  S3 scheduler lists two triggers, expandable
+PASS  S4 Luna filter changes totals; card deep-link pre-filters
+PASS  S5 Billing has packages+statement, no status breakdown/usage
+PASS  S5b Dashboard status toggle reveals balance + credit sources
+PASS  S6 /usage/channels shape, totals, y_max, per-trigger, agent filter

@@ -174,13 +174,22 @@ moment Luna starts sending it, and degrade gracefully until then.
   **Billing** — as separate links/sections (not tabs). Mirror on both
   pages' headers.
 - **Billing page** (`billing/BillingPage.tsx`):
-  - Delete the Status tab entirely (balance/sources/hosting/lots move…):
-    decision — **fold the essential Status content (balance stats,
-    credit sources, hosting, lots) into the single Billing page** above
-    the packages, since Status is being removed as a *tab* but the
-    balance info still belongs somewhere. Remove the `TABS` bar and
-    `?tab=` handling. Billing = balance summary + packages + statement.
+  - Delete the Status tab. Remove the `TABS` bar and `?tab=` handling.
+  - **Revised decision (user):** the payment/account **status breakdown**
+    (balance stats, credit sources, hosting, credit lots) does NOT live on
+    Billing. It moves to the **Dashboard main page** as a collapsible
+    **"Account & payment status"** panel (open to see the breakdown) — see
+    below. Billing = payment-status banners (past_due / debt / hosting-due /
+    trial, with the pay/portal actions) + packages + statement only, plus a
+    one-line pointer to the dashboard status panel.
   - Remove all Usage-tab code from this file.
+- **Dashboard status panel** (`Dashboard.tsx` + new
+  `billing/StatusBreakdown.tsx`): under the existing Total-Account-Credits
+  bar, a collapsed **"Account & payment status"** toggle expands to the full
+  breakdown — payment-status banners, balance stats, credit sources,
+  always-on hosting, credit lots. Shared `StatusBreakdown` component
+  (read-only; the past_due banner links to Billing for the actual payment
+  action).
 - **New `UsagePage`** (`billing/UsagePage.tsx`):
   - Top **filter bar**: a Luna pulldown (All Lunas + each Luna). Reads
     `?agent=` from the query string; a card's Usage button deep-links
@@ -207,7 +216,10 @@ moment Luna starts sending it, and degrade gracefully until then.
   3. Scheduled section expands to per-trigger charts.
   4. Luna card Usage button deep-links filtered; the pulldown switches
      Lunas and the numbers change.
-  5. Billing page has balance + packages + statement, no usage content.
+  5. Billing page has payment banners + packages + statement, no usage
+     content and no balance/sources/hosting/lots breakdown.
+  6. Dashboard "Account & payment status" toggle expands to the breakdown
+     (balance, credit sources, hosting, credit lots).
 - Backend unit tests for `/usage/channels`: channel grouping, shared
   `y_max`, per-trigger split, `agent_id` filter, legacy `NULL` channel
   handling.
@@ -218,9 +230,10 @@ moment Luna starts sending it, and degrade gracefully until then.
 
 ## Decisions / open questions
 
-- **Status content home**: folding balance/sources/hosting/lots into the
-  single Billing page (recommended above). Alternative: put balance
-  stats on the Usage page header. Confirm before Phase 4.
+- **Status content home** (RESOLVED, user): the status breakdown lives on
+  the **Dashboard** as a collapsible "Account & payment status" panel — not
+  on Billing. Billing keeps only the payment-status banners + purchase
+  surface. Payment status is intentionally kept (not deleted).
 - **Scheduled trigger names**: best-effort from scheduler metadata;
   fall back to the trigger id. If no clean name source exists, ship ids
   first and improve later.

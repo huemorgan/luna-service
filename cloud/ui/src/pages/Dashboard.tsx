@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
+import StatusBreakdown from './billing/StatusBreakdown';
+import type { BillingSummary, Grant } from './billing/api';
 import {
   Moon, LogOut, Bot, Loader2, Plus, ExternalLink,
   RotateCcw, Square, Play, AlertTriangle, Shield, ChevronDown,
@@ -89,9 +91,10 @@ function timeAgo(iso: string): string {
 export default function Dashboard() {
   const [data, setData] = useState<UserInfo | null>(null);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [billing, setBilling] = useState<BillingSummaryLight | null>(null);
-  const [grants, setGrants] = useState<GrantLight[] | null>(null);
+  const [billing, setBilling] = useState<BillingSummary | null>(null);
+  const [grants, setGrants] = useState<Grant[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showStatus, setShowStatus] = useState(false);
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('My Luna');
@@ -253,7 +256,26 @@ export default function Dashboard() {
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-10">
-        {billing && <CreditsBar billing={billing} grants={grants} />}
+        {billing && (
+          <>
+            <CreditsBar billing={billing} grants={grants} />
+            <div className="-mt-3 mb-6">
+              <button
+                onClick={() => setShowStatus(s => !s)}
+                className="flex items-center gap-1.5 text-sm transition-colors hover:opacity-80"
+                style={{ color: 'var(--text-dim)' }}
+              >
+                {showStatus ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                Account &amp; payment status
+              </button>
+              {showStatus && (
+                <div className="mt-4">
+                  <StatusBreakdown summary={billing} grants={grants} />
+                </div>
+              )}
+            </div>
+          </>
+        )}
 
         {/* Title bar */}
         <div className="flex items-center justify-between mb-8">

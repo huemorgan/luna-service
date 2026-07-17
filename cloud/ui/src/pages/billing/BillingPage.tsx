@@ -1,9 +1,9 @@
-// 039/008 + 046 — customer Billing page: balance, credit sources, hosting,
-// credit lots, packages, and statement. Usage moved to its own page
-// (/dashboard/usage). No tabs — this page is just Billing.
-// Credits only — no internal pricing ever reaches this page.
+// 039/008 + 046 — customer Billing page: payment status banners, packages,
+// and statement. Balance/credit sources/hosting/credit-lots breakdown moved to
+// the Dashboard "Account & payment status" panel; Usage to /dashboard/usage.
+// No tabs — this page is just Billing. Credits only — no internal pricing.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   Moon, LogOut, ChevronLeft, Loader2, AlertTriangle,
@@ -12,7 +12,7 @@ import {
   API, BLOCK_MESSAGES, credits, fmtDate, fmtDateTime, getJson, postJson, usd,
 } from './api';
 import type {
-  BillingSummary, Grant, Products, StatementRow,
+  BillingSummary, Products, StatementRow,
 } from './api';
 
 const card = {
@@ -32,30 +32,7 @@ const planName = (key: string) => {
   return key.endsWith('_yearly') ? `${name} (yearly)` : name;
 };
 
-const GRANT_CATEGORY_LABELS: Record<string, string> = {
-  paid: 'Bucket', bonus: 'Bonus', gift: 'Gift', free: 'Free', topup: 'Top-up',
-};
-
 // ── Small building blocks ────────────────────────────────────────────────────
-
-function Stat({ label, value, hint, alert }: {
-  label: string; value: string; hint?: string; alert?: boolean;
-}) {
-  return (
-    <div className="rounded-2xl p-5 border" style={{
-      ...card,
-      borderColor: alert ? 'rgba(255,107,107,0.5)' : 'var(--ink-lighter)',
-    }}>
-      <div className="text-xs uppercase tracking-wider mb-1" style={{ color: 'var(--text-dim)' }}>
-        {label}
-      </div>
-      <div className="text-2xl font-bold" style={{ color: alert ? '#ff6b6b' : 'var(--text)' }}>
-        {value}
-      </div>
-      {hint && <div className="text-xs mt-1" style={{ color: 'var(--text-dim)' }}>{hint}</div>}
-    </div>
-  );
-}
 
 function Banner({ code, extra }: { code: keyof typeof BLOCK_MESSAGES; extra?: string }) {
   const msg = BLOCK_MESSAGES[code];
@@ -81,39 +58,12 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Credit source bar: filled = remaining, drains as it burns.
-function SourceBar({ label, hint, granted, remaining }: {
-  label: string; hint: string; granted: number; remaining: number;
-}) {
-  const used = granted - remaining;
-  const pct = granted > 0 ? Math.min(100, Math.round((remaining / granted) * 100)) : 0;
-  return (
-    <div className="flex items-center gap-4 text-sm flex-wrap">
-      <div className="w-40 flex-shrink-0">
-        <div style={{ color: 'var(--text)' }}>{label}</div>
-        <div className="text-xs" style={{ color: 'var(--text-dim)' }}>{hint}</div>
-      </div>
-      <div className="flex-1 h-2 rounded-full overflow-hidden min-w-[140px]" style={{ background: 'var(--ink-lighter)' }}>
-        <div className="h-full rounded-full" style={{
-          width: `${pct}%`, background: 'var(--moon)', opacity: 0.8,
-        }} />
-      </div>
-      <span className="tabular-nums text-xs w-56 text-right" style={{ color: 'var(--text-dim)' }}>
-        {granted > 0
-          ? `${used.toLocaleString()} used · ${remaining.toLocaleString()} left of ${granted.toLocaleString()}`
-          : 'none yet'}
-      </span>
-    </div>
-  );
-}
-
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function BillingPage() {
   const [params] = useSearchParams();
 
   const [summary, setSummary] = useState<BillingSummary | null>(null);
-  const [grants, setGrants] = useState<Grant[] | null>(null);
   const [products, setProducts] = useState<Products | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -127,7 +77,6 @@ export default function BillingPage() {
 
   const loadTop = useCallback(() => {
     getJson<BillingSummary>(`${API}/summary`).then(setSummary).catch(e => setLoadError(e.message));
-    getJson<Grant[]>(`${API}/grants`).then(setGrants).catch(() => {});
     getJson<Products>(`${API}/products`).then(setProducts).catch(() => {});
   }, []);
   useEffect(loadTop, [loadTop]);
@@ -181,18 +130,6 @@ export default function BillingPage() {
     ? products?.products.find(p => p.key === sub.product_key)?.price_usd_cents ?? null
     : null;
   const checkoutParam = params.get('checkout') ?? params.get('topup');
-
-  // Granted vs consumed per grant category, for the source bars.
-  const sources = useMemo(() => {
-    const acc: Record<string, { granted: number; remaining: number }> = {};
-    for (const g of grants ?? []) {
-      const a = (acc[g.category] ??= { granted: 0, remaining: 0 });
-      a.granted += g.original_credits;
-      a.remaining += g.remaining_credits;
-    }
-    const get = (k: string) => acc[k] ?? { granted: 0, remaining: 0 };
-    return { bonus: get('bonus'), paid: get('paid'), topup: get('topup'), gift: get('gift'), free: get('free') };
-  }, [grants]);
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--ink)' }}>
@@ -299,71 +236,12 @@ export default function BillingPage() {
               </div>
             )}
 
-            {/* Balance stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-              <Stat label="Balance" value={credits(summary.posted_balance_credits)}
-                alert={summary.posted_balance_credits <= 0}
-                hint={`paid ${summary.balances.paid.toLocaleString()} · bonus ${summary.balances.bonus.toLocaleString()} · gift ${summary.balances.gift.toLocaleString()} · top-up ${summary.balances.topup.toLocaleString()}`} />
-              <Stat label="In-flight holds" value={credits(summary.open_exposure_credits)}
-                hint="reserved for running actions" />
-              <Stat label="Debt" value={credits(summary.debt_credits)} alert={summary.debt_credits > 0}
-                hint={summary.debt_credits > 0 ? 'repaid automatically from new credits' : 'none'} />
-              <Stat label="Next expiry" value={summary.next_expiry_at ? fmtDate(summary.next_expiry_at) : '—'}
-                hint="earliest credit lot expiring" />
-            </div>
-
-            {/* Credit sources */}
-            {grants && (
-              <section className="rounded-2xl p-5 border mb-8" style={card}>
-                <SectionTitle>Credit sources</SectionTitle>
-                <div className="space-y-4">
-                  {(sources.gift.granted > 0 || sources.free.granted > 0) && (
-                    <SourceBar label="Gift & trial credits" hint="granted by Luna — burned first"
-                      granted={sources.gift.granted + sources.free.granted}
-                      remaining={sources.gift.remaining + sources.free.remaining} />
-                  )}
-                  <SourceBar label="Bonus credits" hint="bundled with packages — burned before top-ups"
-                    granted={sources.bonus.granted} remaining={sources.bonus.remaining} />
-                  <SourceBar label="Bucket credits" hint="your package's monthly credits — burned last"
-                    granted={sources.paid.granted} remaining={sources.paid.remaining} />
-                  <SourceBar label="Top-up credits" hint="one-time purchases — burned before bucket credits"
-                    granted={sources.topup.granted} remaining={sources.topup.remaining} />
-                </div>
-                <p className="text-xs mt-4" style={{ color: 'var(--text-dim)' }}>
-                  Credits burn cheapest-first: free → gift → bonus → top-up → bucket. Your package's
-                  bucket credits are always spent last.
-                </p>
-              </section>
-            )}
-
-            {/* Hosting */}
-            {summary.hosting.length > 0 && (
-              <section className="rounded-2xl p-5 border mb-8" style={card}>
-                <SectionTitle>Always-on hosting</SectionTitle>
-                <div className="space-y-2">
-                  {summary.hosting.map(h => (
-                    <div key={h.agent_id} className="flex items-center justify-between text-sm">
-                      <Link to={`/dashboard/agents/${h.agent_id}`} className="hover:underline" style={{ color: 'var(--text)' }}>
-                        {h.agent_name}
-                      </Link>
-                      <span style={{ color: h.state === 'payment_due' ? '#ff6b6b' : 'var(--text-dim)' }}>
-                        {h.state == null
-                          ? 'not hosted'
-                          : h.state === 'payment_due'
-                            ? 'payment due'
-                            : `${h.state} · ${h.price_credits?.toLocaleString()} cr until ${fmtDate(h.period_ends_at)}`}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                {summary.hosting_price_credits != null && (
-                  <p className="text-xs mt-3" style={{ color: 'var(--text-dim)' }}>
-                    Hosting is {credits(summary.hosting_price_credits)} per Luna per month, paid from your balance.
-                    Suspended Lunas cost nothing.
-                  </p>
-                )}
-              </section>
-            )}
+            <p className="text-sm mb-6" style={{ color: 'var(--text-dim)' }}>
+              Your account balance and full credit breakdown live under{' '}
+              <Link to="/dashboard" className="hover:underline" style={{ color: 'var(--moon)' }}>
+                Account &amp; payment status
+              </Link>{' '}on the dashboard.
+            </p>
 
             {/* Packages */}
             {products && (
@@ -507,41 +385,6 @@ export default function BillingPage() {
                     {busy === 'portal' ? 'Opening…' : 'Manage payment methods & invoices →'}
                   </button>
                 )}
-              </section>
-            )}
-
-            {/* Credit lots */}
-            {grants && grants.length > 0 && (
-              <section className="rounded-2xl p-5 border mb-8" style={card}>
-                <SectionTitle>Credit lots</SectionTitle>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-xs uppercase tracking-wider" style={{ color: 'var(--text-dim)' }}>
-                      <th className="pb-2 font-medium">Type</th>
-                      <th className="pb-2 font-medium">Remaining</th>
-                      <th className="pb-2 font-medium">Expires</th>
-                      <th className="pb-2 font-medium">Status</th>
-                      <th className="pb-2 font-medium text-right">Burn order</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {grants.map(g => (
-                      <tr key={g.id} className="border-t" style={{ borderColor: 'var(--ink-lighter)' }}>
-                        <td className="py-2" style={{ color: 'var(--text)' }}>
-                          {GRANT_CATEGORY_LABELS[g.category] ?? g.category}
-                        </td>
-                        <td className="py-2 tabular-nums" style={{ color: 'var(--text)' }}>
-                          {g.remaining_credits.toLocaleString()} / {g.original_credits.toLocaleString()}
-                        </td>
-                        <td className="py-2" style={{ color: 'var(--text-dim)' }}>{fmtDate(g.expires_at)}</td>
-                        <td className="py-2" style={{ color: 'var(--text-dim)' }}>{g.status}</td>
-                        <td className="py-2 text-right" style={{ color: 'var(--text-dim)' }}>
-                          {g.use_next_order != null ? `#${g.use_next_order}` : '—'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               </section>
             )}
 

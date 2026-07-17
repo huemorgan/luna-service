@@ -41,11 +41,20 @@ scheduler), then drives the built SPA. Screenshots in `results/`.
   `/dashboard/usage?agent={id}` with the pulldown pre-set to that Luna.
 - PASS: filter changes numbers; card button deep-links pre-filtered.
 
-## S5 — Billing page: no usage content, no tabs
+## S5 — Billing page: just billing, no tabs, no status breakdown
 
-- `/dashboard/billing` shows balance summary + packages + statement.
+- `/dashboard/billing` shows payment-status banners + packages + statement.
 - PASS: no "Where credits went", no "Recent actions", no tab bar, no
-  Status tab. Balance/sources/hosting/lots info still present (folded in).
+  Status tab, and **no** "Credit sources"/balance/hosting/lots breakdown
+  (that moved to the dashboard).
+
+## S5b — Dashboard "Account & payment status" breakdown
+
+- `/dashboard` shows a collapsed "Account & payment status" toggle under
+  the credits bar; the breakdown is hidden until opened.
+- Clicking it reveals balance stats, credit sources, hosting, credit lots
+  (and any payment-status banners).
+- PASS: breakdown hidden by default, visible after click.
 
 ## S6 — Backend: /usage/channels (API-level, via httpx)
 
