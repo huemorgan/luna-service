@@ -1,8 +1,10 @@
 # 046 — Feedback tickets (agent + owner → admin, threaded)
 
-**Status:** PLANNED (2026-07-17 — the `EXECUTED` header was aspirational; no
-service-side code had landed. Migration is `0011_feedback_tickets` because
-`0010` is the billable-event channel column. Being executed now.)
+**Status:** EXECUTED (2026-07-17, branch `046-feedback-tickets`). Migration
+`0011_feedback_tickets` (0010 was the billable-event channel column).
+Service-side + admin UI shipped and verified against the real
+huemorgan2/plugin-feedback 0.1.0 client and tool handler. See
+`execution-summary.md`.
 **Produces version:** none in this planning slice
 **Companions:** `huemorgan2/plugin-feedback` 0.1.0 (built against this contract)
 
