@@ -65,21 +65,45 @@ exactly at the top, floored at 200.
   with `channel.is_distinct_from("scheduler")` so NULL-channel playbook runs
   still count.
 
-## Pending — Phase 2 (needs coordinated cross-repo releases)
+## Phase 2 — DONE (Luna core + plugins)
 
-Until these land, scheduler/playbook spend still folds into **Chat** (no
-breakage; `job_id`/`channel` simply arrive NULL). Companion proposal already
-pushed to luna `main`: `luna/plans/039.1-luna-service-channel-attribution/`.
+Luna plan: `luna/plans/039.2-luna-service-action-origin-stamping/`.
 
-- `luna/` core (submodule): add `channel` to `LLMCallContext` +
-  `llm_call_scope` (inherited like `kind`); emit `x-luna-channel` +
-  `x-luna-job-id`; fix the `root_action_type` vocabulary
-  (`chat_turn`/`task_run` → `chat`/`background_run`) so the gateway stops
-  storing NULL; carry origin into headless/muted turns.
-- `luna-scheduler/plugin-scheduler` `_emit_fire`: stamp `channel="scheduler"`
-  + trigger id when firing (both agent_prompt and playbook fires).
-- plugin_playbooks runner: stamp `root_action_type="playbook_run"` + stable
-  playbook id.
+- **luna/ core → 0.38.002 (commit 5fc8b43, pushed to `main`)**:
+  `channel` + `job_id` on `LLMCallContext` / `llm_call_scope` (inherited down
+  the chain); `headers_for_current_call()` emits `x-luna-channel` +
+  `x-luna-job-id`; `MeteringModel._scope()` prefers an outer turn scope's origin
+  over per-turn defaults; web `stream` → `root_action_type="chat"` +
+  `channel="web"`; headless `run_turn` → `background_run` (fixes the
+  `chat_turn`/`task_run` NULL-vocab bug); new SDK helper
+  `luna_sdk.billing_origin_scope()`. Tests: 039 phase01/02 extended, 56 green.
+- **luna-scheduler/plugin-scheduler → 0.3.1 (commit 5e343f3, pushed)**:
+  `_emit_fire` wraps both fire kinds in `billing_origin_scope(channel="scheduler",
+  root_action_type="scheduled_run", job_id=trigger_id)`. 32 green.
+- **plugin-playbooks → 0.3.1 (commit af1e275, COMMITTED, push BLOCKED)**:
+  runner wraps `_execute_steps` in `billing_origin_scope(
+  root_action_type="playbook_run", job_id=playbook.name,
+  prefer_outer_job_id=True)`. 8 green. **Push denied**: remote is
+  `huemorgan2/plugin-playbooks`; the available `huemorgan` token is a
+  non-collaborator (403). Owner must push + republish.
+
+### Deploy status
+
+- Luna image **v0.38.002** (git 5fc8b43) built from `main` via the admin Images
+  page, set as Main, and **all 25 agents migrated**. This alone fixes the
+  `root_action_type=NULL` bug for **all** turns and makes web chat correctly
+  `channel=web` / `chat`. luna-service pointer: commit 5634377.
+- Build-infra fix: the first build failed at recursive submodule checkout —
+  `luna-marketplaces/luna` pinned a GC'd luna commit (f9bbbaf, "not our ref").
+  The workflow file couldn't be edited (token lacks `workflow` scope), so
+  instead bumped luna-service's `luna-marketplaces` pointer to c8c33b6 (already
+  repointed its nested luna to live history) — commit 2db361a. Rebuild
+  succeeded.
+- **Remaining**: scheduler/playbook attribution needs the plugin releases to
+  reach hosted agents (marketplace republish + per-agent plugin update).
+  Scheduler plugin is pushed; playbooks plugin is committed but unpushed
+  (huemorgan2). Until an agent runs the new plugin builds, its
+  scheduled/playbook spend keeps folding into Chat (no breakage).
 
 Header names are frozen and shared with `cloud/gateway/enforcement.py`
 (`x-luna-channel`, `x-luna-job-id`, `x-luna-root-action-type`).
