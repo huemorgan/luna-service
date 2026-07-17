@@ -10,113 +10,182 @@ import {
 } from 'lucide-react';
 import AppHeader from '../../components/AppHeader';
 import { API, credits, getJson, apiError } from './api';
-import type { ChannelItem, ChannelSection, ChannelUsage, UsageSummary } from './api';
+import type { ChannelItem, ChannelSection, ChannelTrendPoint, ChannelUsage, UsageSummary } from './api';
 
 const card = {
   background: 'var(--surface)',
   borderColor: 'var(--ink-lighter)',
 } as const;
 
-function SectionTitle({ children, icon }: { children: React.ReactNode; icon?: React.ReactNode }) {
-  return (
-    <h3 className="text-sm font-semibold uppercase tracking-wider flex items-center gap-2" style={{ color: 'var(--text-dim)' }}>
-      {icon}{children}
-    </h3>
-  );
+// Short "Jun 19" day label from a YYYY-MM-DD string.
+function fmtDay(day: string): string {
+  const d = new Date(day + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return day;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-// ── Shared-scale bar chart (048: small, gridline-free, square, half width) ────
+// Alternating parity per day, flipping on each Monday so the chart background
+// bands align with calendar weeks (handles partial weeks at the edges).
+function weekParities(days: string[]): boolean[] {
+  const out: boolean[] = [];
+  let parity = false;
+  let prevKey: string | null = null;
+  for (const day of days) {
+    const d = new Date(day + 'T00:00:00');
+    const dow = (d.getDay() + 6) % 7; // 0 = Monday
+    const monday = new Date(d);
+    monday.setDate(d.getDate() - dow);
+    const key = monday.toISOString().slice(0, 10);
+    if (prevKey === null) prevKey = key;
+    else if (key !== prevKey) { parity = !parity; prevKey = key; }
+    out.push(parity);
+  }
+  return out;
+}
 
-function BarChart({ trend, yMax, height = 40 }: {
-  trend: Array<{ day: string; credits: number }>;
+// ── Shared-scale bar chart: hairline box, alternating week bands, hover ───────
+
+function BarChart({ trend, yMax, height = 88 }: {
+  trend: ChannelTrendPoint[];
   yMax: number;
   height?: number;
 }) {
+  const [hover, setHover] = useState<number | null>(null);
   const ceil = Math.max(1, yMax);
   if (trend.length === 0) {
-    return <div className="text-sm" style={{ color: 'var(--text-dim)' }}>No activity.</div>;
+    return <div className="text-sm py-6" style={{ color: 'var(--text-dim)' }}>No activity.</div>;
   }
+  const bands = weekParities(trend.map(t => t.day));
+  const last = trend.length - 1;
   return (
-    // 28 days occupy half the card width; the shared y-max is shown once (no
-    // gridlines), bars are square (no rounded corners).
-    <div className="max-w-[50%]">
+    <div>
       <div className="text-xs tabular-nums mb-1" style={{ color: 'var(--text-dim)' }}>
         {Math.round(ceil).toLocaleString()}
       </div>
-      <div className="flex items-end gap-px" style={{ height }}>
-        {trend.map(t => (
-          <div key={t.day} className="flex-1 h-full flex items-end" style={{ minWidth: 2 }}>
-            <div className="w-full"
-              title={`${t.day}: ${t.credits.toLocaleString()} cr`}
-              style={{
-                height: t.credits > 0 ? `${Math.max(2, (t.credits / ceil) * 100)}%` : '0%',
-                background: 'var(--moon)', opacity: 0.75,
-              }} />
-          </div>
-        ))}
+      {/* Hairline box; week bands are the alternating cell backgrounds. */}
+      <div className="relative border" style={{ borderColor: 'var(--ink-lighter)', height }}>
+        <div className="flex items-end h-full">
+          {trend.map((t, i) => {
+            const hovered = hover === i;
+            const band = bands[i] ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.015)';
+            const pct = t.credits > 0 ? Math.max(3, (t.credits / ceil) * 100) : 0;
+            return (
+              <div
+                key={t.day}
+                className="relative flex-1 h-full flex items-end justify-center"
+                style={{ background: hovered ? 'rgba(255,255,255,0.09)' : band }}
+                onMouseEnter={() => setHover(i)}
+                onMouseLeave={() => setHover(h => (h === i ? null : h))}
+              >
+                <div style={{
+                  width: '68%',
+                  height: `${pct}%`,
+                  background: 'var(--moon)',
+                  opacity: hover == null ? 0.8 : hovered ? 1 : 0.3,
+                  transition: 'opacity 0.1s',
+                }} />
+                {hovered && (
+                  <div
+                    className="absolute left-1/2 -translate-x-1/2 z-10 px-2 py-1 rounded-md text-xs whitespace-nowrap pointer-events-none"
+                    style={{
+                      bottom: `calc(${Math.min(pct, 92)}% + 6px)`,
+                      background: 'var(--surface)',
+                      border: '1px solid var(--ink-lighter)',
+                      color: 'var(--text)',
+                    }}
+                  >
+                    <span className="font-semibold tabular-nums">{t.credits.toLocaleString()} cr</span>
+                    <span className="ml-1.5" style={{ color: 'var(--text-dim)' }}>
+                      {i === last ? 'today' : fmtDay(t.day)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
       <div className="flex justify-between text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
-        <span>{trend[0].day}</span>
-        <span>{trend[trend.length - 1].day}</span>
+        <span>{fmtDay(trend[0].day)}</span>
+        <span>Today</span>
       </div>
     </div>
   );
 }
 
-function ChannelCard({ title, icon, section, yMax, children }: {
+// ── Channel section: title + description in front of a boxed chart ────────────
+
+function ChannelChart({ title, icon, description, section, yMax, children }: {
   title: string;
   icon: React.ReactNode;
+  description: string;
   section: ChannelSection | undefined;
   yMax: number;
   children?: React.ReactNode;
 }) {
   return (
-    <section className="rounded-2xl p-5 border mb-6" style={card}>
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <SectionTitle icon={icon}>{title}</SectionTitle>
+    <section className="mb-8">
+      <div className="flex items-baseline justify-between gap-3 flex-wrap">
+        <h3 className="text-base font-semibold flex items-center gap-2" style={{ color: 'var(--text)' }}>
+          {icon}{title}
+        </h3>
         <span className="text-sm tabular-nums font-semibold" style={{ color: 'var(--text)' }}>
           {credits(section?.total ?? 0)}
         </span>
       </div>
+      <p className="text-xs mt-0.5 mb-3" style={{ color: 'var(--text-dim)' }}>{description}</p>
       <BarChart trend={section?.trend ?? []} yMax={yMax} />
       {children}
     </section>
   );
 }
 
-// ── Per-item breakdown, expandable (scheduler triggers / playbooks) ──────────
+// ── Optional per-item breakdown, indented, each item expandable to a chart ────
 
 function ItemBreakdown({ section, yMax, label }: {
   section: ChannelSection | undefined; yMax: number; label: string;
 }) {
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
   const items: ChannelItem[] = section?.items ?? section?.triggers ?? [];
   if (items.length === 0) return null;
   return (
-    <div className="mt-5 pt-4 border-t" style={{ borderColor: 'var(--ink-lighter)' }}>
-      <div className="text-xs uppercase tracking-wider mb-2" style={{ color: 'var(--text-dim)' }}>
+    <div className="mt-3">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 text-xs hover:underline"
+        style={{ color: 'var(--moon)' }}
+      >
+        {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         {label}
-      </div>
-      <div className="space-y-1">
-        {items.map(t => (
-          <div key={t.key}>
-            <button
-              onClick={() => setOpen(open === t.key ? null : t.key)}
-              className="w-full flex items-center gap-3 text-sm py-2 text-left hover:opacity-80">
-              {open === t.key
-                ? <ChevronDown size={14} style={{ color: 'var(--text-dim)' }} />
-                : <ChevronRight size={14} style={{ color: 'var(--text-dim)' }} />}
-              <span className="flex-1 truncate" style={{ color: 'var(--text)' }}>{t.name}</span>
-              <span className="tabular-nums" style={{ color: 'var(--text)' }}>{credits(t.total)}</span>
-            </button>
-            {open === t.key && (
-              <div className="ml-6 mb-3">
-                <BarChart trend={t.trend} yMax={yMax} height={32} />
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+      </button>
+      {open && (
+        <div className="mt-2 ml-4 border-l pl-4 space-y-0.5" style={{ borderColor: 'var(--ink-lighter)' }}>
+          {items.map(t => <ItemRow key={t.key} item={t} yMax={yMax} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ItemRow({ item, yMax }: { item: ChannelItem; yMax: number }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 text-sm py-1.5 text-left hover:opacity-80"
+      >
+        {open
+          ? <ChevronDown size={13} style={{ color: 'var(--text-dim)' }} />
+          : <ChevronRight size={13} style={{ color: 'var(--text-dim)' }} />}
+        <span className="flex-1 truncate" style={{ color: 'var(--text)' }}>{item.name}</span>
+        <span className="tabular-nums" style={{ color: 'var(--text)' }}>{credits(item.total)}</span>
+      </button>
+      {open && (
+        <div className="ml-5 mb-3">
+          <BarChart trend={item.trend} yMax={yMax} height={56} />
+        </div>
+      )}
     </div>
   );
 }
@@ -303,25 +372,32 @@ export default function UsagePage() {
 
         {channels && (
           <>
-            <ChannelCard title="Chat" icon={<MessageSquare size={14} />}
+            <ChannelChart title="Chat" icon={<MessageSquare size={16} />}
+              description="Credit consumption from web chat usage."
               section={channels.sections.web} yMax={yMax} />
 
-            <ChannelCard title="Scheduled triggers" icon={<Clock size={14} />}
+            <ChannelChart title="Scheduled triggers" icon={<Clock size={16} />}
+              description="Credit consumption from triggered scheduling."
               section={channels.sections.scheduler} yMax={yMax}>
-              <ItemBreakdown section={channels.sections.scheduler} yMax={yMax} label="Triggers" />
-            </ChannelCard>
+              <ItemBreakdown section={channels.sections.scheduler} yMax={yMax}
+                label="Break down by trigger" />
+            </ChannelChart>
 
-            <ChannelCard title="Playbooks" icon={<Play size={14} />}
+            <ChannelChart title="Playbooks" icon={<Play size={16} />}
+              description="Credit consumption from playbook automations."
               section={channels.sections.playbooks} yMax={yMax}>
-              <ItemBreakdown section={channels.sections.playbooks} yMax={yMax} label="Playbooks" />
-            </ChannelCard>
+              <ItemBreakdown section={channels.sections.playbooks} yMax={yMax}
+                label="Break down by playbook" />
+            </ChannelChart>
 
-            <ChannelCard title="WhatsApp"
-              icon={<span className="text-xs">🟢</span>}
+            <ChannelChart title="WhatsApp"
+              icon={<span className="text-sm">🟢</span>}
+              description="Credits consumed from WhatsApp conversations with the agent."
               section={channels.sections.whatsapp} yMax={yMax} />
 
-            <ChannelCard title="Telegram"
-              icon={<span className="text-xs">✈️</span>}
+            <ChannelChart title="Telegram"
+              icon={<span className="text-sm">✈️</span>}
+              description="Credits consumed from Telegram conversations with the agent."
               section={channels.sections.telegram} yMax={yMax} />
 
             {/* Per-Luna limits — collapsed by default */}

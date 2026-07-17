@@ -55,19 +55,27 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-function SourceBar({ label, hint, granted, remaining, color }: {
+function SourceBar({ label, hint, granted, remaining, color, maxGranted }: {
   label: string; hint: string; granted: number; remaining: number; color: string;
+  maxGranted: number;
 }) {
   const used = granted - remaining;
-  const pct = granted > 0 ? Math.min(100, Math.round((remaining / granted) * 100)) : 0;
+  // Absolute scale: one credit is the same pixel width across every bar, so the
+  // full track length is proportional to `granted` vs the largest source. The
+  // colored fill is the remaining portion of that same track.
+  const trackPct = maxGranted > 0 ? (granted / maxGranted) * 100 : 0;
+  const fillPct = granted > 0 ? Math.min(100, (remaining / granted) * 100) : 0;
   return (
     <div className="flex items-center gap-4 text-sm flex-wrap">
       <div className="w-40 flex-shrink-0">
         <div style={{ color: 'var(--text)' }}>{label}</div>
         <div className="text-xs" style={{ color: 'var(--text-dim)' }}>{hint}</div>
       </div>
-      <div className="flex-1 h-2 rounded-full overflow-hidden min-w-[140px]" style={{ background: 'var(--ink-lighter)' }}>
-        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
+      <div className="flex-1 min-w-[140px]">
+        <div className="h-2 rounded-full overflow-hidden"
+          style={{ width: `${trackPct}%`, minWidth: granted > 0 ? 4 : 0, background: 'var(--ink-lighter)' }}>
+          <div className="h-full rounded-full" style={{ width: `${fillPct}%`, background: color }} />
+        </div>
       </div>
       <span className="tabular-nums text-xs w-56 text-right" style={{ color: 'var(--text-dim)' }}>
         {granted > 0
@@ -94,6 +102,15 @@ export default function StatusBreakdown({ summary, grants }: {
     const get = (k: string) => acc[k] ?? { granted: 0, remaining: 0 };
     return { bonus: get('bonus'), paid: get('paid'), topup: get('topup'), gift: get('gift'), free: get('free') };
   })();
+
+  // The largest granted source sets the pixel-per-credit scale for every bar.
+  const maxGranted = Math.max(
+    sources.gift.granted + sources.free.granted,
+    sources.bonus.granted,
+    sources.paid.granted,
+    sources.topup.granted,
+    1,
+  );
 
   return (
     <div>
@@ -161,17 +178,17 @@ export default function StatusBreakdown({ summary, grants }: {
               <SourceBar label="Gift & trial credits" hint="granted by Luna — consumed first"
                 granted={sources.gift.granted + sources.free.granted}
                 remaining={sources.gift.remaining + sources.free.remaining}
-                color={CREDIT_COLORS.gift.color} />
+                color={CREDIT_COLORS.gift.color} maxGranted={maxGranted} />
             )}
             <SourceBar label="Bonus credits" hint="bundled with packages — consumed before top-ups"
               granted={sources.bonus.granted} remaining={sources.bonus.remaining}
-              color={CREDIT_COLORS.bonus.color} />
+              color={CREDIT_COLORS.bonus.color} maxGranted={maxGranted} />
             <SourceBar label="Bucket credits" hint="your package's monthly credits — consumed last"
               granted={sources.paid.granted} remaining={sources.paid.remaining}
-              color={CREDIT_COLORS.paid.color} />
+              color={CREDIT_COLORS.paid.color} maxGranted={maxGranted} />
             <SourceBar label="Top-up credits" hint="one-time purchases — consumed before bucket credits"
               granted={sources.topup.granted} remaining={sources.topup.remaining}
-              color={CREDIT_COLORS.topup.color} />
+              color={CREDIT_COLORS.topup.color} maxGranted={maxGranted} />
           </div>
           <p className="text-xs mt-4" style={{ color: 'var(--text-dim)' }}>
             Credits are consumed cheapest-first: free → gift → bonus → top-up → bucket. Your package's
