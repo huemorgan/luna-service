@@ -91,6 +91,11 @@ _CATALOG: dict[tuple[str, str, str], RouteClass] = {
     ("composio", "GET", "/triggers_types"): _FREE,
     ("composio", "POST", "/trigger_instances/*/upsert"): _FREE,
     ("composio", "DELETE", "/trigger_instances/manage/*"): _FREE,
+    # Tavily web search (plugin-web-access). Free until search_request SKU is
+    # priced/enabled — same interim posture as Composio. Without this row,
+    # enforce mode fails closed as sku_unpriced before upstream (and before
+    # the tenant-token body strip), so managed search never leaves the gateway.
+    ("tavily", "POST", "/search"): _FREE,
 }
 
 

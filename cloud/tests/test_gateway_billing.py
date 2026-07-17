@@ -114,7 +114,7 @@ async def test_xai_chat_adapter_openai_compatible():
 async def test_route_unknown_is_none():
     assert route_catalog.classify("anthropic", "POST", "v1/complete") is None
     assert route_catalog.classify("anthropic", "DELETE", "v1/messages") is None
-    assert route_catalog.classify("tavily", "POST", "search") is None
+    assert route_catalog.classify("tavily", "POST", "search").kind == "free"
     # Wildcard matches exactly one segment — deeper paths stay unknown.
     assert route_catalog.classify("openai", "GET", "v1/models/a/b") is None
 
