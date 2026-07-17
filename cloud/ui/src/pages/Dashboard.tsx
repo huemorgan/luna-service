@@ -335,42 +335,50 @@ function CreditsBar({ billing, grants }: {
         borderColor: 'rgba(250,204,21,0.35)',
       }}
     >
-      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-        <div className="flex items-baseline gap-3">
-          <span className="font-semibold" style={{ color: 'var(--text)' }}>Total Account Credits</span>
-          <span className="text-lg font-bold tabular-nums" style={{ color: total < 0 ? '#ff6b6b' : 'var(--moon)' }}>
+      <div className="flex items-center justify-end gap-3 flex-wrap mb-2">
+        {lowCredits && (
+          <Link
+            to="/dashboard/billing"
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:scale-105"
+            style={{ background: 'var(--moon)', color: 'var(--ink)' }}
+          >
+            Get more credits
+          </Link>
+        )}
+        <Link
+          to="/dashboard/usage"
+          className="text-xs transition-colors hover:opacity-80"
+          style={{ color: 'var(--moon)' }}
+        >
+          See full usage review →
+        </Link>
+      </div>
+      <div className="relative w-full rounded-lg overflow-hidden" style={{ height: '3rem', background: '#000' }}>
+        {barTotal > 0 && (
+          <div className="absolute inset-y-0 left-0 flex" style={{ width: `${fillPct}%` }}>
+            {segments.map(s => (
+              <div key={s.key} title={s.label} className="h-full"
+                style={{ width: `${(s.credits / barTotal) * 100}%`, background: s.color }} />
+            ))}
+          </div>
+        )}
+        <div className="absolute inset-0 flex items-center px-3 gap-2 pointer-events-none">
+          <span className="text-sm font-semibold" style={{ color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.75)' }}>
+            Total Account Credits
+          </span>
+          <span className="text-sm font-bold tabular-nums"
+            style={{ color: total < 0 ? '#ff6b6b' : '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.75)' }}>
             {total.toLocaleString()}
           </span>
         </div>
-        <div className="flex items-center gap-3">
-          {lowCredits && (
-            <Link
-              to="/dashboard/billing"
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:scale-105"
-              style={{ background: 'var(--moon)', color: 'var(--ink)' }}
-            >
-              Get more credits
-            </Link>
-          )}
-          <Link
-            to="/dashboard/usage"
-            className="text-xs transition-colors hover:opacity-80"
-            style={{ color: 'var(--moon)' }}
-          >
-            See full usage review →
-          </Link>
+      </div>
+      {monthTotal > 0 && (
+        <div className="flex justify-end mt-1">
+          <span className="text-xs tabular-nums" style={{ color: 'var(--text-dim)' }}>
+            {barTotal.toLocaleString()}cr / {monthTotal.toLocaleString()}cr left
+          </span>
         </div>
-      </div>
-      <div className="h-2.5 rounded-full overflow-hidden flex" style={{ background: 'var(--ink-lighter)' }}>
-        {barTotal > 0 && segments.map(s => (
-          <div
-            key={s.key}
-            title={s.label}
-            className="h-full"
-            style={{ width: `${(s.credits / barTotal) * fillPct}%`, background: s.color }}
-          />
-        ))}
-      </div>
+      )}
 
       {/* Account & payment status — full-bleed tray docked to the box's bottom
           edge, mirroring the agent-card upgrade tray but in a faint yellow. */}

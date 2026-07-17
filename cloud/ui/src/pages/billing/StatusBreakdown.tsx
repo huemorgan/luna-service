@@ -55,33 +55,50 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-function SourceBar({ label, hint, granted, remaining, color, maxGranted }: {
+function SourceBar({ label, hint, granted, remaining, color }: {
   label: string; hint: string; granted: number; remaining: number; color: string;
-  maxGranted: number;
 }) {
   const used = granted - remaining;
-  // Absolute scale: one credit is the same pixel width across every bar, so the
-  // full track length is proportional to `granted` vs the largest source. The
-  // colored fill is the remaining portion of that same track.
-  const trackPct = maxGranted > 0 ? (granted / maxGranted) * 100 : 0;
-  const fillPct = granted > 0 ? Math.min(100, (remaining / granted) * 100) : 0;
+  // Each bar is self-scaled to its own size and takes the full width — the
+  // colored fill is the consumed fraction of THIS source (not compared across
+  // sources), so a small bucket is just as readable as a huge gift lot.
+  const pct = granted > 0 ? Math.round((used / granted) * 100) : 0;
+  const fillPct = Math.min(100, pct);
+  const near = pct >= 82; // fill nearly full → tuck the % label inside it
   return (
-    <div className="flex items-center gap-4 text-sm flex-wrap">
-      <div className="w-40 flex-shrink-0">
-        <div style={{ color: 'var(--text)' }}>{label}</div>
-        <div className="text-xs" style={{ color: 'var(--text-dim)' }}>{hint}</div>
-      </div>
-      <div className="flex-1 min-w-[140px]">
-        <div className="h-2 rounded-full overflow-hidden"
-          style={{ width: `${trackPct}%`, minWidth: granted > 0 ? 4 : 0, background: 'var(--ink-lighter)' }}>
-          <div className="h-full rounded-full" style={{ width: `${fillPct}%`, background: color }} />
+    <div>
+      <div className="relative w-full rounded-lg overflow-hidden"
+        style={{ height: '3rem', background: '#000' }}>
+        <div className="absolute inset-y-0 left-0"
+          style={{ width: `${fillPct}%`, background: color, opacity: 0.92 }} />
+        {/* label — vertically centered inside the bar */}
+        <div className="absolute inset-0 flex items-center px-3 pointer-events-none">
+          <span className="text-sm font-medium"
+            style={{ color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.75)' }}>
+            {label}
+          </span>
         </div>
+        {/* consumed % — pinned to the end of the color fill */}
+        {granted > 0 && (
+          <span
+            className="absolute text-xs font-bold tabular-nums pointer-events-none"
+            style={near
+              ? { top: '50%', left: `${fillPct}%`, transform: 'translate(-100%,-50%)',
+                  paddingRight: 8, color: 'var(--ink)' }
+              : { top: '50%', left: `max(${fillPct}%, 5.5rem)`, transform: 'translateY(-50%)',
+                  paddingLeft: 6, color: 'var(--text)', textShadow: '0 1px 2px rgba(0,0,0,0.75)' }}
+          >
+            {pct}%
+          </span>
+        )}
       </div>
-      <span className="tabular-nums text-xs w-56 text-right" style={{ color: 'var(--text-dim)' }}>
-        {granted > 0
-          ? `${used.toLocaleString()} used · ${remaining.toLocaleString()} left of ${granted.toLocaleString()}`
-          : 'none yet'}
-      </span>
+      {/* under the bar: description (left) + used / total (right) */}
+      <div className="flex items-center justify-between gap-3 mt-1">
+        <span className="text-xs" style={{ color: 'var(--text-dim)' }}>{hint}</span>
+        <span className="text-xs tabular-nums whitespace-nowrap" style={{ color: 'var(--text-dim)' }}>
+          {granted > 0 ? `${used.toLocaleString()}cr / ${granted.toLocaleString()}cr` : 'none yet'}
+        </span>
+      </div>
     </div>
   );
 }
@@ -102,15 +119,6 @@ export default function StatusBreakdown({ summary, grants }: {
     const get = (k: string) => acc[k] ?? { granted: 0, remaining: 0 };
     return { bonus: get('bonus'), paid: get('paid'), topup: get('topup'), gift: get('gift'), free: get('free') };
   })();
-
-  // The largest granted source sets the pixel-per-credit scale for every bar.
-  const maxGranted = Math.max(
-    sources.gift.granted + sources.free.granted,
-    sources.bonus.granted,
-    sources.paid.granted,
-    sources.topup.granted,
-    1,
-  );
 
   return (
     <div>
@@ -173,22 +181,22 @@ export default function StatusBreakdown({ summary, grants }: {
       {grants && (
         <section className="rounded-2xl p-5 border mb-6" style={card}>
           <SectionTitle>Credit sources</SectionTitle>
-          <div className="space-y-4">
+          <div className="space-y-5">
             {(sources.gift.granted > 0 || sources.free.granted > 0) && (
               <SourceBar label="Gift & trial credits" hint="granted by Luna — consumed first"
                 granted={sources.gift.granted + sources.free.granted}
                 remaining={sources.gift.remaining + sources.free.remaining}
-                color={CREDIT_COLORS.gift.color} maxGranted={maxGranted} />
+                color={CREDIT_COLORS.gift.color} />
             )}
             <SourceBar label="Bonus credits" hint="bundled with packages — consumed before top-ups"
               granted={sources.bonus.granted} remaining={sources.bonus.remaining}
-              color={CREDIT_COLORS.bonus.color} maxGranted={maxGranted} />
+              color={CREDIT_COLORS.bonus.color} />
             <SourceBar label="Bucket credits" hint="your package's monthly credits — consumed last"
               granted={sources.paid.granted} remaining={sources.paid.remaining}
-              color={CREDIT_COLORS.paid.color} maxGranted={maxGranted} />
+              color={CREDIT_COLORS.paid.color} />
             <SourceBar label="Top-up credits" hint="one-time purchases — consumed before bucket credits"
               granted={sources.topup.granted} remaining={sources.topup.remaining}
-              color={CREDIT_COLORS.topup.color} maxGranted={maxGranted} />
+              color={CREDIT_COLORS.topup.color} />
           </div>
           <p className="text-xs mt-4" style={{ color: 'var(--text-dim)' }}>
             Credits are consumed cheapest-first: free → gift → bonus → top-up → bucket. Your package's
