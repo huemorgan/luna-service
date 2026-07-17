@@ -332,6 +332,73 @@ async def test_usage_actions_grouping_and_csv(admin_client, db_session, account,
         assert token not in text, f"internal field {token!r} leaked to actions"
 
 
+# ── Usage by channel (046) ───────────────────────────────────────────────────
+
+async def _seed_channels(db_session, agent_id):
+    """One call per channel + a legacy NULL-channel call (folds into web) +
+    two distinct scheduler triggers."""
+    await ledger.ensure_billing_account(db_session, ACCOUNT_ID)
+    now = datetime.now(timezone.utc)
+
+    def ev(call, *, channel, job=None, root=None, at=None):
+        e = _event(agent_id, call, root=root, at=at or now)
+        e.channel = channel
+        e.job_id = job
+        return e
+
+    db_session.add_all([
+        ev("c-web", channel="web"),
+        ev("c-legacy", channel=None),           # NULL → folds into web
+        ev("c-wa", channel="whatsapp"),
+        ev("c-tg", channel="telegram"),
+        ev("c-sc1", channel="scheduler", job="digest", root="r1"),
+        ev("c-sc2", channel="scheduler", job="backup", root="r2"),
+        _charge_row("c-web", 200),
+        _charge_row("c-legacy", 5),
+        _charge_row("c-wa", 30),
+        _charge_row("c-tg", 10),
+        _charge_row("c-sc1", 40),
+        _charge_row("c-sc2", 8),
+    ])
+    await db_session.commit()
+
+
+async def test_usage_channels_sections_and_ymax(admin_client, db_session, account, sample_agent):
+    await _seed(db_session)
+    await _seed_channels(db_session, sample_agent.id)
+
+    body = (await admin_client.get("/api/billing/usage/channels?range=7d")).json()
+    secs = body["sections"]
+    assert set(secs) == {"web", "scheduler", "whatsapp", "telegram"}
+    assert secs["web"]["total"] == 205          # 200 web + 5 legacy NULL
+    assert secs["whatsapp"]["total"] == 30
+    assert secs["telegram"]["total"] == 10
+    assert secs["scheduler"]["total"] == 48
+    # Shared ceiling rounds the 205 web peak (200+5 legacy, same day) to 250.
+    assert body["y_max"] == 250
+    # Every trend covers the same day span.
+    spans = {len(s["trend"]) for s in secs.values()}
+    assert len(spans) == 1
+    # Scheduler splits into its two triggers, largest first.
+    trigs = {t["key"]: t["total"] for t in secs["scheduler"]["triggers"]}
+    assert trigs == {"digest": 40, "backup": 8}
+    assert secs["scheduler"]["triggers"][0]["key"] == "digest"
+
+    text = str(body).lower()
+    for token in FORBIDDEN:
+        assert token not in text, f"internal field {token!r} leaked to channels"
+
+
+async def test_usage_channels_agent_filter(admin_client, db_session, account, sample_agent):
+    await _seed(db_session)
+    await _seed_channels(db_session, sample_agent.id)
+
+    other = uuid.uuid4()
+    body = (await admin_client.get(
+        f"/api/billing/usage/channels?range=7d&agent_id={other}")).json()
+    assert all(s["total"] == 0 for s in body["sections"].values())
+
+
 # ── Statement ────────────────────────────────────────────────────────────────
 
 async def test_statement_running_balance(admin_client, db_session, account):

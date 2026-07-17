@@ -71,6 +71,10 @@ _RETRYABLE = {"exposure_limit", "billing_temporarily_unavailable"}
 
 _ROOT_ACTION_TYPES = {"chat", "playbook_run", "scheduled_run", "background_run", "forge_job"}
 
+# 046: who initiated the work, stamped by Luna at the turn entry point via
+# x-luna-channel. Unknown/absent values coerce to None (legacy → NULL).
+_CHANNELS = {"web", "whatsapp", "telegram", "scheduler", "api"}
+
 FINALIZE_JOB = "gateway_finalize"
 
 
@@ -149,6 +153,7 @@ class BillingContext:
     call_id: str | None = None
     root_action_id: str | None = None
     root_action_type: str | None = None
+    channel: str | None = None
     started_at: datetime = field(default_factory=_utcnow)
     body: bytes = b""
 
@@ -176,6 +181,7 @@ async def _record_would_block(ctx: BillingContext, db: AsyncSession) -> None:
             agent_id=ctx.agent_id,
             root_action_id=ctx.root_action_id,
             root_action_type=ctx.root_action_type,
+            channel=ctx.channel,
             service=ctx.service_slug,
             sku=ctx.sku or "unpriced",
             context=ctx.context,
@@ -230,6 +236,8 @@ async def prepare(
     ctx.root_action_id = _clean_header(headers.get("x-luna-root-action-id"))
     action_type = _clean_header(headers.get("x-luna-root-action-type"))
     ctx.root_action_type = action_type if action_type in _ROOT_ACTION_TYPES else None
+    channel = _clean_header(headers.get("x-luna-channel"))
+    ctx.channel = channel if channel in _CHANNELS else None
 
     try:
         agent = await db.get(Agent, agent_id)
@@ -394,6 +402,7 @@ async def finalize(ctx: BillingContext, attempts: list[AttemptFacts], status_cod
                         agent_id=ctx.agent_id,
                         root_action_id=ctx.root_action_id,
                         root_action_type=ctx.root_action_type,
+                        channel=ctx.channel,
                         service=ctx.service_slug,
                         sku=ctx.sku,
                         context=ctx.context,

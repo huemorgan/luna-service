@@ -65,7 +65,7 @@ export function SpendCard({ agentId }: { agentId: string }) {
             </dd>
           </div>
           <div className="pt-1">
-            <Link to="/dashboard/billing?tab=usage" className="text-sm hover:underline" style={{ color: 'var(--moon)' }}>
+            <Link to={`/dashboard/usage?agent=${agentId}`} className="text-sm hover:underline" style={{ color: 'var(--moon)' }}>
               Balance, limits &amp; full usage →
             </Link>
           </div>

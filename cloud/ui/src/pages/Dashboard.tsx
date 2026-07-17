@@ -4,6 +4,7 @@ import {
   Moon, LogOut, Bot, Loader2, Plus, ExternalLink,
   RotateCcw, Square, Play, AlertTriangle, Shield, ChevronDown,
   Settings, ArrowUpCircle, ChevronRight, CheckCircle2, Sparkles, CreditCard,
+  BarChart3,
 } from 'lucide-react';
 
 interface UserInfo {
@@ -222,6 +223,14 @@ export default function Dashboard() {
         </div>
         <div className="flex items-center gap-3">
           <Link
+            to="/dashboard/usage"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors hover:opacity-80"
+            style={{ color: 'var(--moon)' }}
+          >
+            <BarChart3 size={14} />
+            Usage
+          </Link>
+          <Link
             to="/dashboard/billing"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors hover:opacity-80"
             style={{ color: 'var(--moon)' }}
@@ -389,7 +398,7 @@ function CreditsBar({ billing, grants }: {
         <div className="flex items-center gap-3">
           {lowCredits && (
             <Link
-              to="/dashboard/billing?tab=billing"
+              to="/dashboard/billing"
               className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:scale-105"
               style={{ background: 'var(--moon)', color: 'var(--ink)' }}
             >
@@ -397,7 +406,7 @@ function CreditsBar({ billing, grants }: {
             </Link>
           )}
           <Link
-            to="/dashboard/billing?tab=usage"
+            to="/dashboard/usage"
             className="text-xs transition-colors hover:opacity-80"
             style={{ color: 'var(--moon)' }}
           >
@@ -488,7 +497,7 @@ function AgentCard({
             </div>
             {noCredits && (
               <Link
-                to="/dashboard/billing?tab=billing"
+                to="/dashboard/billing"
                 className="inline-flex items-center gap-1.5 mt-2 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors hover:opacity-80"
                 style={{ background: 'rgba(250,204,21,0.1)', border: '1px solid rgba(250,204,21,0.3)', color: '#facc15' }}
               >
@@ -541,6 +550,16 @@ function AgentCard({
               Open
             </a>
           )}
+
+          <Link
+            to={`/dashboard/usage?agent=${agent.id}`}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs transition-all hover:bg-[var(--ink-light)]"
+            style={{ color: 'var(--text-dim)', border: '1px solid var(--ink-lighter)' }}
+            title="View this Luna's usage"
+          >
+            <BarChart3 size={12} />
+            Usage
+          </Link>
 
           {agent.status === 'running' && (
             <button

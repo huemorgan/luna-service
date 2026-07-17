@@ -98,6 +98,35 @@ export interface PerLunaWindow {
   resets_at: string | null;
 }
 
+export interface ChannelTrendPoint {
+  day: string;
+  credits: number;
+}
+
+export interface ChannelTrigger {
+  key: string;
+  name: string;
+  total: number;
+  trend: ChannelTrendPoint[];
+}
+
+export interface ChannelSection {
+  total: number;
+  trend: ChannelTrendPoint[];
+  triggers?: ChannelTrigger[];
+}
+
+export interface ChannelUsage {
+  range: { since: string; until: string };
+  y_max: number;
+  sections: {
+    web: ChannelSection;
+    scheduler: ChannelSection;
+    whatsapp: ChannelSection;
+    telegram: ChannelSection;
+  };
+}
+
 export interface BreakdownRow {
   key: string;
   id: string | null;

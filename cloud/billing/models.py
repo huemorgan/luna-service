@@ -493,6 +493,7 @@ class BillableEvent(Base):
     __table_args__ = (
         UniqueConstraint("source_idempotency_key"),
         Index("ix_be_account_event_at", "account_id", "event_at"),
+        Index("ix_be_account_channel_event_at", "account_id", "channel", "event_at"),
         Index("ix_be_call", "call_id"),
         CheckConstraint("context IN ('agent','direct','forge')", name="ck_be_context"),
         CheckConstraint(
@@ -512,6 +513,9 @@ class BillableEvent(Base):
     )
     root_action_id: Mapped[str | None] = mapped_column(Text)
     root_action_type: Mapped[str | None] = mapped_column(Text)  # chat|playbook_run|scheduled_run|background_run|forge_job
+    # 046: who INITIATED this work (stable down the derived chain, unlike
+    # root_action_type). web|whatsapp|telegram|scheduler|api|NULL(legacy).
+    channel: Mapped[str | None] = mapped_column(Text)
     job_id: Mapped[str | None] = mapped_column(Text)
     plugin: Mapped[str | None] = mapped_column(Text)
     service: Mapped[str] = mapped_column(Text, nullable=False)

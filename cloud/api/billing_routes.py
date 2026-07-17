@@ -646,6 +646,162 @@ async def usage_breakdown(
         ]
 
 
+# ── Usage by channel (046): web / scheduler / whatsapp / telegram ────────────
+# Each section is a daily credit trend over the range, all sharing one y-axis
+# ceiling so a small channel renders short next to a big one. Credits live on
+# RatedCharge (one per logical call); the initiating channel comes from the
+# call's first BillableEvent. Legacy/unknown channels fold into "web".
+
+CHANNEL_SECTIONS = ("web", "scheduler", "whatsapp", "telegram")
+
+
+def _clean_ceiling(top: int) -> int:
+    """Round an axis max up to a readable 1/2/2.5/5 × 10ⁿ tick."""
+    top = max(1, int(top))
+    import math
+    pow10 = 10 ** math.floor(math.log10(top))
+    for m in (1, 2, 2.5, 5, 10):
+        if m * pow10 >= top:
+            return int(m * pow10)
+    return int(10 * pow10)
+
+
+def _day_list(since: datetime, until: datetime) -> list[str]:
+    days: list[str] = []
+    d = since.date()
+    last = (until - timedelta(microseconds=1)).date()
+    while d <= last:
+        days.append(d.isoformat())
+        d += timedelta(days=1)
+    return days
+
+
+def _trend(by_day: dict[str, int], days: list[str]) -> list[dict]:
+    return [{"day": d, "credits": int(by_day.get(d, 0))} for d in days]
+
+
+@router.get("/usage/channels")
+async def usage_channels(
+    range: str = Query("28d"),
+    start: str | None = None,
+    end: str | None = None,
+    agent_id: str | None = None,
+    auth: tuple[User, Account] = Depends(require_active_account),
+):
+    from sqlalchemy import case
+
+    _, account = auth
+    since, until = _range_bounds(range, start, end)
+    aid = uuid.UUID(agent_id) if agent_id else None
+    days = _day_list(since, until)
+
+    async with get_db_session() as db:
+        first_event = (
+            select(
+                BillableEvent.call_id.label("call_id"),
+                func.min(BillableEvent.event_at).label("first_at"),
+            )
+            .where(BillableEvent.account_id == account.id)
+            .group_by(BillableEvent.call_id)
+            .subquery()
+        )
+        bucket = case(
+            (BillableEvent.channel == "scheduler", "scheduler"),
+            (BillableEvent.channel == "whatsapp", "whatsapp"),
+            (BillableEvent.channel == "telegram", "telegram"),
+            else_="web",
+        ).label("bucket")
+        day = func.date(RatedCharge.created_at)
+
+        base_join = (
+            select(bucket, day.label("day"), func.sum(RatedCharge.credits))
+            .join(first_event, first_event.c.call_id == RatedCharge.logical_call_id)
+            .join(
+                BillableEvent,
+                (BillableEvent.call_id == RatedCharge.logical_call_id)
+                & (BillableEvent.event_at == first_event.c.first_at),
+            )
+            .where(
+                RatedCharge.account_id == account.id,
+                RatedCharge.created_at >= since,
+                RatedCharge.created_at < until,
+            )
+        )
+        if aid is not None:
+            base_join = base_join.where(BillableEvent.agent_id == aid)
+        rows = (await db.execute(base_join.group_by(bucket, day))).all()
+
+        by_section: dict[str, dict[str, int]] = {s: {} for s in CHANNEL_SECTIONS}
+        for section, d, credits in rows:
+            by_section.setdefault(section, {})[str(d)[:10]] = int(credits or 0)
+
+        # Scheduler per-trigger split (job_id → root_action_id fallback).
+        trig_key = case(
+            (BillableEvent.job_id.isnot(None), BillableEvent.job_id),
+            (BillableEvent.root_action_id.isnot(None), BillableEvent.root_action_id),
+            else_="unknown",
+        ).label("trig")
+        trig_join = (
+            select(trig_key, day.label("day"), func.sum(RatedCharge.credits))
+            .join(first_event, first_event.c.call_id == RatedCharge.logical_call_id)
+            .join(
+                BillableEvent,
+                (BillableEvent.call_id == RatedCharge.logical_call_id)
+                & (BillableEvent.event_at == first_event.c.first_at),
+            )
+            .where(
+                RatedCharge.account_id == account.id,
+                RatedCharge.created_at >= since,
+                RatedCharge.created_at < until,
+                BillableEvent.channel == "scheduler",
+            )
+        )
+        if aid is not None:
+            trig_join = trig_join.where(BillableEvent.agent_id == aid)
+        trig_rows = (await db.execute(trig_join.group_by(trig_key, day))).all()
+
+        triggers: dict[str, dict[str, int]] = {}
+        for key, d, credits in trig_rows:
+            triggers.setdefault(str(key), {})[str(d)[:10]] = int(credits or 0)
+
+        # Shared y-axis ceiling: the tallest single-day bar across every
+        # section (not per-trigger, which are subsets of scheduler).
+        peak = 0
+        for sec in by_section.values():
+            for v in sec.values():
+                peak = max(peak, v)
+        y_max = _clean_ceiling(peak)
+
+        sections = {}
+        for s in CHANNEL_SECTIONS:
+            by_day = by_section.get(s, {})
+            section = {
+                "total": sum(by_day.values()),
+                "trend": _trend(by_day, days),
+            }
+            if s == "scheduler":
+                section["triggers"] = sorted(
+                    (
+                        {
+                            "key": key,
+                            "name": key,
+                            "total": sum(t.values()),
+                            "trend": _trend(t, days),
+                        }
+                        for key, t in triggers.items()
+                    ),
+                    key=lambda t: t["total"],
+                    reverse=True,
+                )
+            sections[s] = section
+
+        return {
+            "range": {"since": since.isoformat(), "until": until.isoformat()},
+            "y_max": y_max,
+            "sections": sections,
+        }
+
+
 async def _action_statement_rows(db, account_id: uuid.UUID, since: datetime,
                                  until: datetime, agent_id: uuid.UUID | None,
                                  limit: int, offset: int) -> list[dict]:

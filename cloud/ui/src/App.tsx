@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import AgentDetail from './pages/AgentDetail';
 import BillingPage from './pages/billing/BillingPage';
+import UsagePage from './pages/billing/UsagePage';
 import UserLuna from './pages/UserLuna';
 import AdminLayout from './pages/admin/AdminLayout';
 import AdminsPage from './pages/admin/AdminsPage';
@@ -55,6 +56,7 @@ export default function App() {
         </Route>
 
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/dashboard/usage" element={<UsagePage />} />
         <Route path="/dashboard/billing" element={<BillingPage />} />
         <Route path="/dashboard/agents/:id" element={<AgentDetail />} />
         <Route path="/admin" element={<AdminLayout />}>
