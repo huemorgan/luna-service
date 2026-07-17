@@ -21,11 +21,11 @@ name = "plugin-charts"
 version = "0.1.0"
 sha256 = "52e063f327a2f1ed505b239344eca9aadb0806fe1921e3f6b58f0f0ba0a9f1b9"
 
-# 0.2.4: vault.connect for Tavily; omit body api_key on virtual/gateway keys (fixes 401).
+# 0.2.3: published on official marketplace (gateway body-strip fixes Tavily 401 until 0.2.4 seeds).
 [[plugins]]
 name = "plugin-web-access"
-version = "0.2.4"
-sha256 = "847649669f8ff13764bea3a5720c5a4bd0202b0b64def3768469af3f6b067f2b"
+version = "0.2.3"
+sha256 = "08c60c9e4b92f41c9a2494accb1e8ea2783358261d287ca3cd2f03c436c587db"
 
 # Synced with admin defaults (Jun 2026). The build prefers the UI selection
 # (plugin-set.json from the control plane); this seed is a fallback only.
