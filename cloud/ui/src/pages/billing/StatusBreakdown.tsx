@@ -69,8 +69,8 @@ function SourceBar({ label, hint, granted, remaining, color }: {
     <div>
       {/* title above the bar */}
       <div className="text-sm font-medium mb-1" style={{ color: 'var(--text)' }}>{label}</div>
-      <div className="relative w-full rounded-lg overflow-hidden"
-        style={{ height: '3rem', background: '#000' }}>
+      <div className="relative w-full rounded-md overflow-hidden"
+        style={{ height: '1.5rem', background: '#000' }}>
         <div className="absolute inset-y-0 left-0"
           style={{ width: `${fillPct}%`, background: color, opacity: 0.92 }} />
         {/* consumed % — the only thing inside the bar, pinned to the fill's end */}
