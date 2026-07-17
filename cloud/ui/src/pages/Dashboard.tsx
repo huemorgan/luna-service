@@ -361,7 +361,7 @@ function CreditsBar({ billing, grants }: {
           </Link>
         </div>
       </div>
-      <div className="relative w-full rounded-lg overflow-hidden" style={{ height: '3rem', background: '#000' }}>
+      <div className="relative w-full rounded-md overflow-hidden" style={{ height: '1rem', background: '#000' }}>
         {barTotal > 0 && (
           <div className="absolute inset-y-0 left-0 flex" style={{ width: `${fillPct}%` }}>
             {segments.map(s => (
