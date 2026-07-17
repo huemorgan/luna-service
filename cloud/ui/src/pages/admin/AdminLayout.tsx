@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Moon, Shield, Package, Server, ScrollText, ArrowLeft, LogOut, Loader2, User, ChevronDown, ChevronRight, KeyRound, SlidersHorizontal, MessageCircle, Clock, Send, Blocks, Coins, LayoutDashboard, GitBranch, Cpu, Wallet, Activity, FlaskConical, Gauge, Menu, X } from 'lucide-react';
+import { Moon, Shield, Package, Server, ScrollText, ArrowLeft, LogOut, Loader2, User, ChevronDown, ChevronRight, KeyRound, SlidersHorizontal, MessageCircle, Clock, Send, Blocks, Coins, LayoutDashboard, GitBranch, Cpu, Wallet, Activity, FlaskConical, Gauge, Menu, X, MessageSquareWarning } from 'lucide-react';
 
 interface UserInfo {
   user: { id: string; email: string; name: string | null; avatar_url: string | null; is_admin: boolean };
@@ -19,6 +19,7 @@ const SERVICE_ITEMS = [
   { to: '/admin/whatsapp', label: 'WhatsApp', icon: MessageCircle },
   { to: '/admin/telegram', label: 'Telegram', icon: Send },
   { to: '/admin/scheduler', label: 'Scheduler', icon: Clock },
+  { to: '/admin/feedback', label: 'Feedback', icon: MessageSquareWarning },
 ];
 
 const PRICING_ITEMS = [

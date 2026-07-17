@@ -344,6 +344,79 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class FeedbackTicket(Base):
+    """Plan 046 — one owner/agent feedback thread to the Luna team.
+
+    Ticket state lives on the control plane (never the agent's own DB). The
+    agent is resolved from the tenant token server-side; `account_id` is
+    denormalized at create for admin filtering. Agents soft-delete, so the FK
+    is ON DELETE SET NULL — feedback history outlives the install (mirrors
+    RelayDelivery).
+    """
+
+    __tablename__ = "feedback_tickets"
+    __table_args__ = (
+        Index("ix_feedback_tickets_status_updated", "status", "updated_at"),
+        Index("ix_feedback_tickets_agent_updated", "agent_id", "updated_at"),
+        Index("ix_feedback_tickets_created", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL")
+    )
+    account_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    # user (owner wrote/dictated it) | agent (agent-initiated)
+    origin: Mapped[str] = mapped_column(Text, nullable=False, default="user")
+    # cost | bug | frustration | feature | praise | other
+    category: Mapped[str] = mapped_column(Text, nullable=False, default="other")
+    severity: Mapped[str] = mapped_column(Text, nullable=False, default="normal")
+    # open (new / client replied) | answered (admin had last word) | closed
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="open")
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    # client block under context.client, server enrichment under context.server
+    context: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+    last_admin_reply_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_client_reply_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    agent_read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    messages: Mapped[list[FeedbackMessage]] = relationship(
+        back_populates="ticket", cascade="all, delete-orphan",
+        order_by="FeedbackMessage.created_at",
+    )
+
+
+class FeedbackMessage(Base):
+    """Plan 046 — one message in a feedback thread. The opening message is a
+    row too (author = the ticket's origin)."""
+
+    __tablename__ = "feedback_messages"
+    __table_args__ = (
+        Index("ix_feedback_messages_ticket_created", "ticket_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    ticket_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("feedback_tickets.id", ondelete="CASCADE"), nullable=False
+    )
+    # user | agent | admin
+    author: Mapped[str] = mapped_column(Text, nullable=False)
+    admin_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    # e.g. {conversation_excerpt: [...], technical: {...}} on the opening message
+    meta: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    ticket: Mapped[FeedbackTicket] = relationship(back_populates="messages")
+
+
 class AppSetting(Base):
     """Generic singleton key/value store for control-plane settings (Plan 020).
 
