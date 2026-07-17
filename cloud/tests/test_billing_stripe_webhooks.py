@@ -509,6 +509,32 @@ async def test_worker_processes_queued_invoice_event(db_session, account, monkey
     assert job.result["granted"] is True
 
 
+async def test_money_in_event_granting_nothing_is_recorded_loudly(db_session, account, monkeypatch):
+    """047: a paid invoice that runs to success but grants nothing (here an
+    unbound price) must not vanish as a plain success — the webhook row flips
+    to `granted_nothing` and carries the skip reason for the ops snapshot."""
+    await _seed_bound_catalog(db_session)
+    await _stripe_billing_account(db_session, account)
+    fake = FakeStripe()
+    fake.objects["/v1/invoices/in_test1"] = _invoice(price_id="price_not_ours")
+    fake.objects["/v1/subscriptions/sub_test1"] = _subscription()
+    monkeypatch.setattr("cloud.billing.stripe_webhooks.gateway_factory", fake.gateway)
+
+    await intake_event(db_session, _event())
+    await db_session.commit()
+    done = await worker.run_once(db_session, worker_id="test-worker")
+    assert done == 1  # the job itself succeeded (a skip is not a crash)
+
+    assert await _grants(db_session, account.id) == []
+    job = (await db_session.execute(select(BillingJob))).scalar_one()
+    assert job.status == "succeeded"
+    assert job.result["granted"] is False
+    row = (await db_session.execute(select(ProcessedWebhook))).scalar_one()
+    assert row.state == "granted_nothing"
+    assert "granted nothing" in (row.last_error or "")
+    assert "no binding" in (row.last_error or "")
+
+
 async def test_worker_retries_when_stripe_errors(db_session, account, monkeypatch):
     await _seed_bound_catalog(db_session)
     await _stripe_billing_account(db_session, account)

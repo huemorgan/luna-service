@@ -184,11 +184,39 @@ async def test_ops_snapshot_counters(db_session, account):
     assert snapshot["worker"]["dead_money_jobs"] == 1
     assert {d["job_type"] for d in snapshot["worker"]["dead"]} == {
         "stripe.grant_for_invoice", "gateway_finalize"}
-    assert snapshot["webhooks"] == {"error": 1, "stale_queued": 1}
+    assert snapshot["webhooks"] == {"error": 1, "stale_queued": 1, "granted_nothing": 0}
     assert snapshot["scheduled_lots"]["activation_backlog"] == 1
     assert snapshot["clawback"]["drifted_count"] == 1
     assert snapshot["clawback"]["drifted"][0]["payment_ref"] == "invoice:drift"
     assert snapshot["negative_margin_calls_7d"] == 1
+
+
+@asyncio_test
+async def test_payments_granted_nothing_counter(db_session, account):
+    """047: a money-in outbox job that succeeded but produced no grant is the
+    silent failure dead-job counters miss — the snapshot surfaces it with the
+    skip reason, and it feeds a critical alert signal."""
+    from cloud.billing.worker import complete_job
+
+    paid_nothing = await enqueue(
+        db_session, job_type="stripe.invoice_paid",
+        payload={"event_id": "evt-skip", "object_id": "in_skip"})
+    await complete_job(db_session, paid_nothing,
+                       {"granted": False, "skipped": "no binding for price 'price_x'"})
+    granted_ok = await enqueue(
+        db_session, job_type="stripe.invoice_paid",
+        payload={"event_id": "evt-ok", "object_id": "in_ok"})
+    await complete_job(db_session, granted_ok, {"granted": True, "credits": 9_900})
+    await db_session.flush()
+
+    snapshot = await ops_snapshot(db_session, now=NOW)
+    pgn = snapshot["payments_granted_nothing"]
+    assert pgn["count"] == 1
+    assert pgn["detail"][0]["event_id"] == "evt-skip"
+    assert "no binding" in pgn["detail"][0]["reason"]
+
+    signals = operations._signals(snapshot, await run_invariants(db_session))
+    assert signals["payments_granted_nothing"] == 1
 
 
 @asyncio_test

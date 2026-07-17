@@ -83,6 +83,54 @@ async def test_financial_actions_require_reason(admin_client, db_session):
             assert "reason" in resp.json()["detail"].lower()
 
 
+# ── Billing-jobs inspection (047) ────────────────────────────────────────────
+
+async def test_billing_jobs_inspection_and_overview_anomaly(admin_client, db_session):
+    """047: dead jobs and money-in jobs that granted nothing are inspectable
+    with full payload/result/last_error, and counted on the overview — so a
+    failed grant can be diagnosed from the admin API without DB access."""
+    from cloud.billing.worker import complete_job, enqueue, fail_job
+
+    await _seed(db_session)
+    dead = await enqueue(db_session, job_type="stripe.invoice_paid",
+                         payload={"event_id": "evt-dead", "object_id": "in_dead"},
+                         max_attempts=1)
+    dead.attempts = 1
+    await fail_job(db_session, dead, error="ValueError: kaboom\n  traceback…")
+    skipped = await enqueue(db_session, job_type="stripe.invoice_paid",
+                            payload={"event_id": "evt-skip", "object_id": "in_skip"})
+    await complete_job(db_session, skipped,
+                       {"granted": False, "skipped": "no binding for price 'price_x'"})
+    ok = await enqueue(db_session, job_type="stripe.invoice_paid",
+                       payload={"event_id": "evt-ok", "object_id": "in_ok"})
+    await complete_job(db_session, ok, {"granted": True, "credits": 9_900})
+    await db_session.commit()
+
+    # Overview surfaces the anomaly count (the dead job + the silent skip).
+    overview = (await admin_client.get("/api/admin/pricing/overview")).json()
+    assert overview["dead_billing_jobs"] == 1
+    assert overview["payments_granted_nothing"] == 1
+
+    # Default = attention set: the dead job + the granted-nothing job, not the OK one.
+    resp = await admin_client.get("/api/admin/pricing/billing-jobs")
+    assert resp.status_code == 200
+    jobs = resp.json()["jobs"]
+    by_event = {j["payload"]["event_id"]: j for j in jobs}
+    assert set(by_event) == {"evt-dead", "evt-skip"}
+    assert "kaboom" in by_event["evt-dead"]["last_error"]
+    assert by_event["evt-skip"]["result"]["skipped"].startswith("no binding")
+
+    # Explicit status filter passes through untouched (no anomaly filtering).
+    resp = await admin_client.get("/api/admin/pricing/billing-jobs?status_filter=succeeded")
+    events = {j["payload"]["event_id"] for j in resp.json()["jobs"]}
+    assert events == {"evt-skip", "evt-ok"}
+
+
+async def test_billing_jobs_requires_admin(regular_client, anon_client):
+    assert (await regular_client.get("/api/admin/pricing/billing-jobs")).status_code == 403
+    assert (await anon_client.get("/api/admin/pricing/billing-jobs")).status_code == 401
+
+
 # ── Version lifecycle through the API ────────────────────────────────────────
 
 async def test_clone_edit_publish_retire_flow(admin_client, db_session):

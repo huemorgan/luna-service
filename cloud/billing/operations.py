@@ -311,7 +311,53 @@ async def _webhook_counters(session: AsyncSession, now: datetime) -> dict:
             )
         )
     ).scalar_one()
-    return {"error": int(errors), "stale_queued": int(stale_queued)}
+    granted_nothing = (
+        await session.execute(
+            select(func.count(ProcessedWebhook.id)).where(
+                ProcessedWebhook.state == "granted_nothing"
+            )
+        )
+    ).scalar_one()
+    return {
+        "error": int(errors),
+        "stale_queued": int(stale_queued),
+        "granted_nothing": int(granted_nothing),
+    }
+
+
+# Money-in outbox jobs: a terminal run with no grant means the buyer paid and
+# got nothing. Dead jobs already alert (dead_money_jobs); the silent case —
+# succeeded with result.granted falsey — is what this surfaces (047).
+MONEY_IN_JOB_TYPES = ("stripe.invoice_paid", "stripe.checkout_completed")
+
+
+async def _payments_granted_nothing(session: AsyncSession, *, limit: int = 20) -> dict:
+    rows = (
+        await session.execute(
+            select(BillingJob)
+            .where(
+                BillingJob.job_type.in_(MONEY_IN_JOB_TYPES),
+                BillingJob.status == "succeeded",
+            )
+            .order_by(BillingJob.updated_at.desc())
+            .limit(500)
+        )
+    ).scalars().all()
+    detail = []
+    for job in rows:
+        result = job.result if isinstance(job.result, dict) else {}
+        if result.get("granted"):
+            continue
+        payload = job.payload if isinstance(job.payload, dict) else {}
+        detail.append({
+            "job_id": str(job.id),
+            "job_type": job.job_type,
+            "event_id": payload.get("event_id"),
+            "object_id": payload.get("object_id"),
+            "reason": str(result.get("skipped") or "granted nothing")[:300],
+            "at": _aware(job.updated_at).isoformat() if job.updated_at else None,
+        })
+    return {"count": len(detail), "detail": detail[:limit]}
 
 
 async def _hosting_counters(session: AsyncSession, now: datetime) -> dict:
@@ -429,6 +475,7 @@ async def ops_snapshot(session: AsyncSession, *, now: datetime | None = None) ->
         "unrated_dimensions": await _unrated_dimension_gaps(session, now),
         "worker": await _worker_counters(session, now),
         "webhooks": await _webhook_counters(session, now),
+        "payments_granted_nothing": await _payments_granted_nothing(session),
         "hosting": await _hosting_counters(session, now),
         "scheduled_lots": await _scheduled_lot_counters(session, now),
         "clawback": await _clawback_drift(session),
@@ -457,6 +504,8 @@ ALERT_RULES = {
                                        "grant remainders disagree with consumption history"),
     "dead_money_jobs": AlertRule("dead_money_jobs", "critical", timedelta(minutes=30),
                                  "dead stripe.* outbox jobs — money moved with no local effect"),
+    "payments_granted_nothing": AlertRule("payments_granted_nothing", "critical", timedelta(minutes=30),
+                                          "money-in webhooks completed but granted no credits"),
     "dead_jobs": AlertRule("dead_jobs", "warning", timedelta(hours=1),
                            "dead billing outbox jobs"),
     "webhook_errors": AlertRule("webhook_errors", "warning", timedelta(hours=1),
@@ -480,6 +529,7 @@ ALERT_THRESHOLDS = {
     "projection_drift": 0,
     "grant_remainder_drift": 0,
     "dead_money_jobs": 0,
+    "payments_granted_nothing": 0,
     "dead_jobs": 0,
     "webhook_errors": 0,
     "holds_needs_reconciliation": 0,
@@ -500,6 +550,7 @@ def _signals(snapshot: dict, invariants: dict) -> dict[str, int]:
         + len(invariants["projection_drift"]["missing_projection"]),
         "grant_remainder_drift": invariants["grant_remainders"]["drifted_count"],
         "dead_money_jobs": worker["dead_money_jobs"],
+        "payments_granted_nothing": snapshot["payments_granted_nothing"]["count"],
         "dead_jobs": sum(d["count"] for d in worker["dead"]) - worker["dead_money_jobs"],
         "webhook_errors": webhooks["error"] + webhooks["stale_queued"],
         "holds_needs_reconciliation": snapshot["holds"]["needs_reconciliation"]["count"],

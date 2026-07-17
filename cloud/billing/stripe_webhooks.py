@@ -51,6 +51,11 @@ HANDLED_EVENTS = {
     "invoice.payment_failed": "stripe.invoice_failed",
 }
 
+# Job types where a run that produces no grant is a financial anomaly: money
+# (may have) changed hands but the buyer got nothing. A clean `_skip` on these
+# is easy to miss — it succeeds silently — so 047 records it loudly and durably.
+MONEY_IN_JOB_TYPES = frozenset({"stripe.invoice_paid", "stripe.checkout_completed"})
+
 # Tests replace this with a factory returning a MockTransport-backed gateway.
 gateway_factory = StripeGateway.from_settings
 
@@ -126,7 +131,14 @@ async def intake_event(db: AsyncSession, event: dict) -> bool:
     return True
 
 
-async def _mark_processed(db: AsyncSession, event_id: str, *, error: str | None = None) -> None:
+async def _mark_processed(
+    db: AsyncSession,
+    event_id: str,
+    *,
+    error: str | None = None,
+    state: str | None = None,
+    note: str | None = None,
+) -> None:
     row = (
         await db.execute(
             select(ProcessedWebhook).where(
@@ -136,8 +148,8 @@ async def _mark_processed(db: AsyncSession, event_id: str, *, error: str | None 
         )
     ).scalar_one_or_none()
     if row is not None:
-        row.state = "error" if error else "processed"
-        row.last_error = error
+        row.state = state or ("error" if error else "processed")
+        row.last_error = error or note
         row.attempts += 1
         row.processed_at = _utcnow()
 
@@ -522,7 +534,24 @@ def _handler(fn):
             result = await fn(db, gw, event_id, object_id)
         finally:
             await gw.aclose()
-        await _mark_processed(db, event_id)
+        # A money-in event that ran to completion without a grant is a financial
+        # anomaly, not a routine skip: record it loudly (ERROR log + a distinct
+        # `granted_nothing` webhook state carrying the reason) so it is visible
+        # from the ops snapshot and admin API instead of vanishing as a success.
+        granted = isinstance(result, dict) and result.get("granted")
+        if job.job_type in MONEY_IN_JOB_TYPES and not granted:
+            reason = result.get("skipped") if isinstance(result, dict) else None
+            log.error(
+                "money-in event %s (%s) granted nothing: %s",
+                event_id, job.job_type, reason or "no reason reported",
+            )
+            await _mark_processed(
+                db, event_id,
+                state="granted_nothing",
+                note=f"granted nothing: {reason or 'no reason reported'}",
+            )
+        else:
+            await _mark_processed(db, event_id)
         return result
 
     return run

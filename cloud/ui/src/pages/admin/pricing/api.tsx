@@ -49,6 +49,7 @@ export interface Overview {
   customer_liability_credits: number;
   uncovered_debt_credits: number;
   dead_billing_jobs: number;
+  payments_granted_nothing: number;
   needs_reconciliation_holds: number;
   assigned_accounts: number;
 }

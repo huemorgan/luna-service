@@ -17,7 +17,11 @@ interface OpsSnapshot {
     dead_money_jobs: number;
     oldest_pending_age_seconds: number | null;
   };
-  webhooks: { error: number; stale_queued: number };
+  webhooks: { error: number; stale_queued: number; granted_nothing: number };
+  payments_granted_nothing: {
+    count: number;
+    detail: Array<{ job_id: string; job_type: string; event_id: string | null; object_id: string | null; reason: string; at: string | null }>;
+  };
   hosting: { stuck_pending: number; payment_due: number; active_without_charge: number };
   scheduled_lots: { activation_backlog: number };
   clawback: { drifted: Array<{ payment_ref: string; clawed_credits: number; target_credits: number }>; drifted_count: number };
@@ -225,6 +229,8 @@ export default function PricingOpsPage() {
             value={`${snapshot.holds.needs_reconciliation.count} (${snapshot.holds.needs_reconciliation.credits.toLocaleString()} cr)`}
             alert={snapshot.holds.needs_reconciliation.count > 0} />
           <Stat label="Dead money jobs" value={String(w.dead_money_jobs)} alert={w.dead_money_jobs > 0} />
+          <Stat label="Payments granted nothing" value={String(snapshot.payments_granted_nothing.count)}
+            alert={snapshot.payments_granted_nothing.count > 0} />
           <Stat label="Dead jobs (all)" value={String(deadTotal)} alert={deadTotal > 0} />
           <Stat label="Oldest pending job"
             value={w.oldest_pending_age_seconds == null ? 'none' : `${Math.floor(w.oldest_pending_age_seconds / 60)}m`} />
@@ -257,6 +263,21 @@ export default function PricingOpsPage() {
         <Section title="Dead jobs by type">
           <ul className="text-sm space-y-1" style={{ color: '#ff6b6b' }}>
             {w.dead.map(d => <li key={d.job_type} className="font-mono text-xs">{d.job_type}: {d.count}</li>)}
+          </ul>
+        </Section>
+      )}
+      {snapshot.payments_granted_nothing.count > 0 && (
+        <Section title="Payments that granted nothing">
+          <p className="text-xs mb-2" style={{ color: 'var(--text-dim)' }}>
+            Money-in webhooks that ran to success but produced no credit grant.
+            Full payload / result / error is at <span className="font-mono">GET {API}/billing-jobs</span>.
+          </p>
+          <ul className="text-sm space-y-1" style={{ color: '#ff6b6b' }}>
+            {snapshot.payments_granted_nothing.detail.map(d => (
+              <li key={d.job_id} className="font-mono text-xs">
+                {d.job_type} · {d.event_id ?? d.object_id ?? d.job_id} — {d.reason} <span style={{ color: 'var(--text-dim)' }}>({ago(d.at)})</span>
+              </li>
+            ))}
           </ul>
         </Section>
       )}

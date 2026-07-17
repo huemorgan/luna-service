@@ -26,7 +26,8 @@ export default function PricingOverviewPage() {
   if (!data) return <p className="text-sm" style={{ color: 'var(--text-dim)' }}>Failed to load overview.</p>;
 
   const dv = data.default_version;
-  const attention = data.dead_billing_jobs + data.needs_reconciliation_holds > 0;
+  const attention =
+    data.dead_billing_jobs + data.needs_reconciliation_holds + data.payments_granted_nothing > 0;
 
   return (
     <div className="max-w-4xl">
@@ -64,6 +65,8 @@ export default function PricingOverviewPage() {
         <Stat label="Assigned accounts" value={String(data.assigned_accounts)} />
         <Stat label="Dead billing jobs" value={String(data.dead_billing_jobs)}
           alert={data.dead_billing_jobs > 0} />
+        <Stat label="Payments granted nothing" value={String(data.payments_granted_nothing)}
+          alert={data.payments_granted_nothing > 0} />
         <Stat label="Reconciliation holds" value={String(data.needs_reconciliation_holds)}
           alert={data.needs_reconciliation_holds > 0} />
         <Stat label="Versions" value={Object.entries(data.version_status_counts)
@@ -74,7 +77,8 @@ export default function PricingOverviewPage() {
         <div className="rounded-xl px-4 py-3 text-sm flex items-center gap-2"
           style={{ background: 'rgba(255,107,107,0.12)', color: '#ff6b6b' }}>
           <AlertTriangle size={16} />
-          Billing work needs operator attention — check dead jobs / reconciliation holds.
+          Billing work needs operator attention — check dead jobs, payments that
+          granted nothing, and reconciliation holds (Ops page has detail).
         </div>
       )}
     </div>

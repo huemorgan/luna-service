@@ -133,6 +133,8 @@ async def overview(admin: User = Depends(require_admin)):
         dead_jobs = (await db.execute(
             select(func.count()).select_from(BillingJob).where(BillingJob.status == "dead")
         )).scalar_one()
+        from cloud.billing import operations as ops
+        payments_granted_nothing = (await ops._payments_granted_nothing(db))["count"]
         reconciliation_holds = (await db.execute(
             select(func.count()).select_from(BillingHold)
             .where(BillingHold.status == "needs_reconciliation")
@@ -147,8 +149,71 @@ async def overview(admin: User = Depends(require_admin)):
             "customer_liability_credits": liability,
             "uncovered_debt_credits": debt,
             "dead_billing_jobs": dead_jobs,
+            "payments_granted_nothing": payments_granted_nothing,
             "needs_reconciliation_holds": reconciliation_holds,
             "assigned_accounts": assigned_accounts,
+        }
+
+
+@router.get("/billing-jobs")
+async def list_billing_jobs(
+    status_filter: str | None = None, limit: int = 50,
+    admin: User = Depends(require_admin),
+):
+    """Inspect outbox jobs with full detail (payload / result / last_error) so
+    a failed money-in grant can be diagnosed from the admin API without direct
+    DB access. `status` filters to one outbox status; unset returns the
+    attention set — dead jobs plus money-in jobs that granted nothing (047)."""
+    limit = max(1, min(limit, 200))
+    from cloud.billing.operations import MONEY_IN_JOB_TYPES
+    async with get_db_session() as db:
+        stmt = select(BillingJob)
+        if status_filter:
+            stmt = stmt.where(BillingJob.status == status_filter)
+        else:
+            # Attention set: dead jobs, plus money-in jobs that succeeded but
+            # granted nothing. The "granted" flag lives in a JSONB column, so
+            # filter that predicate in Python (portable across SQLite tests).
+            stmt = stmt.where(
+                (BillingJob.status == "dead")
+                | (
+                    BillingJob.job_type.in_(MONEY_IN_JOB_TYPES)
+                    & (BillingJob.status == "succeeded")
+                )
+            )
+        rows = (
+            await db.execute(stmt.order_by(BillingJob.updated_at.desc()).limit(limit * 2))
+        ).scalars().all()
+        jobs = []
+        for j in rows:
+            if (
+                not status_filter
+                and j.status == "succeeded"
+                and isinstance(j.result, dict)
+                and j.result.get("granted")
+            ):
+                continue  # a real grant is not an anomaly
+            jobs.append(j)
+            if len(jobs) >= limit:
+                break
+        return {
+            "jobs": [
+                {
+                    "id": str(j.id),
+                    "job_type": j.job_type,
+                    "status": j.status,
+                    "attempts": j.attempts,
+                    "max_attempts": j.max_attempts,
+                    "dedupe_key": j.dedupe_key,
+                    "payload": j.payload,
+                    "result": j.result,
+                    "last_error": j.last_error,
+                    "next_attempt_at": j.next_attempt_at.isoformat() if j.next_attempt_at else None,
+                    "created_at": j.created_at.isoformat() if j.created_at else None,
+                    "updated_at": j.updated_at.isoformat() if j.updated_at else None,
+                }
+                for j in jobs
+            ],
         }
 
 

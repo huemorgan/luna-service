@@ -1,0 +1,3 @@
+PASS  S1 overview shows 'Payments granted nothing' alert + attention banner
+PASS  S2 ops page lists the granted-nothing payment with its reason
+PASS  S3 /billing-jobs detail + attention set + status filter; overview count = 1
