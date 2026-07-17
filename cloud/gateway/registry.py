@@ -41,8 +41,10 @@ SEED_SERVICES: list[dict] = [
         "provision_by_default": True,
     },
     {
-        # Luna has no LUNA_TAVILY_BASE_URL support yet (007.001 pending) —
-        # registered but not provisioned through the proxy.
+        # plugin-web-access honors LUNA_TAVILY_BASE_URL (007.001) and vault.connect
+        # (008.991). Not provisioned by default — tenants opt in via connect /
+        # plugin binding. Auth is Bearer; the proxy strips a mistaken body
+        # api_key when it is the managed lsv1- token (Tavily prefers body).
         "slug": "tavily",
         "display_name": "Tavily",
         "upstream_url": "https://api.tavily.com",

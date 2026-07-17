@@ -85,6 +85,32 @@ def _requested_model(body: bytes) -> str | None:
     return None
 
 
+def _strip_tenant_body_api_key(body: bytes, credential: str) -> bytes:
+    """Drop a JSON-body ``api_key`` that is the managed tenant token.
+
+    Tavily (and similar body-auth APIs) prefer ``api_key`` in the JSON body over
+    ``Authorization``. Older plugin-web-access clients put the ``lsv1-`` device
+    token in the body while the proxy injects the real pool key as Bearer —
+    upstream then 401s on the body token. Strip that body field so the injected
+    header wins. BYOK bodies (real provider keys) are left untouched.
+    """
+    if not body or not token_svc.is_tenant_token(credential):
+        return body
+    try:
+        data = json.loads(body)
+    except (ValueError, TypeError):
+        return body
+    if not isinstance(data, dict):
+        return body
+    body_key = data.get("api_key")
+    if not isinstance(body_key, str):
+        return body
+    if body_key == credential or token_svc.is_tenant_token(body_key):
+        data = {k: v for k, v in data.items() if k != "api_key"}
+        return json.dumps(data, separators=(",", ":")).encode()
+    return body
+
+
 def _upstream_headers(request: Request, auth: AuthStyle, credential: str) -> dict[str, str]:
     # X-Luna-* headers are internal correlation metadata (039/004) — they
     # must never reach a provider, managed or BYOK.
@@ -354,6 +380,9 @@ async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
                 )
                 return enforcement.block_response(billing.block)
             body = billing.body or body
+            # After billing may have rewritten the body, still strip a tenant
+            # token mistakenly sent as JSON api_key (Tavily 401 class of bug).
+            body = _strip_tenant_body_api_key(body, credential)
         else:
             agent_id = None
             candidates = None

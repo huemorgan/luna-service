@@ -373,6 +373,54 @@ async def test_proxy_bearer_auth_style(anon_client, db_session, sample_agent, up
     assert upstream[0]["auth"]["authorization"] == "Bearer REAL-B1"
 
 
+def test_strip_tenant_body_api_key():
+    from cloud.api.gateway_proxy import _strip_tenant_body_api_key
+
+    token = "lsv1-" + "a" * 40
+    body = json.dumps({"api_key": token, "query": "ping"}).encode()
+    out = json.loads(_strip_tenant_body_api_key(body, token))
+    assert "api_key" not in out and out["query"] == "ping"
+
+    # Real provider keys in the body are left alone (BYOK / legacy).
+    byok = json.dumps({"api_key": "tvly-real", "query": "ping"}).encode()
+    assert _strip_tenant_body_api_key(byok, token) == byok
+
+
+async def test_proxy_strips_tenant_token_from_tavily_body(
+    anon_client, db_session, sample_agent, monkeypatch,
+):
+    """Managed Tavily clients used to put lsv1- in body api_key → upstream 401."""
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append({
+            "auth": request.headers.get("authorization"),
+            "body": request.content.decode() if request.content else "",
+        })
+        return httpx.Response(200, json={"ok": True})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr("cloud.api.gateway_proxy._get_client", lambda: client)
+
+    await _add_service(
+        db_session, slug="tavily", auth_style="header:Authorization:Bearer",
+        upstream_url="https://api.tavily.com",
+    )
+    await _add_key(db_session, "tavily", value="tvly-pool-key")
+    token = await issue_token(db_session, sample_agent.id)
+    await db_session.commit()
+
+    r = await anon_client.post(
+        "/proxy/tavily/search",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"api_key": token, "query": "ping", "max_results": 1},
+    )
+    assert r.status_code == 200
+    assert calls[0]["auth"] == "Bearer tvly-pool-key"
+    assert "api_key" not in json.loads(calls[0]["body"])
+    assert json.loads(calls[0]["body"])["query"] == "ping"
+
+
 # ── Catalog enforcement on the proxy (Plan 018) ──────────────────────────────
 
 async def _add_model(db, provider, model, *, kinds=("reasoning",), aliases=(), enabled=True):

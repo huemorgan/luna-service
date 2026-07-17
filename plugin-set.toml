@@ -21,11 +21,11 @@ name = "plugin-charts"
 version = "0.1.0"
 sha256 = "52e063f327a2f1ed505b239344eca9aadb0806fe1921e3f6b58f0f0ba0a9f1b9"
 
-# 0.2.1: fixes on_load crash on luna 0.19.x (stdlib logger got a `tools=` kwarg).
+# 0.2.4: vault.connect for Tavily; omit body api_key on virtual/gateway keys (fixes 401).
 [[plugins]]
 name = "plugin-web-access"
-version = "0.2.1"
-sha256 = "cf498f4d05c3a75db77226168f64752f3a02067a71e282f615600fdc1a66c4fa"
+version = "0.2.4"
+sha256 = "847649669f8ff13764bea3a5720c5a4bd0202b0b64def3768469af3f6b067f2b"
 
 # Synced with admin defaults (Jun 2026). The build prefers the UI selection
 # (plugin-set.json from the control plane); this seed is a fallback only.
