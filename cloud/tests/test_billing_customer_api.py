@@ -30,10 +30,14 @@ async def _seed(db_session):
     await db_session.commit()
 
 
-def _event(agent_id, call_id, *, root=None, root_type="chat", service="llm",
+def _event(agent_id, call_id, *, op=None, root=None, root_type="chat", service="llm",
            plugin=None, model="claude-sonnet-5", at=None, attempt=1):
+    # Prod invariant: source_idempotency_key = "{operation_id}:{attempt}" and
+    # RatedCharge.logical_call_id = operation_id, while BillableEvent.call_id is
+    # a DIFFERENT id ("{agent}:{tenant_call}"). `op` = the operation id used to
+    # link the charge; defaults to call_id for the simple same-id tests.
     return BillableEvent(
-        source_idempotency_key=f"src:{call_id}:{attempt}",
+        source_idempotency_key=f"{op or call_id}:{attempt}",
         call_id=call_id,
         account_id=ACCOUNT_ID,
         agent_id=agent_id,
@@ -340,25 +344,29 @@ async def _seed_channels(db_session, agent_id):
     await ledger.ensure_billing_account(db_session, ACCOUNT_ID)
     now = datetime.now(timezone.utc)
 
-    def ev(call, *, channel, job=None, root=None, at=None):
-        e = _event(agent_id, call, root=root, at=at or now)
+    # Model production: BillableEvent.call_id ("agent:...") differs from the
+    # operation id ("op-...") that RatedCharge.logical_call_id carries. The two
+    # link only via source_idempotency_key = "{op}:{attempt}". This guards the
+    # undercount bug where a join on call_id dropped nearly every charge.
+    def ev(op, *, channel, job=None, root=None, at=None):
+        e = _event(agent_id, f"agent:{op}", op=op, root=root, at=at or now)
         e.channel = channel
         e.job_id = job
         return e
 
     db_session.add_all([
-        ev("c-web", channel="web"),
-        ev("c-legacy", channel=None),           # NULL → folds into web
-        ev("c-wa", channel="whatsapp"),
-        ev("c-tg", channel="telegram"),
-        ev("c-sc1", channel="scheduler", job="digest", root="r1"),
-        ev("c-sc2", channel="scheduler", job="backup", root="r2"),
-        _charge_row("c-web", 200),
-        _charge_row("c-legacy", 5),
-        _charge_row("c-wa", 30),
-        _charge_row("c-tg", 10),
-        _charge_row("c-sc1", 40),
-        _charge_row("c-sc2", 8),
+        ev("op-web", channel="web"),
+        ev("op-legacy", channel=None),          # NULL → folds into web
+        ev("op-wa", channel="whatsapp"),
+        ev("op-tg", channel="telegram"),
+        ev("op-sc1", channel="scheduler", job="digest", root="r1"),
+        ev("op-sc2", channel="scheduler", job="backup", root="r2"),
+        _charge_row("op-web", 200),
+        _charge_row("op-legacy", 5),
+        _charge_row("op-wa", 30),
+        _charge_row("op-tg", 10),
+        _charge_row("op-sc1", 40),
+        _charge_row("op-sc2", 8),
     ])
     await db_session.commit()
 

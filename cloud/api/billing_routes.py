@@ -696,14 +696,18 @@ async def usage_channels(
     days = _day_list(since, until)
 
     async with get_db_session() as db:
-        first_event = (
-            select(
-                BillableEvent.call_id.label("call_id"),
-                func.min(BillableEvent.event_at).label("first_at"),
-            )
-            .where(BillableEvent.account_id == account.id)
-            .group_by(BillableEvent.call_id)
-            .subquery()
+        # Credits live on RatedCharge (keyed by operation_id == logical_call_id);
+        # channel/agent live on BillableEvent. The two DON'T share call_id:
+        # BillableEvent.call_id is "{agent_id}:{tenant_call_id}" while
+        # RatedCharge.logical_call_id is the operation_id. The one exact link is
+        # BillableEvent.source_idempotency_key = "{operation_id}:{attempt}", so
+        # we join the attempt-1 event via logical_call_id || ':1'. A LEFT join
+        # keeps every charge (unmatched → NULL channel → "web"), so the section
+        # totals always add up to the account total (matches /usage/summary).
+        rep_cond = (
+            (BillableEvent.source_idempotency_key == RatedCharge.logical_call_id.concat(":1"))
+            & (BillableEvent.account_id == account.id)
+            & (BillableEvent.attempt_number == 1)
         )
         bucket = case(
             (BillableEvent.channel == "scheduler", "scheduler"),
@@ -715,12 +719,8 @@ async def usage_channels(
 
         base_join = (
             select(bucket, day.label("day"), func.sum(RatedCharge.credits))
-            .join(first_event, first_event.c.call_id == RatedCharge.logical_call_id)
-            .join(
-                BillableEvent,
-                (BillableEvent.call_id == RatedCharge.logical_call_id)
-                & (BillableEvent.event_at == first_event.c.first_at),
-            )
+            .select_from(RatedCharge)
+            .outerjoin(BillableEvent, rep_cond)
             .where(
                 RatedCharge.account_id == account.id,
                 RatedCharge.created_at >= since,
@@ -743,12 +743,8 @@ async def usage_channels(
         ).label("trig")
         trig_join = (
             select(trig_key, day.label("day"), func.sum(RatedCharge.credits))
-            .join(first_event, first_event.c.call_id == RatedCharge.logical_call_id)
-            .join(
-                BillableEvent,
-                (BillableEvent.call_id == RatedCharge.logical_call_id)
-                & (BillableEvent.event_at == first_event.c.first_at),
-            )
+            .select_from(RatedCharge)
+            .join(BillableEvent, rep_cond)
             .where(
                 RatedCharge.account_id == account.id,
                 RatedCharge.created_at >= since,
