@@ -335,23 +335,31 @@ function CreditsBar({ billing, grants }: {
         borderColor: 'rgba(250,204,21,0.35)',
       }}
     >
-      <div className="flex items-center justify-end gap-3 flex-wrap mb-2">
-        {lowCredits && (
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+        <div className="flex items-baseline gap-2">
+          <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>Total Account Credits</span>
+          <span className="text-sm font-bold tabular-nums" style={{ color: total < 0 ? '#ff6b6b' : 'var(--moon)' }}>
+            {total.toLocaleString()}
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          {lowCredits && (
+            <Link
+              to="/dashboard/billing"
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:scale-105"
+              style={{ background: 'var(--moon)', color: 'var(--ink)' }}
+            >
+              Get more credits
+            </Link>
+          )}
           <Link
-            to="/dashboard/billing"
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:scale-105"
-            style={{ background: 'var(--moon)', color: 'var(--ink)' }}
+            to="/dashboard/usage"
+            className="text-xs transition-colors hover:opacity-80"
+            style={{ color: 'var(--moon)' }}
           >
-            Get more credits
+            See full usage review →
           </Link>
-        )}
-        <Link
-          to="/dashboard/usage"
-          className="text-xs transition-colors hover:opacity-80"
-          style={{ color: 'var(--moon)' }}
-        >
-          See full usage review →
-        </Link>
+        </div>
       </div>
       <div className="relative w-full rounded-lg overflow-hidden" style={{ height: '3rem', background: '#000' }}>
         {barTotal > 0 && (
@@ -362,15 +370,6 @@ function CreditsBar({ billing, grants }: {
             ))}
           </div>
         )}
-        <div className="absolute inset-0 flex items-center px-3 gap-2 pointer-events-none">
-          <span className="text-sm font-semibold" style={{ color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.75)' }}>
-            Total Account Credits
-          </span>
-          <span className="text-sm font-bold tabular-nums"
-            style={{ color: total < 0 ? '#ff6b6b' : '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.75)' }}>
-            {total.toLocaleString()}
-          </span>
-        </div>
       </div>
       {monthTotal > 0 && (
         <div className="flex justify-end mt-1">

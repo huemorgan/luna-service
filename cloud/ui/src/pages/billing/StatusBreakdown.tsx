@@ -67,25 +67,20 @@ function SourceBar({ label, hint, granted, remaining, color }: {
   const near = pct >= 82; // fill nearly full → tuck the % label inside it
   return (
     <div>
+      {/* title above the bar */}
+      <div className="text-sm font-medium mb-1" style={{ color: 'var(--text)' }}>{label}</div>
       <div className="relative w-full rounded-lg overflow-hidden"
         style={{ height: '3rem', background: '#000' }}>
         <div className="absolute inset-y-0 left-0"
           style={{ width: `${fillPct}%`, background: color, opacity: 0.92 }} />
-        {/* label — vertically centered inside the bar */}
-        <div className="absolute inset-0 flex items-center px-3 pointer-events-none">
-          <span className="text-sm font-medium"
-            style={{ color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.75)' }}>
-            {label}
-          </span>
-        </div>
-        {/* consumed % — pinned to the end of the color fill */}
+        {/* consumed % — the only thing inside the bar, pinned to the fill's end */}
         {granted > 0 && (
           <span
             className="absolute text-xs font-bold tabular-nums pointer-events-none"
             style={near
               ? { top: '50%', left: `${fillPct}%`, transform: 'translate(-100%,-50%)',
                   paddingRight: 8, color: 'var(--ink)' }
-              : { top: '50%', left: `max(${fillPct}%, 5.5rem)`, transform: 'translateY(-50%)',
+              : { top: '50%', left: `${fillPct}%`, transform: 'translateY(-50%)',
                   paddingLeft: 6, color: 'var(--text)', textShadow: '0 1px 2px rgba(0,0,0,0.75)' }}
           >
             {pct}%
