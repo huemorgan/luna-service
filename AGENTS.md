@@ -61,6 +61,7 @@ When something goes wrong or you're uncertain: say so plainly. Don't pad.
 ## Hard rules
 
 - **Never** commit `.env` or any real secret
+- **Never** switch, check out, or create a git branch without the user's explicit permission. This includes `git checkout`, `git switch`, `git checkout -b`, and any command that changes the current branch. Ask in chat first, every time.
 - **Never** destroy data without a verified backup (see `skills/devprocess/SKILL.md` data-preservation section)
 - **Never edit Luna code/config/tests inside `luna/`** — the submodule is READ-ONLY for implementation. Actual Luna code changes happen only when the user explicitly says to work on the Luna project, via `skills/luna-submodule-changes/SKILL.md`. **Exception: suggestions/proposals.** You MAY write a proposal/suggestion doc into `luna/plans/{number}-luna-service-{desc}/` and push it to luna `main` so the Luna team sees it (proposal docs only — no code, config, or tests). Use the plan number the user gives; if they've clearly implied one, use it instead of re-asking.
 - **Never** modify or renumber past plans that were already executed (`plans/00X-*`). Executed plans are historical records — new work gets a new plan
