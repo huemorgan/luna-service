@@ -223,6 +223,17 @@ export function postJson<T>(url: string, body?: unknown): Promise<T> {
   }).then(r => (r.ok ? r.json() : apiError(r).then(m => Promise.reject(new Error(m)))));
 }
 
+/** One color per credit category — shared between the account credits bar
+ * (Dashboard) and the credit-sources breakdown (StatusBreakdown) so the same
+ * category always reads as the same color. */
+export const CREDIT_COLORS: Record<string, { color: string; label: string }> = {
+  paid: { color: '#facc15', label: 'Plan credits' },
+  topup: { color: '#60a5fa', label: 'Top-up credits' },
+  bonus: { color: '#a78bfa', label: 'Bonus credits' },
+  gift: { color: '#34d399', label: 'Gift credits' },
+  free: { color: '#94a3b8', label: 'Free credits' },
+};
+
 export const credits = (n: number) => `${n.toLocaleString()} cr`;
 export const usd = (cents: number) =>
   `$${(cents / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;

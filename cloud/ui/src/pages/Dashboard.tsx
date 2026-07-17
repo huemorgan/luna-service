@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import StatusBreakdown from './billing/StatusBreakdown';
+import AppHeader from '../components/AppHeader';
+import { CREDIT_COLORS } from './billing/api';
 import type { BillingSummary, Grant } from './billing/api';
 import {
-  Moon, LogOut, Bot, Loader2, Plus, ExternalLink,
-  RotateCcw, Square, Play, AlertTriangle, Shield, ChevronDown,
+  Bot, Loader2, Plus, ExternalLink,
+  RotateCcw, Square, Play, AlertTriangle, ChevronDown,
   Settings, ArrowUpCircle, ChevronRight, CheckCircle2, Sparkles, CreditCard,
   BarChart3,
 } from 'lucide-react';
@@ -35,18 +37,6 @@ interface AgentIdentity {
   name: string | null;
   emoji: string | null;
   avatar_url: string | null;
-}
-
-interface BillingSummaryLight {
-  posted_balance_credits: number;
-  balances: { paid: number; bonus: number; gift: number; free: number; topup: number };
-}
-
-interface GrantLight {
-  original_credits: number;
-  remaining_credits: number;
-  status: string;
-  expires_at: string | null;
 }
 
 interface PluginStatus {
@@ -94,7 +84,6 @@ export default function Dashboard() {
   const [billing, setBilling] = useState<BillingSummary | null>(null);
   const [grants, setGrants] = useState<Grant[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showStatus, setShowStatus] = useState(false);
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('My Luna');
@@ -216,66 +205,10 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--ink)' }}>
-      <header
-        className="flex items-center justify-between px-6 py-4 border-b"
-        style={{ borderColor: 'var(--ink-lighter)', background: 'var(--surface)' }}
-      >
-        <div className="flex items-center gap-3">
-          <Moon size={24} style={{ color: 'var(--moon)' }} />
-          <span className="text-lg font-semibold" style={{ color: 'var(--text)' }}>Luna Service</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <Link
-            to="/dashboard/usage"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors hover:opacity-80"
-            style={{ color: 'var(--moon)' }}
-          >
-            <BarChart3 size={14} />
-            Usage
-          </Link>
-          <Link
-            to="/dashboard/billing"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors hover:opacity-80"
-            style={{ color: 'var(--moon)' }}
-          >
-            <CreditCard size={14} />
-            Billing
-          </Link>
-          {user.is_admin && (
-            <Link
-              to="/admin"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors hover:opacity-80"
-              style={{ color: 'var(--moon)' }}
-            >
-              <Shield size={14} />
-              Admin
-            </Link>
-          )}
-          <ProfileMenu user={user} />
-        </div>
-      </header>
+      <AppHeader user={user} />
 
       <main className="max-w-4xl mx-auto px-6 py-10">
-        {billing && (
-          <>
-            <CreditsBar billing={billing} grants={grants} />
-            <div className="-mt-3 mb-6">
-              <button
-                onClick={() => setShowStatus(s => !s)}
-                className="flex items-center gap-1.5 text-sm transition-colors hover:opacity-80"
-                style={{ color: 'var(--text-dim)' }}
-              >
-                {showStatus ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                Account &amp; payment status
-              </button>
-              {showStatus && (
-                <div className="mt-4">
-                  <StatusBreakdown summary={billing} grants={grants} />
-                </div>
-              )}
-            </div>
-          </>
-        )}
+        {billing && <CreditsBar billing={billing} grants={grants} />}
 
         {/* Title bar */}
         <div className="flex items-center justify-between mb-8">
@@ -371,19 +304,11 @@ export default function Dashboard() {
   );
 }
 
-// One color per credit type — the same segments the account bar is built from.
-const CREDIT_COLORS: Record<string, { color: string; label: string }> = {
-  paid: { color: '#facc15', label: 'Plan credits' },
-  topup: { color: '#60a5fa', label: 'Top-up credits' },
-  bonus: { color: '#a78bfa', label: 'Bonus credits' },
-  gift: { color: '#34d399', label: 'Gift credits' },
-  free: { color: '#94a3b8', label: 'Free credits' },
-};
-
 function CreditsBar({ billing, grants }: {
-  billing: BillingSummaryLight;
-  grants: GrantLight[] | null;
+  billing: BillingSummary;
+  grants: Grant[] | null;
 }) {
+  const [showStatus, setShowStatus] = useState(false);
   // Show the real balance — a negative (overdrawn) account must read as
   // negative, not 0. Only the bar geometry clamps at zero.
   const total = billing.posted_balance_credits;
@@ -445,6 +370,35 @@ function CreditsBar({ billing, grants }: {
             style={{ width: `${(s.credits / barTotal) * fillPct}%`, background: s.color }}
           />
         ))}
+      </div>
+
+      {/* Account & payment status — full-bleed tray docked to the box's bottom
+          edge, mirroring the agent-card upgrade tray but in a faint yellow. */}
+      <div
+        className="mt-4 -mx-4 -mb-4 rounded-b-2xl overflow-hidden"
+        style={{
+          borderTop: '1px solid rgba(250,204,21,0.2)',
+          background: 'linear-gradient(180deg, rgba(250,204,21,0.06), rgba(250,204,21,0.015))',
+        }}
+      >
+        <button
+          onClick={() => setShowStatus(s => !s)}
+          className="w-full flex items-center justify-between px-5 py-3 text-left transition-colors hover:bg-[rgba(250,204,21,0.06)]"
+        >
+          <span className="flex items-center gap-2 text-sm font-medium" style={{ color: '#facc15' }}>
+            <CreditCard size={15} />
+            Account &amp; payment status
+          </span>
+          <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-dim)' }}>
+            Details
+            {showStatus ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </span>
+        </button>
+        {showStatus && (
+          <div className="px-5 pb-5 pt-1">
+            <StatusBreakdown summary={billing} grants={grants} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -863,51 +817,3 @@ function UpgradeTray({
   );
 }
 
-function ProfileMenu({ user }: { user: UserInfo['user'] }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors hover:opacity-80"
-        style={{ color: 'var(--text-dim)' }}
-      >
-        {user.avatar_url ? (
-          <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-full" />
-        ) : (
-          <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: 'var(--moon)', color: 'var(--ink)' }}>
-            {(user.name || user.email)[0].toUpperCase()}
-          </div>
-        )}
-        <span className="text-sm hidden sm:inline" style={{ color: 'var(--text-dim)' }}>{user.name || user.email}</span>
-        <ChevronDown size={14} style={{ color: 'var(--text-dim)', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
-      </button>
-
-      {open && (
-        <div
-          className="absolute right-0 top-full mt-2 w-48 rounded-xl border py-1 shadow-lg z-50"
-          style={{ background: 'var(--surface)', borderColor: 'var(--ink-lighter)' }}
-        >
-          <a
-            href="/auth/logout"
-            className="flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors hover:opacity-80"
-            style={{ color: 'var(--text-dim)' }}
-          >
-            <LogOut size={14} />
-            Sign out
-          </a>
-        </div>
-      )}
-    </div>
-  );
-}

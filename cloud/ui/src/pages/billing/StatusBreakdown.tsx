@@ -5,7 +5,7 @@
 
 import { Link } from 'react-router-dom';
 import { AlertTriangle } from 'lucide-react';
-import { BLOCK_MESSAGES, credits, fmtDate } from './api';
+import { BLOCK_MESSAGES, CREDIT_COLORS, credits, fmtDate } from './api';
 import type { BillingSummary, Grant } from './api';
 
 const card = {
@@ -55,8 +55,8 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-function SourceBar({ label, hint, granted, remaining }: {
-  label: string; hint: string; granted: number; remaining: number;
+function SourceBar({ label, hint, granted, remaining, color }: {
+  label: string; hint: string; granted: number; remaining: number; color: string;
 }) {
   const used = granted - remaining;
   const pct = granted > 0 ? Math.min(100, Math.round((remaining / granted) * 100)) : 0;
@@ -67,7 +67,7 @@ function SourceBar({ label, hint, granted, remaining }: {
         <div className="text-xs" style={{ color: 'var(--text-dim)' }}>{hint}</div>
       </div>
       <div className="flex-1 h-2 rounded-full overflow-hidden min-w-[140px]" style={{ background: 'var(--ink-lighter)' }}>
-        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: 'var(--moon)', opacity: 0.8 }} />
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
       </div>
       <span className="tabular-nums text-xs w-56 text-right" style={{ color: 'var(--text-dim)' }}>
         {granted > 0
@@ -158,19 +158,23 @@ export default function StatusBreakdown({ summary, grants }: {
           <SectionTitle>Credit sources</SectionTitle>
           <div className="space-y-4">
             {(sources.gift.granted > 0 || sources.free.granted > 0) && (
-              <SourceBar label="Gift & trial credits" hint="granted by Luna — burned first"
+              <SourceBar label="Gift & trial credits" hint="granted by Luna — consumed first"
                 granted={sources.gift.granted + sources.free.granted}
-                remaining={sources.gift.remaining + sources.free.remaining} />
+                remaining={sources.gift.remaining + sources.free.remaining}
+                color={CREDIT_COLORS.gift.color} />
             )}
-            <SourceBar label="Bonus credits" hint="bundled with packages — burned before top-ups"
-              granted={sources.bonus.granted} remaining={sources.bonus.remaining} />
-            <SourceBar label="Bucket credits" hint="your package's monthly credits — burned last"
-              granted={sources.paid.granted} remaining={sources.paid.remaining} />
-            <SourceBar label="Top-up credits" hint="one-time purchases — burned before bucket credits"
-              granted={sources.topup.granted} remaining={sources.topup.remaining} />
+            <SourceBar label="Bonus credits" hint="bundled with packages — consumed before top-ups"
+              granted={sources.bonus.granted} remaining={sources.bonus.remaining}
+              color={CREDIT_COLORS.bonus.color} />
+            <SourceBar label="Bucket credits" hint="your package's monthly credits — consumed last"
+              granted={sources.paid.granted} remaining={sources.paid.remaining}
+              color={CREDIT_COLORS.paid.color} />
+            <SourceBar label="Top-up credits" hint="one-time purchases — consumed before bucket credits"
+              granted={sources.topup.granted} remaining={sources.topup.remaining}
+              color={CREDIT_COLORS.topup.color} />
           </div>
           <p className="text-xs mt-4" style={{ color: 'var(--text-dim)' }}>
-            Credits burn cheapest-first: free → gift → bonus → top-up → bucket. Your package's
+            Credits are consumed cheapest-first: free → gift → bonus → top-up → bucket. Your package's
             bucket credits are always spent last.
           </p>
         </section>
@@ -216,7 +220,7 @@ export default function StatusBreakdown({ summary, grants }: {
                 <th className="pb-2 font-medium">Remaining</th>
                 <th className="pb-2 font-medium">Expires</th>
                 <th className="pb-2 font-medium">Status</th>
-                <th className="pb-2 font-medium text-right">Burn order</th>
+                <th className="pb-2 font-medium text-right">Consumed order</th>
               </tr>
             </thead>
             <tbody>

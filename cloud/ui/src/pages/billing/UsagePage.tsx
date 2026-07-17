@@ -5,9 +5,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  Moon, LogOut, ChevronLeft, Loader2, MessageSquare, Clock, Play,
+  ChevronLeft, Loader2, MessageSquare, Clock, Play,
   ChevronDown, ChevronRight, Pencil, Check, X,
 } from 'lucide-react';
+import AppHeader from '../../components/AppHeader';
 import { API, credits, getJson, apiError } from './api';
 import type { ChannelItem, ChannelSection, ChannelUsage, UsageSummary } from './api';
 
@@ -252,24 +253,7 @@ export default function UsagePage() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--ink)' }}>
-      <header
-        className="flex items-center justify-between px-6 py-4 border-b"
-        style={{ borderColor: 'var(--ink-lighter)', background: 'var(--surface)' }}
-      >
-        <div className="flex items-center gap-3">
-          <Moon size={24} style={{ color: 'var(--moon)' }} />
-          <span className="text-lg font-semibold" style={{ color: 'var(--text)' }}>Luna Service</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link to="/dashboard/usage" className="px-3 py-1.5 rounded-lg text-sm font-semibold"
-            style={{ background: 'var(--ink-light)', color: 'var(--text)' }}>Usage</Link>
-          <Link to="/dashboard/billing" className="px-3 py-1.5 rounded-lg text-sm hover:opacity-80"
-            style={{ color: 'var(--text-dim)' }}>Billing</Link>
-          <a href="/auth/logout" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm hover:opacity-80" style={{ color: 'var(--text-dim)' }}>
-            <LogOut size={14} /> Sign out
-          </a>
-        </div>
-      </header>
+      <AppHeader />
 
       <main className="max-w-5xl mx-auto px-6 py-8">
         <nav className="mb-6 flex items-center gap-2 text-sm" style={{ color: 'var(--text-dim)' }}>

@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import {
-  Moon, LogOut, ChevronLeft, Loader2, ExternalLink,
+  ChevronLeft, Loader2, ExternalLink,
   Square, Play, RotateCcw, AlertTriangle, RefreshCw, Pencil, Check, X, Trash2,
   Copy, Palette,
 } from 'lucide-react';
+import AppHeader from '../components/AppHeader';
 import { InfoCard } from '../components/InfoCard';
 import type { InfoRow } from '../components/InfoCard';
 import { ComingSoonCard } from '../components/ComingSoonCard';
@@ -375,19 +376,7 @@ export default function AgentDetail() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--ink)' }}>
-      <header
-        className="flex items-center justify-between px-6 py-4 border-b"
-        style={{ borderColor: 'var(--ink-lighter)', background: 'var(--surface)' }}
-      >
-        <div className="flex items-center gap-3">
-          <Moon size={24} style={{ color: 'var(--moon)' }} />
-          <span className="text-lg font-semibold" style={{ color: 'var(--text)' }}>Luna Service</span>
-        </div>
-        <a href="/auth/logout" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors hover:opacity-80" style={{ color: 'var(--text-dim)' }}>
-          <LogOut size={14} />
-          Sign out
-        </a>
-      </header>
+      <AppHeader />
 
       <main className="max-w-5xl mx-auto px-6 py-8">
         {/* Breadcrumb */}
