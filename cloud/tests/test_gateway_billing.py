@@ -739,7 +739,9 @@ async def test_x_luna_headers_stripped_and_attribution_unspoofable(
     r = await _call_messages(anon_client, token, headers={
         "x-luna-call-id": "call-77",
         "x-luna-root-action-id": "act-9",
-        "x-luna-root-action-type": "chat",
+        "x-luna-root-action-type": "scheduled_run",
+        "x-luna-channel": "scheduler",
+        "x-luna-job-id": "trigger-abc",
         "x-luna-account-id": str(uuid.uuid4()),  # spoof attempt — ignored
     })
     assert r.status_code == 200
@@ -752,7 +754,10 @@ async def test_x_luna_headers_stripped_and_attribution_unspoofable(
     assert ev.agent_id == sample_agent.id
     # Tenant call id is namespaced by agent — it can never dedupe across tenants.
     assert ev.call_id == f"{sample_agent.id}:call-77"
-    assert ev.root_action_id == "act-9" and ev.root_action_type == "chat"
+    assert ev.root_action_id == "act-9" and ev.root_action_type == "scheduled_run"
+    # Origin dimensions (048): channel + stable job id ingested for usage.
+    assert ev.channel == "scheduler"
+    assert ev.job_id == "trigger-abc"
 
 
 async def test_same_call_id_never_dedupes_a_charge(

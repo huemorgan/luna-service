@@ -154,6 +154,7 @@ class BillingContext:
     root_action_id: str | None = None
     root_action_type: str | None = None
     channel: str | None = None
+    job_id: str | None = None
     started_at: datetime = field(default_factory=_utcnow)
     body: bytes = b""
 
@@ -182,6 +183,7 @@ async def _record_would_block(ctx: BillingContext, db: AsyncSession) -> None:
             root_action_id=ctx.root_action_id,
             root_action_type=ctx.root_action_type,
             channel=ctx.channel,
+            job_id=ctx.job_id,
             service=ctx.service_slug,
             sku=ctx.sku or "unpriced",
             context=ctx.context,
@@ -238,6 +240,9 @@ async def prepare(
     ctx.root_action_type = action_type if action_type in _ROOT_ACTION_TYPES else None
     channel = _clean_header(headers.get("x-luna-channel"))
     ctx.channel = channel if channel in _CHANNELS else None
+    # Stable per-trigger / per-playbook id for usage grouping (048). Opaque
+    # correlation metadata only — never deduplicates or skips a charge.
+    ctx.job_id = _clean_header(headers.get("x-luna-job-id"))
 
     try:
         agent = await db.get(Agent, agent_id)
@@ -403,6 +408,7 @@ async def finalize(ctx: BillingContext, attempts: list[AttemptFacts], status_cod
                         root_action_id=ctx.root_action_id,
                         root_action_type=ctx.root_action_type,
                         channel=ctx.channel,
+                        job_id=ctx.job_id,
                         service=ctx.service_slug,
                         sku=ctx.sku,
                         context=ctx.context,

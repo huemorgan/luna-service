@@ -132,7 +132,7 @@ async def seed() -> dict:
                 cid = f"c{seq['n']}"
                 at = now - timedelta(days=day_offset, hours=1)
                 db.add(BillableEvent(
-                    source_idempotency_key=f"dojo046:{cid}", call_id=cid,
+                    source_idempotency_key=f"{cid}:1", call_id=cid,
                     account_id=account.id, agent_id=agent_id,
                     root_action_id=root, root_action_type="chat",
                     channel=channel, job_id=job, service="llm",
@@ -337,7 +337,7 @@ def main() -> None:
             # S6 — API shape.
             r = httpx.get(f"{BASE}/api/billing/usage/channels?range=28d",
                           cookies={"luna_session": cookie["value"]}, timeout=15).json()
-            assert set(r["sections"]) == {"web", "scheduler", "whatsapp", "telegram"}
+            assert set(r["sections"]) == {"web", "scheduler", "playbooks", "whatsapp", "telegram"}
             assert r["sections"]["web"]["total"] == 200 + 120 + 80 + 150 + 60 + 40 + 15 + 25
             assert r["sections"]["telegram"]["total"] == 10
             assert r["y_max"] >= 200

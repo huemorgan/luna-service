@@ -652,18 +652,17 @@ async def usage_breakdown(
 # RatedCharge (one per logical call); the initiating channel comes from the
 # call's first BillableEvent. Legacy/unknown channels fold into "web".
 
-CHANNEL_SECTIONS = ("web", "scheduler", "whatsapp", "telegram")
+# Precedence taxonomy (048): each root action lands in exactly one bucket,
+# scheduler > playbook_run > whatsapp > telegram > web, so section totals stay
+# additive to the account total (no double counting). "playbooks" = playbook
+# runs NOT initiated by a scheduled trigger (a scheduled playbook stays under
+# "scheduler"). Section render order matches the UI.
+CHANNEL_SECTIONS = ("web", "scheduler", "playbooks", "whatsapp", "telegram")
 
-
-def _clean_ceiling(top: int) -> int:
-    """Round an axis max up to a readable 1/2/2.5/5 × 10ⁿ tick."""
-    top = max(1, int(top))
-    import math
-    pow10 = 10 ** math.floor(math.log10(top))
-    for m in (1, 2, 2.5, 5, 10):
-        if m * pow10 >= top:
-            return int(m * pow10)
-    return int(10 * pow10)
+# Shared y-axis floor (048): a quiet account still scales against 200 so a
+# 3-credit day doesn't balloon to full height; a busy account's tallest single
+# day across all sections sits exactly at the top.
+Y_MAX_FLOOR = 200
 
 
 def _day_list(since: datetime, until: datetime) -> list[str]:
@@ -709,8 +708,11 @@ async def usage_channels(
             & (BillableEvent.account_id == account.id)
             & (BillableEvent.attempt_number == 1)
         )
+        # Ordered precedence: first matching arm wins (scheduler beats a
+        # playbook it happens to invoke; a playbook run beats its wa/tg channel).
         bucket = case(
             (BillableEvent.channel == "scheduler", "scheduler"),
+            (BillableEvent.root_action_type == "playbook_run", "playbooks"),
             (BillableEvent.channel == "whatsapp", "whatsapp"),
             (BillableEvent.channel == "telegram", "telegram"),
             else_="web",
@@ -735,38 +737,48 @@ async def usage_channels(
         for section, d, credits in rows:
             by_section.setdefault(section, {})[str(d)[:10]] = int(credits or 0)
 
-        # Scheduler per-trigger split (job_id → root_action_id fallback).
-        trig_key = case(
+        # Per-item split (job_id → root_action_id fallback), reused for the
+        # scheduler per-trigger and playbooks per-playbook breakdowns.
+        item_key = case(
             (BillableEvent.job_id.isnot(None), BillableEvent.job_id),
             (BillableEvent.root_action_id.isnot(None), BillableEvent.root_action_id),
             else_="unknown",
-        ).label("trig")
-        trig_join = (
-            select(trig_key, day.label("day"), func.sum(RatedCharge.credits))
-            .select_from(RatedCharge)
-            .join(BillableEvent, rep_cond)
-            .where(
-                RatedCharge.account_id == account.id,
-                RatedCharge.created_at >= since,
-                RatedCharge.created_at < until,
-                BillableEvent.channel == "scheduler",
-            )
-        )
-        if aid is not None:
-            trig_join = trig_join.where(BillableEvent.agent_id == aid)
-        trig_rows = (await db.execute(trig_join.group_by(trig_key, day))).all()
+        ).label("item")
 
-        triggers: dict[str, dict[str, int]] = {}
-        for key, d, credits in trig_rows:
-            triggers.setdefault(str(key), {})[str(d)[:10]] = int(credits or 0)
+        async def _split(*conds) -> dict[str, dict[str, int]]:
+            q = (
+                select(item_key, day.label("day"), func.sum(RatedCharge.credits))
+                .select_from(RatedCharge)
+                .join(BillableEvent, rep_cond)
+                .where(
+                    RatedCharge.account_id == account.id,
+                    RatedCharge.created_at >= since,
+                    RatedCharge.created_at < until,
+                    *conds,
+                )
+            )
+            if aid is not None:
+                q = q.where(BillableEvent.agent_id == aid)
+            out: dict[str, dict[str, int]] = {}
+            for key, d, credits in (await db.execute(q.group_by(item_key, day))).all():
+                out.setdefault(str(key), {})[str(d)[:10]] = int(credits or 0)
+            return out
+
+        triggers = await _split(BillableEvent.channel == "scheduler")
+        # Playbooks bucket mirrors the precedence: playbook_run NOT in scheduler.
+        playbooks = await _split(
+            BillableEvent.root_action_type == "playbook_run",
+            BillableEvent.channel.is_distinct_from("scheduler"),
+        )
+        per_item = {"scheduler": triggers, "playbooks": playbooks}
 
         # Shared y-axis ceiling: the tallest single-day bar across every
-        # section (not per-trigger, which are subsets of scheduler).
+        # section, floored at 200 (per-item series are subsets, excluded).
         peak = 0
         for sec in by_section.values():
             for v in sec.values():
                 peak = max(peak, v)
-        y_max = _clean_ceiling(peak)
+        y_max = max(peak, Y_MAX_FLOOR)
 
         sections = {}
         for s in CHANNEL_SECTIONS:
@@ -775,8 +787,8 @@ async def usage_channels(
                 "total": sum(by_day.values()),
                 "trend": _trend(by_day, days),
             }
-            if s == "scheduler":
-                section["triggers"] = sorted(
+            if s in per_item:
+                section["items"] = sorted(
                     (
                         {
                             "key": key,
@@ -784,11 +796,14 @@ async def usage_channels(
                             "total": sum(t.values()),
                             "trend": _trend(t, days),
                         }
-                        for key, t in triggers.items()
+                        for key, t in per_item[s].items()
                     ),
                     key=lambda t: t["total"],
                     reverse=True,
                 )
+                # Back-compat alias for the scheduler section (046 clients).
+                if s == "scheduler":
+                    section["triggers"] = section["items"]
             sections[s] = section
 
         return {

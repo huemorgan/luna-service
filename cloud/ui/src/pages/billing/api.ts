@@ -103,7 +103,7 @@ export interface ChannelTrendPoint {
   credits: number;
 }
 
-export interface ChannelTrigger {
+export interface ChannelItem {
   key: string;
   name: string;
   total: number;
@@ -113,7 +113,8 @@ export interface ChannelTrigger {
 export interface ChannelSection {
   total: number;
   trend: ChannelTrendPoint[];
-  triggers?: ChannelTrigger[];
+  items?: ChannelItem[];      // per-trigger (scheduler) / per-playbook (playbooks)
+  triggers?: ChannelItem[];   // back-compat alias for the scheduler section
 }
 
 export interface ChannelUsage {
@@ -122,6 +123,7 @@ export interface ChannelUsage {
   sections: {
     web: ChannelSection;
     scheduler: ChannelSection;
+    playbooks: ChannelSection;
     whatsapp: ChannelSection;
     telegram: ChannelSection;
   };

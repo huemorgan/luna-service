@@ -348,8 +348,8 @@ async def _seed_channels(db_session, agent_id):
     # operation id ("op-...") that RatedCharge.logical_call_id carries. The two
     # link only via source_idempotency_key = "{op}:{attempt}". This guards the
     # undercount bug where a join on call_id dropped nearly every charge.
-    def ev(op, *, channel, job=None, root=None, at=None):
-        e = _event(agent_id, f"agent:{op}", op=op, root=root, at=at or now)
+    def ev(op, *, channel, job=None, root=None, rtype="chat", at=None):
+        e = _event(agent_id, f"agent:{op}", op=op, root=root, root_type=rtype, at=at or now)
         e.channel = channel
         e.job_id = job
         return e
@@ -361,12 +361,19 @@ async def _seed_channels(db_session, agent_id):
         ev("op-tg", channel="telegram"),
         ev("op-sc1", channel="scheduler", job="digest", root="r1"),
         ev("op-sc2", channel="scheduler", job="backup", root="r2"),
+        # A playbook fired by a scheduler trigger stays under Scheduled
+        # (channel precedence beats root_action_type=playbook_run).
+        ev("op-sc3", channel="scheduler", job="pb-trigger", rtype="playbook_run"),
+        # A user/chat-initiated playbook run → Playbooks section.
+        ev("op-pb", channel="web", job="daily-report", rtype="playbook_run"),
         _charge_row("op-web", 200),
         _charge_row("op-legacy", 5),
         _charge_row("op-wa", 30),
         _charge_row("op-tg", 10),
         _charge_row("op-sc1", 40),
         _charge_row("op-sc2", 8),
+        _charge_row("op-sc3", 15),
+        _charge_row("op-pb", 60),
     ])
     await db_session.commit()
 
@@ -377,24 +384,47 @@ async def test_usage_channels_sections_and_ymax(admin_client, db_session, accoun
 
     body = (await admin_client.get("/api/billing/usage/channels?range=7d")).json()
     secs = body["sections"]
-    assert set(secs) == {"web", "scheduler", "whatsapp", "telegram"}
+    assert set(secs) == {"web", "scheduler", "playbooks", "whatsapp", "telegram"}
     assert secs["web"]["total"] == 205          # 200 web + 5 legacy NULL
     assert secs["whatsapp"]["total"] == 30
     assert secs["telegram"]["total"] == 10
-    assert secs["scheduler"]["total"] == 48
-    # Shared ceiling rounds the 205 web peak (200+5 legacy, same day) to 250.
-    assert body["y_max"] == 250
+    # Scheduler bucket includes the scheduled playbook (precedence).
+    assert secs["scheduler"]["total"] == 40 + 8 + 15
+    # Playbooks = only the non-scheduled playbook run.
+    assert secs["playbooks"]["total"] == 60
+    # Section totals stay additive to the account total (no double counting).
+    assert sum(s["total"] for s in secs.values()) == 205 + 30 + 10 + 63 + 60
+    # y_max = max(peak single-day, 200): web peak 205 wins.
+    assert body["y_max"] == 205
     # Every trend covers the same day span.
     spans = {len(s["trend"]) for s in secs.values()}
     assert len(spans) == 1
-    # Scheduler splits into its two triggers, largest first.
-    trigs = {t["key"]: t["total"] for t in secs["scheduler"]["triggers"]}
-    assert trigs == {"digest": 40, "backup": 8}
-    assert secs["scheduler"]["triggers"][0]["key"] == "digest"
+    # Scheduler splits into its triggers, largest first (digest > pb-trigger > backup).
+    trigs = {t["key"]: t["total"] for t in secs["scheduler"]["items"]}
+    assert trigs == {"digest": 40, "backup": 8, "pb-trigger": 15}
+    assert secs["scheduler"]["items"][0]["key"] == "digest"
+    assert secs["scheduler"]["triggers"] == secs["scheduler"]["items"]  # alias
+    # Playbooks split per playbook id.
+    pbs = {t["key"]: t["total"] for t in secs["playbooks"]["items"]}
+    assert pbs == {"daily-report": 60}
 
     text = str(body).lower()
     for token in FORBIDDEN:
         assert token not in text, f"internal field {token!r} leaked to channels"
+
+
+async def test_usage_channels_ymax_floor(admin_client, db_session, account, sample_agent):
+    """A quiet account still scales against the 200 floor."""
+    await _seed(db_session)
+    await ledger.ensure_billing_account(db_session, ACCOUNT_ID)
+    e = _event(sample_agent.id, "agent:op-q", op="op-q", root="rq")
+    e.channel = "web"
+    db_session.add_all([e, _charge_row("op-q", 3)])
+    await db_session.commit()
+
+    body = (await admin_client.get("/api/billing/usage/channels?range=7d")).json()
+    assert body["y_max"] == 200
+    assert body["sections"]["web"]["total"] == 3
 
 
 async def test_usage_channels_agent_filter(admin_client, db_session, account, sample_agent):

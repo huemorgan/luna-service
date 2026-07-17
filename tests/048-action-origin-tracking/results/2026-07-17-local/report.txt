@@ -1,0 +1,5 @@
+PASS  S1 no day-range filter; 'Last 28 days' shown; Luna filter present
+PASS  S2 five sections; shared scale (chat 100% vs telegram 2%)
+PASS  S3 scheduled playbook under Scheduled; user playbook under Playbooks; expand works
+PASS  S4 square bars, no gridlines, half width (ratio 0.48)
+PASS  S5 API: 5 sections, precedence totals, per-item split, y_max=200

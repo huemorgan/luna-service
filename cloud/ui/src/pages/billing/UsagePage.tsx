@@ -2,26 +2,19 @@
 // scheduled triggers, WhatsApp, Telegram) sharing one y-scale, filterable
 // per Luna. Credits only — no internal pricing ever reaches this page.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  Moon, LogOut, ChevronLeft, Loader2, MessageSquare, Clock,
+  Moon, LogOut, ChevronLeft, Loader2, MessageSquare, Clock, Play,
   ChevronDown, ChevronRight, Pencil, Check, X,
 } from 'lucide-react';
 import { API, credits, getJson, apiError } from './api';
-import type { ChannelSection, ChannelUsage, UsageSummary } from './api';
+import type { ChannelItem, ChannelSection, ChannelUsage, UsageSummary } from './api';
 
 const card = {
   background: 'var(--surface)',
   borderColor: 'var(--ink-lighter)',
 } as const;
-
-type RangeKey = 'today' | '7d' | '28d' | 'custom';
-
-function rangeQuery(range: RangeKey, start: string, end: string): string {
-  if (range !== 'custom') return `range=${range}`;
-  return `range=custom&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
-}
 
 function SectionTitle({ children, icon }: { children: React.ReactNode; icon?: React.ReactNode }) {
   return (
@@ -31,52 +24,39 @@ function SectionTitle({ children, icon }: { children: React.ReactNode; icon?: Re
   );
 }
 
-// ── Shared-scale bar chart ───────────────────────────────────────────────────
+// ── Shared-scale bar chart (048: small, gridline-free, square, half width) ────
 
-function BarChart({ trend, yMax, height = 96 }: {
+function BarChart({ trend, yMax, height = 40 }: {
   trend: Array<{ day: string; credits: number }>;
   yMax: number;
   height?: number;
 }) {
   const ceil = Math.max(1, yMax);
-  const ticks = [ceil, ceil / 2, 0];
   if (trend.length === 0) {
-    return <div className="text-sm" style={{ color: 'var(--text-dim)' }}>No activity in this range.</div>;
+    return <div className="text-sm" style={{ color: 'var(--text-dim)' }}>No activity.</div>;
   }
   return (
-    <div className="flex gap-2">
-      <div className="relative w-14 shrink-0 text-xs tabular-nums text-right"
-        style={{ color: 'var(--text-dim)', height }}>
-        {ticks.map(v => (
-          <span key={v} className="absolute right-0 -translate-y-1/2"
-            style={{ top: `${100 - (v / ceil) * 100}%` }}>
-            {Math.round(v).toLocaleString()}
-          </span>
+    // 28 days occupy half the card width; the shared y-max is shown once (no
+    // gridlines), bars are square (no rounded corners).
+    <div className="max-w-[50%]">
+      <div className="text-xs tabular-nums mb-1" style={{ color: 'var(--text-dim)' }}>
+        {Math.round(ceil).toLocaleString()}
+      </div>
+      <div className="flex items-end gap-px" style={{ height }}>
+        {trend.map(t => (
+          <div key={t.day} className="flex-1 h-full flex items-end" style={{ minWidth: 2 }}>
+            <div className="w-full"
+              title={`${t.day}: ${t.credits.toLocaleString()} cr`}
+              style={{
+                height: t.credits > 0 ? `${Math.max(2, (t.credits / ceil) * 100)}%` : '0%',
+                background: 'var(--moon)', opacity: 0.75,
+              }} />
+          </div>
         ))}
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="relative" style={{ height }}>
-          {ticks.map(v => (
-            <div key={v} className="absolute inset-x-0"
-              style={{ top: `${100 - (v / ceil) * 100}%`, height: 1, background: 'var(--ink-lighter)' }} />
-          ))}
-          <div className="absolute inset-0 flex items-end justify-around gap-1">
-            {trend.map(t => (
-              <div key={t.day} className="flex-1 flex justify-center items-end h-full" style={{ minWidth: 3 }}>
-                <div className="w-full rounded-t"
-                  title={`${t.day}: ${t.credits.toLocaleString()} cr`}
-                  style={{
-                    height: t.credits > 0 ? `${Math.max(2, (t.credits / ceil) * 100)}%` : 0,
-                    background: 'var(--moon)', opacity: 0.75, minWidth: 3, maxWidth: 24,
-                  }} />
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="flex justify-between text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
-          <span>{trend[0].day}</span>
-          <span>{trend[trend.length - 1].day}</span>
-        </div>
+      <div className="flex justify-between text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
+        <span>{trend[0].day}</span>
+        <span>{trend[trend.length - 1].day}</span>
       </div>
     </div>
   );
@@ -103,19 +83,21 @@ function ChannelCard({ title, icon, section, yMax, children }: {
   );
 }
 
-// ── Scheduled triggers (expandable) ──────────────────────────────────────────
+// ── Per-item breakdown, expandable (scheduler triggers / playbooks) ──────────
 
-function SchedulerTriggers({ section, yMax }: { section: ChannelSection | undefined; yMax: number }) {
+function ItemBreakdown({ section, yMax, label }: {
+  section: ChannelSection | undefined; yMax: number; label: string;
+}) {
   const [open, setOpen] = useState<string | null>(null);
-  const triggers = section?.triggers ?? [];
-  if (triggers.length === 0) return null;
+  const items: ChannelItem[] = section?.items ?? section?.triggers ?? [];
+  if (items.length === 0) return null;
   return (
     <div className="mt-5 pt-4 border-t" style={{ borderColor: 'var(--ink-lighter)' }}>
       <div className="text-xs uppercase tracking-wider mb-2" style={{ color: 'var(--text-dim)' }}>
-        Triggers
+        {label}
       </div>
       <div className="space-y-1">
-        {triggers.map(t => (
+        {items.map(t => (
           <div key={t.key}>
             <button
               onClick={() => setOpen(open === t.key ? null : t.key)}
@@ -128,7 +110,7 @@ function SchedulerTriggers({ section, yMax }: { section: ChannelSection | undefi
             </button>
             {open === t.key && (
               <div className="ml-6 mb-3">
-                <BarChart trend={t.trend} yMax={yMax} height={72} />
+                <BarChart trend={t.trend} yMax={yMax} height={32} />
               </div>
             )}
           </div>
@@ -236,37 +218,23 @@ export default function UsagePage() {
   const [params, setParams] = useSearchParams();
   const agent = params.get('agent') ?? '';
 
-  const [range, setRange] = useState<RangeKey>('28d');
-  const [customStart, setCustomStart] = useState('');
-  const [customEnd, setCustomEnd] = useState('');
-
   const [channels, setChannels] = useState<ChannelUsage | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showLimits, setShowLimits] = useState(false);
 
-  const query = useMemo(() => {
-    if (range === 'custom' && (!customStart || !customEnd)) return null;
-    return rangeQuery(
-      range,
-      customStart && `${customStart}T00:00:00+00:00`,
-      customEnd && `${customEnd}T23:59:59+00:00`,
-    );
-  }, [range, customStart, customEnd]);
-
+  // Fixed 28-day window (048: the day-range filter was removed).
   const agentParam = agent ? `&agent_id=${agent}` : '';
 
   const loadChannels = useCallback(() => {
-    if (!query) return;
     setError(null);
-    getJson<ChannelUsage>(`${API}/usage/channels?${query}${agentParam}`)
+    getJson<ChannelUsage>(`${API}/usage/channels?range=28d${agentParam}`)
       .then(setChannels).catch(e => setError(e.message));
-  }, [query, agentParam]);
+  }, [agentParam]);
 
   const loadSummary = useCallback(() => {
-    if (!query) return;
-    getJson<UsageSummary>(`${API}/usage/summary?${query}`).then(setUsage).catch(() => {});
-  }, [query]);
+    getJson<UsageSummary>(`${API}/usage/summary?range=28d`).then(setUsage).catch(() => {});
+  }, []);
 
   useEffect(loadChannels, [loadChannels]);
   useEffect(loadSummary, [loadSummary]);
@@ -315,7 +283,7 @@ export default function UsagePage() {
         <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
           <h2 className="text-2xl font-bold" style={{ color: 'var(--text)' }}>Usage</h2>
           <div className="flex items-center gap-3 flex-wrap">
-            {/* Luna filter */}
+            {/* Luna filter — the only control (day range removed, always 28d) */}
             <select value={agent} onChange={e => setAgent(e.target.value)}
               className="px-3 py-1.5 rounded-lg text-sm border bg-transparent"
               style={{ borderColor: 'var(--ink-lighter)', color: 'var(--text)', colorScheme: 'dark' }}>
@@ -324,29 +292,7 @@ export default function UsagePage() {
                 <option key={l.agent_id} value={l.agent_id}>{l.agent_name}</option>
               ))}
             </select>
-            {/* Range */}
-            <div className="flex items-center gap-1 text-sm">
-              {(['today', '7d', '28d', 'custom'] as RangeKey[]).map(k => (
-                <button key={k} onClick={() => setRange(k)}
-                  className="px-3 py-1.5 rounded-lg transition-colors"
-                  style={range === k
-                    ? { background: 'var(--moon)', color: 'var(--ink)', fontWeight: 600 }
-                    : { color: 'var(--text-dim)' }}>
-                  {k === 'today' ? 'Today' : k === 'custom' ? 'Custom' : `Last ${k.replace('d', ' days')}`}
-                </button>
-              ))}
-            </div>
-            {range === 'custom' && (
-              <div className="flex items-center gap-2">
-                <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)}
-                  className="px-2 py-1 rounded-lg border bg-transparent text-sm"
-                  style={{ borderColor: 'var(--ink-lighter)', color: 'var(--text)', colorScheme: 'dark' }} />
-                <span style={{ color: 'var(--text-dim)' }}>→</span>
-                <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)}
-                  className="px-2 py-1 rounded-lg border bg-transparent text-sm"
-                  style={{ borderColor: 'var(--ink-lighter)', color: 'var(--text)', colorScheme: 'dark' }} />
-              </div>
-            )}
+            <span className="text-xs" style={{ color: 'var(--text-dim)' }}>Last 28 days</span>
           </div>
         </div>
 
@@ -378,7 +324,12 @@ export default function UsagePage() {
 
             <ChannelCard title="Scheduled triggers" icon={<Clock size={14} />}
               section={channels.sections.scheduler} yMax={yMax}>
-              <SchedulerTriggers section={channels.sections.scheduler} yMax={yMax} />
+              <ItemBreakdown section={channels.sections.scheduler} yMax={yMax} label="Triggers" />
+            </ChannelCard>
+
+            <ChannelCard title="Playbooks" icon={<Play size={14} />}
+              section={channels.sections.playbooks} yMax={yMax}>
+              <ItemBreakdown section={channels.sections.playbooks} yMax={yMax} label="Playbooks" />
             </ChannelCard>
 
             <ChannelCard title="WhatsApp"
