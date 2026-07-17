@@ -1,6 +1,8 @@
 # 046 — Feedback tickets (agent + owner → admin, threaded)
 
-**Status:** EXECUTED (2026-07-17; migration landed as `0011_feedback_tickets` — `0010` was taken by the billable-event channel column)
+**Status:** PLANNED (2026-07-17 — the `EXECUTED` header was aspirational; no
+service-side code had landed. Migration is `0011_feedback_tickets` because
+`0010` is the billable-event channel column. Being executed now.)
 **Produces version:** none in this planning slice
 **Companions:** `huemorgan2/plugin-feedback` 0.1.0 (built against this contract)
 
@@ -35,7 +37,7 @@ same channel scheduler/whatsapp connect uses. `verify_token` resolves the
 The plugin (huemorgan2/plugin-feedback, already built) codes against the agent
 API below; ship the service side to this exact contract.
 
-## Data model (`cloud/db/models.py`, migration `0010_feedback_tickets`)
+## Data model (`cloud/db/models.py`, migration `0011_feedback_tickets`)
 
 `feedback_tickets`
 - `id UUID pk` · `agent_id UUID FK agents ON DELETE SET NULL` (mirror
@@ -51,7 +53,12 @@ API below; ship the service side to this exact contract.
   with `slug`, `image_version`, `runtime_ref` from the resolved Agent row)
 - `created_at / updated_at / last_admin_reply_at / last_client_reply_at /
   agent_read_at / closed_at timestamptz`
-- Indexes: `(status, updated_at desc)`, `agent_id`, `created_at`.
+- Indexes: `(status, updated_at desc)`, `agent_id`, `created_at`, and
+  `ix_feedback_tickets_agent_updated (agent_id, updated_at desc)` — the
+  `/updates` unread poll filters by `agent_id` then compares
+  `last_admin_reply_at > agent_read_at` in the query; the composite index
+  serves the agent-scoped scan (the read-marker comparison is a residual
+  filter, not indexable as a partial because both columns move).
 
 `feedback_messages`
 - `id UUID pk` · `ticket_id UUID FK feedback_tickets ON DELETE CASCADE`
@@ -91,7 +98,18 @@ server block under `context.server`) so drift is itself diagnostic.
   and reopens the same way.
 - `GET /api/agent/feedback/updates` → `{unread: [{id, title,
   last_admin_reply_at}]}` — cheap poll the plugin calls (throttled) from
-  `prompt_sections()`; must be a single indexed query.
+  `prompt_sections()`. Single query: `WHERE agent_id = <resolved> AND
+  last_admin_reply_at IS NOT NULL AND (agent_read_at IS NULL OR
+  last_admin_reply_at > agent_read_at)`, served by
+  `ix_feedback_tickets_agent_updated`.
+
+**Shared `agent_read_at` (confirmed deliberate for v1):** the pane's
+`GET /tickets/{id}?mark_read=1` and the agent's `feedback_ticket_get` both stamp the
+same `agent_read_at`. Consequence: if the owner opens the pane first, the
+agent's `/updates` poll goes quiet and the one-line prompt note never fires
+for that ticket. Accepted — the pane and the agent serve the same owner, and
+the owner has already seen the reply in that case. Revisit only if we split
+per-surface read state.
 
 404 (not 403) for a ticket id that exists under another agent — don't leak
 existence.
@@ -146,8 +164,12 @@ reuse the relay forwarder to POST to
 - No secrets in `context`/`technical`; the plugin strips env-var-looking
   values (`*_KEY`, `*_SECRET`, `*_TOKEN` patterns) before sending; server may
   re-scrub defensively.
-- Rate-limit `POST` create/reply per agent (e.g. 30/day create, 120/day reply)
-  to keep a misbehaving agent from flooding triage.
+- Rate-limit `POST` create/reply per agent (30/day create, 120/day reply) to
+  keep a misbehaving agent from flooding triage. Enforced with a DB count over
+  the trailing 24h (`SELECT count(*) … WHERE agent_id=… AND created_at >
+  now() - interval '1 day'`), NOT an in-process counter — the control plane
+  runs multiple uvicorn workers, so an in-memory limit would be per-worker and
+  reset on deploy. Over-limit returns `429`.
 - Deleting an agent keeps tickets (`SET NULL`) — feedback history outlives the
   install, like relay deliveries.
 

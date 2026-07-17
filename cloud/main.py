@@ -18,6 +18,8 @@ from cloud.api.billing_routes import public_router as billing_public_router
 from cloud.api.billing_routes import router as billing_router
 from cloud.api.gateway_admin_routes import router as gateway_admin_router
 from cloud.api.gateway_agent_routes import router as gateway_agent_router
+from cloud.api.feedback_agent_routes import router as feedback_agent_router
+from cloud.api.feedback_routes import router as feedback_router
 from cloud.api.gateway_proxy import router as gateway_proxy_router
 from cloud.api.plugin_catalog_routes import router as plugin_catalog_router
 from cloud.api.proxy import router as proxy_router
@@ -250,6 +252,12 @@ def create_app() -> FastAPI:
     app.include_router(telegram_agent_router)
     app.include_router(telegram_agent_router, prefix="/proxy")
     app.include_router(telegram_relay_router)
+    # Feedback tickets (plan 046). Admin triage + agent self-service; the agent
+    # router is also served under /proxy since machines carry
+    # LUNA_GATEWAY_URL = "<host>/proxy".
+    app.include_router(feedback_router)
+    app.include_router(feedback_agent_router)
+    app.include_router(feedback_agent_router, prefix="/proxy")
     app.include_router(gateway_proxy_router)
     app.include_router(proxy_router)
 
