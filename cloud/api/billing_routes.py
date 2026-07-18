@@ -718,6 +718,57 @@ def _trend(by_day: dict[str, int], days: list[str]) -> list[dict]:
     return [{"day": d, "credits": int(by_day.get(d, 0))} for d in days]
 
 
+@router.get("/usage/sparklines")
+async def usage_sparklines(
+    range: str = Query("7d"),
+    auth: tuple[User, Account] = Depends(require_active_account),
+):
+    """Per-agent daily credit spend over a short window, for the dashboard
+    agent-card sparklines. One query covers every agent on the account so the
+    card grid stays a single request. Uses the same charge→event join as
+    /usage/channels so per-agent totals line up with the usage page (charges
+    with no matching event have no agent and are simply omitted here)."""
+    _, account = auth
+    since, until = _range_bounds(range, None, None)
+    days = _day_list(since, until)
+    async with get_db_session() as db:
+        rep_cond = (
+            (BillableEvent.source_idempotency_key == RatedCharge.logical_call_id.concat(":1"))
+            & (BillableEvent.account_id == account.id)
+            & (BillableEvent.attempt_number == 1)
+        )
+        day = func.date(RatedCharge.created_at)
+        rows = (
+            await db.execute(
+                select(BillableEvent.agent_id, day.label("day"), func.sum(RatedCharge.credits))
+                .select_from(RatedCharge)
+                .join(BillableEvent, rep_cond)
+                .where(
+                    RatedCharge.account_id == account.id,
+                    RatedCharge.created_at >= since,
+                    RatedCharge.created_at < until,
+                    BillableEvent.agent_id.isnot(None),
+                )
+                .group_by(BillableEvent.agent_id, day)
+            )
+        ).all()
+        by_agent: dict[str, dict[str, int]] = {}
+        for aid, d, credits in rows:
+            by_agent.setdefault(str(aid), {})[str(d)[:10]] = int(credits or 0)
+        agents = await _account_agents(db, account.id)
+        return {
+            "range": {"since": since.isoformat(), "until": until.isoformat()},
+            "days": days,
+            "agents": {
+                str(a.id): {
+                    "total": sum(by_agent.get(str(a.id), {}).values()),
+                    "trend": _trend(by_agent.get(str(a.id), {}), days),
+                }
+                for a in agents
+            },
+        }
+
+
 @router.get("/usage/channels")
 async def usage_channels(
     range: str = Query("28d"),

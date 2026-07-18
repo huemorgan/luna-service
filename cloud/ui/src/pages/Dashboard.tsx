@@ -8,7 +8,6 @@ import {
   Bot, Loader2, Plus, ExternalLink,
   RotateCcw, Square, Play, AlertTriangle, ChevronDown,
   Settings, ArrowUpCircle, ChevronRight, CheckCircle2, Sparkles, CreditCard,
-  BarChart3,
 } from 'lucide-react';
 
 interface UserInfo {
@@ -37,6 +36,11 @@ interface AgentIdentity {
   name: string | null;
   emoji: string | null;
   avatar_url: string | null;
+}
+
+interface AgentSpark {
+  total: number;
+  trend: { day: string; credits: number }[];
 }
 
 interface PluginStatus {
@@ -83,6 +87,7 @@ export default function Dashboard() {
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [billing, setBilling] = useState<BillingSummary | null>(null);
   const [grants, setGrants] = useState<Grant[] | null>(null);
+  const [sparklines, setSparklines] = useState<Record<string, AgentSpark>>({});
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -100,6 +105,11 @@ export default function Dashboard() {
       // Best-effort — the credits bar just doesn't render if billing is off.
       fetch('/api/billing/summary').then(r => r.ok ? r.json() : null).then(setBilling).catch(() => {});
       fetch('/api/billing/grants').then(r => r.ok ? r.json() : null).then(setGrants).catch(() => {});
+      // Per-Luna 7-day spend for the card sparklines — one batched request.
+      fetch('/api/billing/usage/sparklines?range=7d')
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.agents) setSparklines(d.agents); })
+        .catch(() => {});
     } catch {
       window.location.href = '/';
     } finally {
@@ -291,6 +301,7 @@ export default function Dashboard() {
                 key={agent.id}
                 agent={agent}
                 identity={identities[agent.id] || null}
+                spark={sparklines[agent.id] || null}
                 isLoading={actionLoading === agent.id}
                 noCredits={billing != null && billing.posted_balance_credits <= 0}
                 onAction={handleAction}
@@ -411,11 +422,31 @@ function CreditsBar({ billing, grants }: {
   );
 }
 
+// Tiny 7-day credit-spend bar chart that lives inside the usage button. Bars
+// are self-scaled to this Luna's own peak day; zero days keep a faint sliver so
+// the shape reads as a chart, not an empty box.
+function Sparkline({ trend, color }: { trend?: { day: string; credits: number }[]; color: string }) {
+  const vals = (trend && trend.length ? trend : Array.from({ length: 7 }, () => ({ credits: 0 }))).map(t => t.credits);
+  const max = Math.max(1, ...vals);
+  return (
+    <div className="flex items-end gap-[2px] h-4 w-14">
+      {vals.map((v, i) => (
+        <div
+          key={i}
+          className="flex-1"
+          style={{ height: `${Math.max(8, (v / max) * 100)}%`, background: color, opacity: v > 0 ? 0.9 : 0.3 }}
+        />
+      ))}
+    </div>
+  );
+}
+
 function AgentCard({
-  agent, identity, isLoading, noCredits, onAction, onUpgrade,
+  agent, identity, spark, isLoading, noCredits, onAction, onUpgrade,
 }: {
   agent: AgentInfo;
   identity: AgentIdentity | null;
+  spark: AgentSpark | null;
   isLoading: boolean;
   noCredits: boolean;
   onAction: (id: string, action: 'start' | 'stop' | 'retry') => void;
@@ -536,12 +567,13 @@ function AgentCard({
 
           <Link
             to={`/dashboard/usage?agent=${agent.id}`}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs transition-all hover:bg-[var(--ink-light)]"
-            style={{ color: 'var(--text-dim)', border: '1px solid var(--ink-lighter)' }}
-            title="View this Luna's usage"
+            className="flex items-center px-3 py-2 rounded-lg transition-all hover:bg-[var(--ink-light)]"
+            style={{ border: '1px solid var(--ink-lighter)' }}
+            title={spark
+              ? `Last 7 days: ${spark.total.toLocaleString()} credits — view usage`
+              : "View this Luna's usage"}
           >
-            <BarChart3 size={12} />
-            Usage
+            <Sparkline trend={spark?.trend} color={accent} />
           </Link>
 
           {agent.status === 'running' && (
