@@ -58,11 +58,10 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 function SourceBar({ label, hint, granted, remaining, color }: {
   label: string; hint: string; granted: number; remaining: number; color: string;
 }) {
-  const used = granted - remaining;
-  // Each bar is self-scaled to its own size and takes the full width — the
-  // colored fill is the consumed fraction of THIS source (not compared across
-  // sources), so a small bucket is just as readable as a huge gift lot.
-  const pct = granted > 0 ? Math.round((used / granted) * 100) : 0;
+  // Show what's LEFT — parity with the top account bar (which reads remaining):
+  // the fill is the remaining fraction of THIS lot and the caption reads
+  // "N left of M". A fully-spent lot therefore reads as an empty bar, not full.
+  const pct = granted > 0 ? Math.round((remaining / granted) * 100) : 0;
   const fillPct = Math.min(100, pct);
   const near = pct >= 82; // fill nearly full → tuck the % label inside it
   return (
@@ -91,7 +90,7 @@ function SourceBar({ label, hint, granted, remaining, color }: {
       <div className="flex items-center justify-between gap-3 mt-1">
         <span className="text-xs" style={{ color: 'var(--text-dim)' }}>{hint}</span>
         <span className="text-xs tabular-nums whitespace-nowrap" style={{ color: 'var(--text-dim)' }}>
-          {granted > 0 ? `${used.toLocaleString()}cr / ${granted.toLocaleString()}cr` : 'none yet'}
+          {granted > 0 ? `${remaining.toLocaleString()}cr left of ${granted.toLocaleString()}cr` : 'none yet'}
         </span>
       </div>
     </div>
