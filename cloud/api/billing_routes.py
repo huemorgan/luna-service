@@ -665,6 +665,45 @@ CHANNEL_SECTIONS = ("web", "scheduler", "playbooks", "whatsapp", "telegram")
 Y_MAX_FLOOR = 200
 
 
+# Scheduler trigger id → human name. The scheduler `job_id` we bill against is
+# the trigger's opaque id; the service's /triggers list carries the name the
+# user gave it. Best-effort + short in-process TTL cache so the customer Usage
+# page can label triggers without an upstream call on every request; on any
+# failure we fall back to the raw id (previous behaviour).
+_TRIGGER_NAME_TTL_S = 60.0
+_trigger_name_cache: tuple[float, dict[str, str]] | None = None
+
+
+async def _scheduler_trigger_names() -> dict[str, str]:
+    global _trigger_name_cache
+    import time
+
+    now = time.monotonic()
+    if _trigger_name_cache and _trigger_name_cache[0] > now:
+        return _trigger_name_cache[1]
+
+    from cloud.scheduler_svc.provision import service_config
+
+    names: dict[str, str] = {}
+    try:
+        url, admin_key = service_config()
+        if url:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{url}/triggers", headers={"x-admin-key": admin_key})
+            if resp.status_code == 200:
+                for t in (resp.json() or {}).get("triggers", []) or []:
+                    tid, name = t.get("id"), t.get("name")
+                    if tid and name:
+                        names[str(tid)] = str(name)
+    except Exception as exc:  # unreachable/misconfigured — fall back to ids
+        log.warning("usage.trigger_names_unavailable err=%s", exc)
+
+    _trigger_name_cache = (now + _TRIGGER_NAME_TTL_S, names)
+    return names
+
+
 def _day_list(since: datetime, until: datetime) -> list[str]:
     days: list[str] = []
     d = since.date()
@@ -772,6 +811,11 @@ async def usage_channels(
         )
         per_item = {"scheduler": triggers, "playbooks": playbooks}
 
+        # Resolve scheduler trigger ids → the names users gave them. Playbook
+        # items already carry a human name (job_id = playbook.name).
+        trigger_names = await _scheduler_trigger_names()
+        item_names = {"scheduler": trigger_names, "playbooks": {}}
+
         # Shared y-axis ceiling: the tallest single-day bar across every
         # section, floored at 200 (per-item series are subsets, excluded).
         peak = 0
@@ -792,7 +836,7 @@ async def usage_channels(
                     (
                         {
                             "key": key,
-                            "name": key,
+                            "name": item_names.get(s, {}).get(key, key),
                             "total": sum(t.values()),
                             "trend": _trend(t, days),
                         }
