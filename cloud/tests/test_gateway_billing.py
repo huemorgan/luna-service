@@ -111,6 +111,38 @@ async def test_xai_chat_adapter_openai_compatible():
     assert json.loads(out)["stream_options"] == {"include_usage": True}
 
 
+async def test_gemini_chat_route_and_adapter():
+    # 050: Gemini reasoning rides Google's OpenAI-compat surface. The agent
+    # points its OpenAI client at /proxy/gemini/openai, so the bare path is
+    # /openai/chat/completions — billed as an llm_call under the gemini provider.
+    r = route_catalog.classify("gemini", "POST", "openai/chat/completions")
+    assert r.kind == "billed" and r.adapter == "gemini.chat" and r.sku == "llm_call"
+    assert adapters.provider_for_adapter("gemini.chat") == "gemini"
+    assert route_catalog.classify("gemini", "GET", "openai/models").kind == "free"
+    assert route_catalog.classify("gemini", "GET", "openai/models/gemini-3-pro").kind == "free"
+    # The native image-gen route is untouched by the new OpenAI-compat rows.
+    assert route_catalog.classify(
+        "gemini", "POST", "models/gemini-3-pro-image:generateContent").adapter == "gemini.generate"
+
+    # gemini.chat parses OpenAI-shaped usage like the plain OpenAI collector.
+    c = adapters.make_collector("gemini.chat", "application/json")
+    c.feed(json.dumps({
+        "id": "resp-g", "model": "gemini-3-pro",
+        "usage": {"prompt_tokens": 100, "completion_tokens": 40,
+                  "prompt_tokens_details": {"cached_tokens": 10}},
+    }).encode())
+    facts = c.finish(200, {})
+    assert facts.dimensions == {
+        "input_tokens": 90, "cached_input_tokens": 10, "output_tokens": 40,
+    }
+    assert facts.model == "gemini-3-pro"
+
+    # Managed streams get usage frames injected (OpenAI-compat contract).
+    body = {"model": "gemini-3-pro", "stream": True, "messages": []}
+    out = adapters.prepare_managed_body("gemini.chat", body, json.dumps(body).encode())
+    assert json.loads(out)["stream_options"] == {"include_usage": True}
+
+
 async def test_route_unknown_is_none():
     assert route_catalog.classify("anthropic", "POST", "v1/complete") is None
     assert route_catalog.classify("anthropic", "DELETE", "v1/messages") is None
@@ -758,6 +790,24 @@ async def test_x_luna_headers_stripped_and_attribution_unspoofable(
     # Origin dimensions (048): channel + stable job id ingested for usage.
     assert ev.channel == "scheduler"
     assert ev.job_id == "trigger-abc"
+
+
+async def test_goalseek_run_root_action_type_accepted(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    """042/phase08: goal-seek wakes stamp root_action_type=goalseek_run — the
+    allowlist must accept it (unknown types coerce to NULL and the spend folds
+    into web, hiding what autonomous goal pursuit costs)."""
+    _set_mode(monkeypatch, "observe")
+    token = await _seed_billing_gateway(db_session, sample_agent)
+    r = await _call_messages(anon_client, token, headers={
+        "x-luna-root-action-type": "goalseek_run",
+        "x-luna-job-id": "goalseek-goal-1",
+    })
+    assert r.status_code == 200
+    ev = (await _rows(db_session, BillableEvent))[0]
+    assert ev.root_action_type == "goalseek_run"
+    assert ev.job_id == "goalseek-goal-1"
 
 
 async def test_same_call_id_never_dedupes_a_charge(

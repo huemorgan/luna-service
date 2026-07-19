@@ -366,6 +366,9 @@ async def _seed_channels(db_session, agent_id):
         ev("op-sc3", channel="scheduler", job="pb-trigger", rtype="playbook_run"),
         # A user/chat-initiated playbook run → Playbooks section.
         ev("op-pb", channel="web", job="daily-report", rtype="playbook_run"),
+        # A goal-seek heartbeat wake (042/phase08) → Goals section, keyed by
+        # the stable goalseek-{goal_id} job id.
+        ev("op-gs", channel="web", job="goalseek-g1", rtype="goalseek_run"),
         _charge_row("op-web", 200),
         _charge_row("op-legacy", 5),
         _charge_row("op-wa", 30),
@@ -374,6 +377,7 @@ async def _seed_channels(db_session, agent_id):
         _charge_row("op-sc2", 8),
         _charge_row("op-sc3", 15),
         _charge_row("op-pb", 60),
+        _charge_row("op-gs", 25),
     ])
     await db_session.commit()
 
@@ -384,7 +388,7 @@ async def test_usage_channels_sections_and_ymax(admin_client, db_session, accoun
 
     body = (await admin_client.get("/api/billing/usage/channels?range=7d")).json()
     secs = body["sections"]
-    assert set(secs) == {"web", "scheduler", "playbooks", "whatsapp", "telegram"}
+    assert set(secs) == {"web", "scheduler", "playbooks", "goals", "whatsapp", "telegram"}
     assert secs["web"]["total"] == 205          # 200 web + 5 legacy NULL
     assert secs["whatsapp"]["total"] == 30
     assert secs["telegram"]["total"] == 10
@@ -392,8 +396,10 @@ async def test_usage_channels_sections_and_ymax(admin_client, db_session, accoun
     assert secs["scheduler"]["total"] == 40 + 8 + 15
     # Playbooks = only the non-scheduled playbook run.
     assert secs["playbooks"]["total"] == 60
+    # Goals = the goal-seek wake (042/phase08).
+    assert secs["goals"]["total"] == 25
     # Section totals stay additive to the account total (no double counting).
-    assert sum(s["total"] for s in secs.values()) == 205 + 30 + 10 + 63 + 60
+    assert sum(s["total"] for s in secs.values()) == 205 + 30 + 10 + 63 + 60 + 25
     # y_max = max(peak single-day, 200): web peak 205 wins.
     assert body["y_max"] == 205
     # Every trend covers the same day span.
@@ -407,6 +413,9 @@ async def test_usage_channels_sections_and_ymax(admin_client, db_session, accoun
     # Playbooks split per playbook id.
     pbs = {t["key"]: t["total"] for t in secs["playbooks"]["items"]}
     assert pbs == {"daily-report": 60}
+    # Goals split per goal job id.
+    gls = {t["key"]: t["total"] for t in secs["goals"]["items"]}
+    assert gls == {"goalseek-g1": 25}
 
     text = str(body).lower()
     for token in FORBIDDEN:

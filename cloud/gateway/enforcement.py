@@ -69,7 +69,16 @@ BLOCK_MESSAGES = {
 }
 _RETRYABLE = {"exposure_limit", "billing_temporarily_unavailable"}
 
-_ROOT_ACTION_TYPES = {"chat", "playbook_run", "scheduled_run", "background_run", "forge_job"}
+_ROOT_ACTION_TYPES = {
+    "chat",
+    "playbook_run",
+    "scheduled_run",
+    "background_run",
+    "forge_job",
+    # 042/phase08: autonomous goal pursuit (plugin-goalseek wakes) — its own
+    # usage bucket so owners see what goal-seeking costs vs plain reminders.
+    "goalseek_run",
+}
 
 # 046: who initiated the work, stamped by Luna at the turn entry point via
 # x-luna-channel. Unknown/absent values coerce to None (legacy → NULL).

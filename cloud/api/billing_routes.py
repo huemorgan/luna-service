@@ -177,6 +177,7 @@ ACTION_LABELS = {
     "scheduled_run": "Scheduled run",
     "background_run": "Background run",
     "forge_job": "Forge job",
+    "goalseek_run": "Goal-Seek",
 }
 
 
@@ -653,11 +654,13 @@ async def usage_breakdown(
 # call's first BillableEvent. Legacy/unknown channels fold into "web".
 
 # Precedence taxonomy (048): each root action lands in exactly one bucket,
-# scheduler > playbook_run > whatsapp > telegram > web, so section totals stay
-# additive to the account total (no double counting). "playbooks" = playbook
-# runs NOT initiated by a scheduled trigger (a scheduled playbook stays under
-# "scheduler"). Section render order matches the UI.
-CHANNEL_SECTIONS = ("web", "scheduler", "playbooks", "whatsapp", "telegram")
+# scheduler > playbook_run > goalseek_run > whatsapp > telegram > web, so
+# section totals stay additive to the account total (no double counting).
+# "playbooks" = playbook runs NOT initiated by a scheduled trigger (a
+# scheduled playbook stays under "scheduler"); "goals" (042/phase08) =
+# autonomous goal-seek pursuit the same way. Section render order matches
+# the UI.
+CHANNEL_SECTIONS = ("web", "scheduler", "playbooks", "goals", "whatsapp", "telegram")
 
 # Shared y-axis floor (048): a quiet account still scales against 200 so a
 # 3-credit day doesn't balloon to full height; a busy account's tallest single
@@ -803,6 +806,7 @@ async def usage_channels(
         bucket = case(
             (BillableEvent.channel == "scheduler", "scheduler"),
             (BillableEvent.root_action_type == "playbook_run", "playbooks"),
+            (BillableEvent.root_action_type == "goalseek_run", "goals"),
             (BillableEvent.channel == "whatsapp", "whatsapp"),
             (BillableEvent.channel == "telegram", "telegram"),
             else_="web",
@@ -860,12 +864,18 @@ async def usage_channels(
             BillableEvent.root_action_type == "playbook_run",
             BillableEvent.channel.is_distinct_from("scheduler"),
         )
-        per_item = {"scheduler": triggers, "playbooks": playbooks}
+        # Goals bucket the same way (042/phase08): job_id = "goalseek-{goal_id}".
+        goals = await _split(
+            BillableEvent.root_action_type == "goalseek_run",
+            BillableEvent.channel.is_distinct_from("scheduler"),
+        )
+        per_item = {"scheduler": triggers, "playbooks": playbooks, "goals": goals}
 
         # Resolve scheduler trigger ids → the names users gave them. Playbook
-        # items already carry a human name (job_id = playbook.name).
+        # items already carry a human name (job_id = playbook.name); goal items
+        # carry the stable goalseek-{goal_id} key.
         trigger_names = await _scheduler_trigger_names()
-        item_names = {"scheduler": trigger_names, "playbooks": {}}
+        item_names = {"scheduler": trigger_names, "playbooks": {}, "goals": {}}
 
         # Shared y-axis ceiling: the tallest single-day bar across every
         # section, floored at 200 (per-item series are subsets, excluded).
