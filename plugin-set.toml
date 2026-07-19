@@ -38,3 +38,11 @@ sha256 = "64d9e4d0433b79c9ec57fc8a569d4e646e8a44572299d8f000c5962318002436"
 name = "plugin-browser"
 version = "0.4.0"
 sha256 = "c6bb7fc197a62db0521b8c3cd0377de4468c1d22f0d3da1d9d7d5c71ed2fa967"
+
+# 1.0.0: durable governed goal pursuit (042/phase09). Leaf deps only
+# (luna_sdk + sqlalchemy already in the image); requires luna >= 0.40.005
+# for deferential tool registration when curiosity is also installed.
+[[plugins]]
+name = "plugin-goalseek"
+version = "1.0.0"
+sha256 = "f380c9ae0eb529b8756d29ea0cf2fbb9b2515f9384b3ccdda6fb4ad348db60ac"
