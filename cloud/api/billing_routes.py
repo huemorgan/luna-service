@@ -803,10 +803,14 @@ async def usage_channels(
         )
         # Ordered precedence: first matching arm wins (scheduler beats a
         # playbook it happens to invoke; a playbook run beats its wa/tg channel).
+        # goalseek_run beats scheduler: goal-seek wakes ARE scheduler-fired
+        # (heartbeat triggers, channel="scheduler"), and separating what
+        # autonomous goal pursuit costs from plain reminders is the whole
+        # point of the Goals bucket (042/phase08).
         bucket = case(
+            (BillableEvent.root_action_type == "goalseek_run", "goals"),
             (BillableEvent.channel == "scheduler", "scheduler"),
             (BillableEvent.root_action_type == "playbook_run", "playbooks"),
-            (BillableEvent.root_action_type == "goalseek_run", "goals"),
             (BillableEvent.channel == "whatsapp", "whatsapp"),
             (BillableEvent.channel == "telegram", "telegram"),
             else_="web",
@@ -858,15 +862,17 @@ async def usage_channels(
                 out.setdefault(str(key), {})[str(d)[:10]] = int(credits or 0)
             return out
 
-        triggers = await _split(BillableEvent.channel == "scheduler")
-        # Playbooks bucket mirrors the precedence: playbook_run NOT in scheduler.
+        # Each split mirrors the bucket precedence above so per-item series
+        # sum to their section total. Goals is keyed purely by the root
+        # action type (wakes ride channel="scheduler", so no channel filter);
+        # scheduler and playbooks exclude what the goals arm already claimed.
+        goals = await _split(BillableEvent.root_action_type == "goalseek_run")
+        triggers = await _split(
+            BillableEvent.channel == "scheduler",
+            BillableEvent.root_action_type.is_distinct_from("goalseek_run"),
+        )
         playbooks = await _split(
             BillableEvent.root_action_type == "playbook_run",
-            BillableEvent.channel.is_distinct_from("scheduler"),
-        )
-        # Goals bucket the same way (042/phase08): job_id = "goalseek-{goal_id}".
-        goals = await _split(
-            BillableEvent.root_action_type == "goalseek_run",
             BillableEvent.channel.is_distinct_from("scheduler"),
         )
         per_item = {"scheduler": triggers, "playbooks": playbooks, "goals": goals}

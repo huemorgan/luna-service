@@ -367,8 +367,10 @@ async def _seed_channels(db_session, agent_id):
         # A user/chat-initiated playbook run → Playbooks section.
         ev("op-pb", channel="web", job="daily-report", rtype="playbook_run"),
         # A goal-seek heartbeat wake (042/phase08) → Goals section, keyed by
-        # the stable goalseek-{goal_id} job id.
-        ev("op-gs", channel="web", job="goalseek-g1", rtype="goalseek_run"),
+        # the stable goalseek-{goal_id} job id. Wakes really ride
+        # channel="scheduler" (heartbeat triggers), so this seeds the
+        # realistic shape — the goals arm must beat the scheduler arm.
+        ev("op-gs", channel="scheduler", job="goalseek-g1", rtype="goalseek_run"),
         _charge_row("op-web", 200),
         _charge_row("op-legacy", 5),
         _charge_row("op-wa", 30),
