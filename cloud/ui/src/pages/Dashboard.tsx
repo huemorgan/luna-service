@@ -92,6 +92,7 @@ export default function Dashboard() {
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('My Luna');
+  const [createError, setCreateError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -152,6 +153,7 @@ export default function Dashboard() {
 
   const handleCreate = async () => {
     setCreating(true);
+    setCreateError(null);
     try {
       const res = await fetch('/api/agents', {
         method: 'POST',
@@ -163,7 +165,17 @@ export default function Dashboard() {
         setAgents(prev => [...prev, agent]);
         setShowCreate(false);
         setNewName('My Luna');
+      } else {
+        // detail is either a string or {code, message} (e.g. 402 billing blocks)
+        const err = await res.json().catch(() => null);
+        const detail = err?.detail;
+        setCreateError(
+          (typeof detail === 'string' ? detail : detail?.message)
+          || 'Could not create the agent. Please try again.'
+        );
       }
+    } catch {
+      setCreateError('Could not create the agent. Please try again.');
     } finally {
       setCreating(false);
     }
@@ -261,13 +273,18 @@ export default function Dashboard() {
                 Create
               </button>
               <button
-                onClick={() => { setShowCreate(false); setNewName('My Luna'); }}
+                onClick={() => { setShowCreate(false); setNewName('My Luna'); setCreateError(null); }}
                 className="px-4 py-2.5 rounded-xl text-sm transition-colors hover:opacity-80"
                 style={{ color: 'var(--text-dim)' }}
               >
                 Cancel
               </button>
             </div>
+            {createError && (
+              <p className="mt-3 text-sm" style={{ color: 'var(--error, #f87171)' }}>
+                {createError}
+              </p>
+            )}
           </div>
         )}
 
