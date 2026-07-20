@@ -85,6 +85,28 @@ class UpdateAgentRequest(BaseModel):
     color: str | None = None
 
 
+def _parse_version(v: str | None) -> tuple[int, ...] | None:
+    """'0.41.005' → (0, 41, 5). None when empty or no numeric parts."""
+    if not v:
+        return None
+    parts = re.findall(r"\d+", v)
+    return tuple(int(p) for p in parts) if parts else None
+
+
+def _is_newer_version(candidate: str | None, current: str | None) -> bool:
+    """True when ``candidate`` is strictly newer than ``current``.
+
+    Falls back to plain inequality when either side can't be parsed (e.g. an
+    agent whose image_version was never recorded) — matching the old behavior.
+    """
+    if not candidate:
+        return False
+    cand, cur = _parse_version(candidate), _parse_version(current)
+    if cand is None or cur is None:
+        return candidate != current
+    return cand > cur
+
+
 async def _main_image_version(db) -> str | None:
     """Version of the current main (default) built image — what a machine
     upgrades *to*. ``None`` when no main image is set."""
@@ -109,7 +131,7 @@ def _agent_dict(a: Agent, latest_version: str | None = None) -> dict:
         "image_version": a.image_version,
         "latest_version": latest_version,
         "upgrade_available": bool(
-            latest_version and a.runtime_ref and a.image_version != latest_version
+            a.runtime_ref and _is_newer_version(latest_version, a.image_version)
         ),
         "error_message": a.error_message,
         "error_at": a.error_at.isoformat() if a.error_at else None,
@@ -501,6 +523,9 @@ async def upgrade_check(
         return {"upgradable": False, "reason": "This machine isn't provisioned yet."}
     if agent.image_version == target.version:
         return {"upgradable": False, "reason": "Already on the latest version."}
+    if not _is_newer_version(target.version, agent.image_version):
+        return {"upgradable": False,
+                "reason": "This machine is on a newer version than the main image."}
 
     base = {
         "upgradable": True,
