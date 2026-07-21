@@ -437,5 +437,11 @@ def _rewrite_html_paths(html: str, prefix: str) -> str:
         "window.EventSource.CLOSED=_ES.CLOSED;"
         "})();</script>"
     )
-    html = html.replace("</head>", interceptor + "</head>")
+    # plan 051/007: browser-side error reporter, served by plugin-feedback on
+    # the agent. Best-effort — 404s silently when the plugin is absent or old.
+    reporter = (
+        f'<script src="{prefix}/api/p/plugin-feedback/reporter.js" defer>'
+        "</script>"
+    )
+    html = html.replace("</head>", interceptor + reporter + "</head>")
     return html
