@@ -52,8 +52,10 @@ Indexes: `(fingerprint)`, `(source, created_at)`, `(agent_id, created_at)`,
 `(severity, created_at)`, `(kind, created_at)`. Raw rows kept; grouping is a
 query (count + first/last seen per fingerprint), so no lossy pre-aggregation.
 
-Retention: a periodic prune (e.g. keep 30–90d, or cap rows) — decide in P1;
-start simple with a `created_at` index and a scheduled delete.
+Retention: `ERROR_RETENTION_DAYS` (default 60). Prune probabilistically on
+ingest (~1% of accepted batches also run the `DELETE … WHERE created_at <
+cutoff`) so there is no scheduler dependency; the `created_at` composite
+indexes make the delete cheap.
 
 ## Endpoints
 
@@ -68,6 +70,10 @@ start simple with a `created_at` index and a scheduled delete.
   than feedback's cap (errors are bursty) — e.g. `MAX_ERROR_EVENTS_PER_DAY`
   with server-side sampling once exceeded, and a `429`-free drop (just don't
   insert; count is advisory). Log the drop.
+- Payload hardening: whitelist `kind` (unknown values → `agent_report`, keep
+  the original in context), clamp `severity` to the enum, cap batch ≤ 50
+  events, message ≤ 500 chars, stack ≤ 16 KB, breadcrumbs ≤ 20 entries —
+  truncate, don't reject (client data must never 422 the fire-and-forget path).
 
 **Admin-facing** — new `cloud/api/error_routes.py` (`require_admin`),
 `prefix="/api/admin/errors"`:
@@ -77,6 +83,8 @@ start simple with a `created_at` index and a scheduled delete.
 - `GET /{fingerprint}` — the group's recent raw events with full context.
 - `GET /events/{id}` — a single event's full context (stack, breadcrumbs).
 - `POST /{fingerprint}/resolve` (optional) — mark a group acknowledged/muted.
+  If implemented it needs a tiny `error_group_state` table keyed by
+  fingerprint (state, resolved_by, resolved_at); raw events stay immutable.
 
 ## Self-tracking (luna-service writes its own errors)
 
@@ -89,6 +97,12 @@ breaks the request). Wire it into **existing** log sites, don't re-instrument:
 - Agent wake failures (→ `agent_wake_failed`).
 - A FastAPI exception handler / middleware for unhandled 5xx
   (→ `unhandled_exception`).
+
+Storm guard (mandatory, not optional): per-fingerprint in-process throttle
+(~10/min) and drop-immediately when the DB itself is unavailable — no retry,
+no queue. An incident that 500s every request must not amplify DB load through
+its own error sink; when the sink drops, bump a process-local counter and log
+one line per minute at most.
 
 ## Admin UI — "Error Tracking" left-pane section
 
@@ -133,7 +147,11 @@ Scenario `051-error-tracking`: with a hosted agent + plugin-feedback 0.2.0,
 trigger a UI JS error, a page-load 502 (stop the agent mid-load), an agent
 plugin exception, and a proxy read timeout. Open `/admin/errors`; verify four
 grouped entries across sources `ui`/`agent`/`service`, each drill-down showing
-stack/breadcrumbs/agent/timing. Verify filters and grouping.
+stack/breadcrumbs/agent/timing. Verify filters and grouping. Also include an
+**agent-side unhandled 5xx** (e.g. a simulated DB-connect failure — the
+2026-07-19 approval-500 incident, asyncpg connect errors on the agent's
+approvals API, is the reference case) and verify it arrives via 007's log
+handler with the traceback intact.
 
 ## Risks
 
