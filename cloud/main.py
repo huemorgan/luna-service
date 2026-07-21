@@ -16,6 +16,8 @@ from cloud.api.auth_routes import router as auth_router
 from cloud.api.billing_admin_routes import router as billing_admin_router
 from cloud.api.billing_routes import public_router as billing_public_router
 from cloud.api.billing_routes import router as billing_router
+from cloud.api.error_agent_routes import router as error_agent_router
+from cloud.api.error_routes import router as error_admin_router
 from cloud.api.gateway_admin_routes import router as gateway_admin_router
 from cloud.api.gateway_agent_routes import router as gateway_agent_router
 from cloud.api.feedback_agent_routes import router as feedback_agent_router
@@ -172,6 +174,24 @@ def create_app() -> FastAPI:
     # Outermost (added last): times every request, including static/proxy.
     app.add_middleware(TimingMiddleware)
 
+    # Plan 051: any exception no route handler caught becomes an error_events
+    # row before the usual 500. The sink is best-effort (storm-guarded, never
+    # raises), so this can't make a bad request worse.
+    @app.exception_handler(Exception)
+    async def _record_unhandled(request, exc):
+        from fastapi.responses import JSONResponse
+
+        from cloud.observability.error_sink import record_error_event
+
+        await record_error_event(
+            kind="unhandled_exception",
+            severity="critical",
+            message=f"{type(exc).__name__}: {exc}",
+            route=request.url.path,
+            context={"method": request.method},
+        )
+        return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
+
     if (UI_DIR / "assets").is_dir():
         app.mount("/assets", ImmutableStaticFiles(directory=UI_DIR / "assets"), name="assets")
 
@@ -258,6 +278,11 @@ def create_app() -> FastAPI:
     app.include_router(feedback_router)
     app.include_router(feedback_agent_router)
     app.include_router(feedback_agent_router, prefix="/proxy")
+    # Error tracking (plan 051). Agent/browser ingest (also under /proxy) +
+    # admin grouped view.
+    app.include_router(error_admin_router)
+    app.include_router(error_agent_router)
+    app.include_router(error_agent_router, prefix="/proxy")
     app.include_router(gateway_proxy_router)
     app.include_router(proxy_router)
 

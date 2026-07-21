@@ -417,6 +417,50 @@ class FeedbackMessage(Base):
     ticket: Mapped[FeedbackTicket] = relationship(back_populates="messages")
 
 
+class ErrorEvent(Base):
+    """Plan 051 — one captured error from anywhere in the runtime.
+
+    Three writers, one table: browser UI + agent runtime (via plugin-feedback,
+    plan 007, through `POST /api/agent/errors`) and luna-service itself (via
+    the in-process error sink). Rows are immutable raw events; grouping is a
+    query over `fingerprint`. Agents soft-delete, so the FK is ON DELETE SET
+    NULL and `account_id` is denormalized at ingest (mirrors FeedbackTicket).
+    """
+
+    __tablename__ = "error_events"
+    __table_args__ = (
+        Index("ix_error_events_fingerprint", "fingerprint"),
+        Index("ix_error_events_source_created", "source", "created_at"),
+        Index("ix_error_events_agent_created", "agent_id", "created_at"),
+        Index("ix_error_events_severity_created", "severity", "created_at"),
+        Index("ix_error_events_kind_created", "kind", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    # agent | ui | service
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL")
+    )
+    account_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    # js_error | unhandled_rejection | page_load_failed | resource_error |
+    # fetch_error | http_5xx | timeout | proxy_502 | proxy_read_timeout |
+    # agent_wake_failed | plugin_exception | llm_timeout | embed_error |
+    # agent_report | unhandled_exception
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    # info | warning | error | critical
+    severity: Mapped[str] = mapped_column(Text, nullable=False, default="error")
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    # sha1(kind + normalized_message + route/target), ids/numbers normalized
+    # out — computed server-side at ingest, never trusted from the client.
+    fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    # client block under context.client, server enrichment under context.server
+    context: Mapped[dict | None] = mapped_column(JSONB)
+    # source/client-side time; created_at is control-plane receive time
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class AppSetting(Base):
     """Generic singleton key/value store for control-plane settings (Plan 020).
 

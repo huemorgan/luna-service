@@ -18,6 +18,7 @@ import WhatsAppPage from './pages/admin/WhatsAppPage';
 import TelegramPage from './pages/admin/TelegramPage';
 import SchedulerPage from './pages/admin/SchedulerPage';
 import FeedbackPage from './pages/admin/FeedbackPage';
+import ErrorsPage from './pages/admin/ErrorsPage';
 import PricingOverviewPage from './pages/admin/pricing/PricingOverviewPage';
 import PricingVersionsPage from './pages/admin/pricing/PricingVersionsPage';
 import PricingVersionDetailPage from './pages/admin/pricing/PricingVersionDetailPage';
@@ -74,6 +75,7 @@ export default function App() {
           <Route path="telegram" element={<TelegramPage />} />
           <Route path="scheduler" element={<SchedulerPage />} />
           <Route path="feedback" element={<FeedbackPage />} />
+          <Route path="errors" element={<ErrorsPage />} />
           <Route path="pricing" element={<PricingOverviewPage />} />
           <Route path="pricing/versions" element={<PricingVersionsPage />} />
           <Route path="pricing/versions/:versionId" element={<PricingVersionDetailPage />} />

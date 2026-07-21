@@ -17,6 +17,7 @@ from sqlalchemy import select
 from cloud.auth.session import get_session
 from cloud.db.models import Agent, User
 from cloud.db.session import get_session as get_db_session
+from cloud.observability.error_sink import record_error_event
 
 log = logging.getLogger(__name__)
 
@@ -147,6 +148,13 @@ async def _try_wake_agent(agent: Agent) -> bool:
         if machine is None:
             log.warning("Wake %s: machine %s no longer exists", slug, agent.runtime_ref)
             await _mark_agent_error(agent.id, "Machine no longer exists")
+            await record_error_event(
+                kind="agent_wake_failed", severity="critical",
+                message="Machine no longer exists",
+                route=f"/a/{slug}",
+                context={"runtime_ref": agent.runtime_ref},
+                agent_id=agent.id, account_id=agent.account_id,
+            )
             return False
 
         handle = RuntimeHandle(
@@ -168,6 +176,13 @@ async def _try_wake_agent(agent: Agent) -> bool:
         return True
     except Exception as exc:
         log.error("Failed to auto-wake agent %s: %s", slug, exc)
+        await record_error_event(
+            kind="agent_wake_failed", severity="error",
+            message=f"Failed to auto-wake agent: {type(exc).__name__}: {exc}",
+            route=f"/a/{slug}",
+            context={"runtime_ref": agent.runtime_ref},
+            agent_id=agent.id, account_id=agent.account_id,
+        )
         return False
     finally:
         # Always release waiters — before this fix a failed wake left them
@@ -259,8 +274,22 @@ async def _proxy_request(
                 yield chunk
         except httpx.ReadTimeout:
             log.warning("Proxy stream idle timeout: %s", target_url)
+            await record_error_event(
+                kind="proxy_read_timeout", severity="warning",
+                message="Proxy stream idle timeout",
+                route=f"/a/{agent_slug}/{path}",
+                context={"target": target_url, "method": request.method},
+                agent_id=agent.id, account_id=agent.account_id,
+            )
         except (httpx.ReadError, httpx.RemoteProtocolError) as exc:
             log.warning("Proxy stream broke (%s): %s", type(exc).__name__, target_url)
+            await record_error_event(
+                kind="proxy_502", severity="warning",
+                message=f"Proxy stream broke ({type(exc).__name__})",
+                route=f"/a/{agent_slug}/{path}",
+                context={"target": target_url, "method": request.method},
+                agent_id=agent.id, account_id=agent.account_id,
+            )
         except asyncio.CancelledError:
             # Client went away mid-stream (tab closed / navigation).
             raise
@@ -317,6 +346,13 @@ async def proxy_to_luna(request: Request, agent_slug: str, path: str = ""):
                 a.error_message = f"Machine unreachable: {type(exc).__name__}"
                 a.error_at = datetime.now(timezone.utc)
                 await db.commit()
+            await record_error_event(
+                kind="proxy_502", severity="error",
+                message="Luna instance is unreachable and could not be restarted",
+                route=f"/a/{agent_slug}/{path}",
+                context={"method": request.method, "error": type(exc).__name__},
+                agent_id=agent.id, account_id=agent.account_id,
+            )
             raise HTTPException(
                 status.HTTP_502_BAD_GATEWAY,
                 "Luna instance is unreachable and could not be restarted",
@@ -327,12 +363,26 @@ async def proxy_to_luna(request: Request, agent_slug: str, path: str = ""):
             return await _proxy_request(request, user, agent, agent_slug, path)
         except Exception as retry_exc:
             log.error("Proxy retry failed after wake for %s: %s", agent_slug, retry_exc)
+            await record_error_event(
+                kind="proxy_502", severity="error",
+                message=f"Luna restarted but still unreachable: {type(retry_exc).__name__}",
+                route=f"/a/{agent_slug}/{path}",
+                context={"method": request.method},
+                agent_id=agent.id, account_id=agent.account_id,
+            )
             raise HTTPException(
                 status.HTTP_502_BAD_GATEWAY,
                 f"Luna restarted but still unreachable: {type(retry_exc).__name__}",
             )
     except Exception as exc:
         log.error("Proxy connection failed: %s: %s", agent_slug, exc)
+        await record_error_event(
+            kind="proxy_502", severity="error",
+            message=f"Cannot reach Luna instance: {type(exc).__name__}: {exc}",
+            route=f"/a/{agent_slug}/{path}",
+            context={"method": request.method},
+            agent_id=agent.id, account_id=agent.account_id,
+        )
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
             f"Cannot reach Luna instance: {type(exc).__name__}",
