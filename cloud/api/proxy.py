@@ -43,6 +43,17 @@ class _WakeAttempt:
 _wake_locks: dict[str, _WakeAttempt] = {}
 
 
+def _stream_idle_read_seconds() -> float:
+    """Per-chunk idle allowance for proxied SSE streams (045/phase06).
+
+    Long agent tool runs can emit nothing for minutes; the default 120 s read
+    timeout killed those turns as ReadTimeout storms in the Render logs."""
+    try:
+        return float(os.environ.get("PROXY_STREAM_IDLE_READ", "300"))
+    except ValueError:
+        return 300.0
+
+
 def _get_http_client() -> httpx.AsyncClient:
     global _http_client
     if _http_client is None:
@@ -198,6 +209,17 @@ async def _proxy_request(
         content=body if body else None,
     )
 
+    # 045/phase06 (= 044 Bug 6): SSE turns can sit idle well past the client's
+    # default 120 s read timeout (long tool runs emit no bytes), and each one
+    # died as an httpcore.ReadTimeout raised straight through the ASGI stack
+    # (the Render log storm). httpx's read timeout is already per-chunk idle,
+    # so give streaming requests a longer idle allowance; genuinely stalled
+    # upstreams are closed cleanly by the generator below instead of raising.
+    if "text/event-stream" in request.headers.get("accept", ""):
+        req.extensions["timeout"] = httpx.Timeout(
+            120, connect=10, read=_stream_idle_read_seconds(),
+        ).as_dict()
+
     log.info("Proxying %s %s → %s", request.method, request.url.path, target_url)
     resp = await client.send(req, stream=True)
 
@@ -229,9 +251,21 @@ async def _proxy_request(
         response_headers["x-accel-buffering"] = "no"
 
     async def stream():
-        async for chunk in resp.aiter_bytes():
-            yield chunk
-        await resp.aclose()
+        # 045/phase06: a stalled upstream or a client abort must end the
+        # stream cleanly — no exception through the ASGI stack, no error-level
+        # log, and the upstream response always closed.
+        try:
+            async for chunk in resp.aiter_bytes():
+                yield chunk
+        except httpx.ReadTimeout:
+            log.warning("Proxy stream idle timeout: %s", target_url)
+        except (httpx.ReadError, httpx.RemoteProtocolError) as exc:
+            log.warning("Proxy stream broke (%s): %s", type(exc).__name__, target_url)
+        except asyncio.CancelledError:
+            # Client went away mid-stream (tab closed / navigation).
+            raise
+        finally:
+            await resp.aclose()
 
     return StreamingResponse(
         stream(),
