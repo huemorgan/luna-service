@@ -471,12 +471,14 @@ _COLLECTORS = {
     # xAI is OpenAI-compatible on the wire, but its completion_tokens excludes
     # billed reasoning tokens — XAIChatCollector adds them back.
     "xai.chat": XAIChatCollector,
+    # Gemini's OpenAI-compat surface (050) reports OpenAI-shaped usage.
+    "gemini.chat": OpenAIChatCollector,
     "gemini.generate": GeminiGenerateCollector,
     "openai.images": OpenAIImagesCollector,
 }
 
 # Adapters speaking the OpenAI chat protocol (usage shape + stream_options).
-_OPENAI_CHAT_COMPAT = ("openai.chat", "xai.chat")
+_OPENAI_CHAT_COMPAT = ("openai.chat", "xai.chat", "gemini.chat")
 
 
 def make_collector(adapter: str, content_type: str) -> UsageCollector:

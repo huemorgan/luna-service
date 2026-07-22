@@ -55,3 +55,26 @@ async def disconnect_agent(agent: Agent) -> dict:
 
 async def fetch_account_qr(agent_slug: str, fmt: str = "html") -> httpx.Response:
     return await _gateway("GET", f"/accounts/{agent_slug}/qr?format={fmt}")
+
+
+async def push_voice_key(agent_id, agent_slug: str) -> bool:
+    """Best-effort: PATCH the agent's effective ElevenLabs key onto its wa
+    account so the gateway synthesizes voice notes with the tenant's key
+    instead of the platform env fallback (plan 052 §4). Never raises."""
+    from cloud.db.session import get_session
+    from cloud.gateway.crypto import decrypt_key
+    from cloud.gateway.keys import resolve_keys
+
+    try:
+        async with get_session() as db:
+            keys = await resolve_keys(db, "elevenlabs", agent_id)
+            if not keys:
+                return False
+            api_key = decrypt_key(keys[0].api_key_enc)
+        resp = await _gateway("PATCH", f"/accounts/{agent_slug}", {"eleven_key": api_key})
+        if resp.status_code != 200:
+            log.warning("whatsapp.push_voice_key %s: gateway %s", agent_slug, resp.status_code)
+        return resp.status_code == 200
+    except Exception as exc:  # noqa: BLE001 — never fail the caller over voice
+        log.warning("whatsapp.push_voice_key %s failed: %s", agent_slug, exc)
+        return False

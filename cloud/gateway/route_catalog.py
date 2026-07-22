@@ -70,6 +70,12 @@ _CATALOG: dict[tuple[str, str, str], RouteClass] = {
         _billed("gemini.generate", "image_gen"),
     ("gemini", "GET", "/models"): _FREE,
     ("gemini", "GET", "/models/*"): _FREE,
+    # 050: Gemini reasoning rides Google's OpenAI-compat surface — the agent
+    # points an OpenAI client at /proxy/gemini/openai, so the bare paths are
+    # /openai/... . Usage is OpenAI-shaped (gemini.chat collector).
+    ("gemini", "POST", "/openai/chat/completions"): _billed("gemini.chat", "llm_call"),
+    ("gemini", "GET", "/openai/models"): _FREE,
+    ("gemini", "GET", "/openai/models/*"): _FREE,
     # /images/edits is multipart form-data — extract_model scans the form.
     ("openai", "POST", "/images/generations"): _billed("openai.images", "image_gen"),
     ("openai", "POST", "/images/edits"): _billed("openai.images", "image_gen"),

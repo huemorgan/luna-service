@@ -90,10 +90,13 @@ async def agent_connect(
             row.config_overrides = overrides
             await db.commit()
 
+    voice_key_pushed = await provision.push_voice_key(agent.id, agent.slug)
+
     out = {
         "account_id": account.get("account_id", agent.slug),
         "status": account.get("status"),
         "gateway_url": gateway_url,
+        "voice_key_pushed": voice_key_pushed,
     }
     if account.get("secret"):
         out["secret"] = account["secret"]

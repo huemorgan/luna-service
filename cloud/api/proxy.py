@@ -9,6 +9,8 @@ import re
 import uuid
 from datetime import datetime, timezone
 
+import json
+
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
@@ -191,6 +193,86 @@ async def _try_wake_agent(agent: Agent) -> bool:
         _wake_locks.pop(slug, None)
 
 
+# Keep strong refs to fire-and-forget wake tasks so they aren't GC'd mid-flight.
+_background_wakes: set[asyncio.Task] = set()
+
+
+def _spawn_wake(agent: Agent) -> None:
+    """Fire-and-forget wake. Deduped by the wake lock in _try_wake_agent."""
+    task = asyncio.create_task(_try_wake_agent(agent))
+    _background_wakes.add(task)
+    task.add_done_callback(_background_wakes.discard)
+
+
+def _is_page_navigation(request: Request) -> bool:
+    """A browser navigating to a page (as opposed to fetch/XHR/asset/SSE)."""
+    return request.method == "GET" and "text/html" in request.headers.get("accept", "")
+
+
+_HOLDING_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waking Luna…</title>
+<style>
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+       background:#0f0f14;color:#e4e4ef;font-family:'Inter',system-ui,-apple-system,sans-serif;
+       -webkit-font-smoothing:antialiased}
+  .wrap{text-align:center;padding:2rem;max-width:26rem}
+  .spinner{width:44px;height:44px;margin:0 auto 1.5rem;border-radius:50%;
+           border:3px solid #2a2a3a;border-top-color:#c9b8ff;animation:spin 0.9s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  h1{font-size:1.15rem;font-weight:600;margin:0 0 .5rem}
+  p{font-size:.85rem;color:#8888a0;margin:0;line-height:1.5}
+  #slow{display:none;margin-top:1.25rem;font-size:.8rem}
+  a{color:#c9b8ff}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="spinner"></div>
+  <h1>Starting Luna&rsquo;s machine</h1>
+  <p>This window will refresh when Luna is ready.</p>
+  <p id="slow">This is taking longer than usual. You can keep waiting, or check the
+     <a href="/dashboard">dashboard</a> for its status.</p>
+</div>
+<script>
+(function(){
+  var READY_URL=__READY_URL__;
+  var started=Date.now();
+  function poll(){
+    fetch(READY_URL,{cache:'no-store'})
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(d){
+        if(d&&d.ready){location.reload();return;}
+        next();
+      })
+      .catch(next);
+  }
+  function next(){
+    if(Date.now()-started>90000)document.getElementById('slow').style.display='block';
+    setTimeout(poll,3000);
+  }
+  setTimeout(poll,2000);
+})();
+</script>
+</body>
+</html>"""
+
+
+def _holding_page(agent_slug: str) -> Response:
+    html = _HOLDING_PAGE.replace(
+        "__READY_URL__", json.dumps(f"/a/{agent_slug}/__luna_ready")
+    )
+    return Response(
+        content=html,
+        status_code=200,
+        media_type="text/html; charset=utf-8",
+        headers={"cache-control": "no-cache, no-store, must-revalidate"},
+    )
+
+
 async def _proxy_request(
     request: Request, user: User, agent: Agent, agent_slug: str, path: str,
 ) -> Response:
@@ -304,6 +386,34 @@ async def _proxy_request(
     )
 
 
+@router.get("/a/{agent_slug}/__luna_ready", include_in_schema=False)
+async def luna_ready(request: Request, agent_slug: str):
+    """Readiness probe for the holding page. Checks the machine's /api/health
+    directly; when it's down, (re)triggers a wake in the background so polling
+    alone is enough to bring the machine up. Always 200 with {"ready": bool}."""
+    _, agent = await _resolve_agent(request, agent_slug)
+    if not agent.runtime_ref or not agent.internal_url:
+        return {"ready": False}
+
+    headers = {}
+    if agent.runtime_ref:
+        headers["fly-force-instance-id"] = agent.runtime_ref
+    try:
+        client = _get_http_client()
+        resp = await client.get(
+            f"{agent.internal_url.rstrip('/')}/api/health",
+            headers=headers,
+            timeout=httpx.Timeout(3, connect=2),
+        )
+        if resp.status_code == 200:
+            return {"ready": True}
+    except Exception:  # noqa: BLE001 — any failure just means "not ready yet"
+        pass
+
+    _spawn_wake(agent)
+    return {"ready": False}
+
+
 @router.api_route(
     "/a/{agent_slug}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
@@ -324,8 +434,16 @@ async def proxy_to_luna(request: Request, agent_slug: str, path: str = ""):
     if not agent.runtime_ref:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Agent has no runtime")
 
+    # Browser page loads get a self-refreshing holding page instead of an
+    # error while the machine boots; API/asset/SSE requests keep the old
+    # block-and-retry behavior.
+    wants_page = _is_page_navigation(request)
+
     # If DB says stopped, try to wake before proxying
     if agent.status in ("stopped", "error"):
+        if wants_page:
+            _spawn_wake(agent)
+            return _holding_page(agent_slug)
         woke = await _try_wake_agent(agent)
         if not woke:
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Luna could not be started")
@@ -336,6 +454,9 @@ async def proxy_to_luna(request: Request, agent_slug: str, path: str = ""):
     except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
         # Machine might have died while DB still says "running" — try to wake it
         log.warning("Proxy failed for %s, attempting auto-wake: %s", agent_slug, exc)
+        if wants_page:
+            _spawn_wake(agent)
+            return _holding_page(agent_slug)
 
         woke = await _try_wake_agent(agent)
         if not woke:

@@ -207,4 +207,5 @@ async def test_resolve_falls_back_to_seed(anon_client, sample_image):
     )
     assert resp.status_code == 200
     names = {p["name"] for p in resp.json()["plugins"]}
-    assert names == {"plugin-charts", "plugin-web-access", "plugin-files", "plugin-browser"}
+    assert names == {"plugin-charts", "plugin-web-access", "plugin-files", "plugin-browser",
+                     "plugin-goalseek"}

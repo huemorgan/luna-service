@@ -130,6 +130,7 @@ async def _patch_db(db_engine):
         patch("cloud.api.relay_routes.get_db_session", _test_session),
         patch("cloud.api.whatsapp_routes.get_db_session", _test_session),
         patch("cloud.relay.forwarder.get_db_session", _test_session),
+        patch("cloud.api.gateway_env_delta.get_db_session", _test_session),
     ):
         yield
 

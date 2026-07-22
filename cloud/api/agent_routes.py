@@ -148,6 +148,7 @@ async def _tenant_request(
     *,
     user_email: str,
     timeout: float = 25.0,
+    auth: str = "proxy",
 ) -> tuple[int | None, dict | None]:
     """Call the tenant's Luna over the trusted-proxy channel.
 
@@ -155,6 +156,11 @@ async def _tenant_request(
     machine on a connection failure and retries once. Returns
     ``(status_code, json | None)``; ``(None, None)`` when unreachable. Never
     raises — callers degrade gracefully.
+
+    ``auth="jwt"``: agent core rejects proxy-secret-only auth for WRITE
+    endpoints (`enforce_read_only_cookie`), so write callers must first
+    exchange the proxy headers for an agent-issued JWT via
+    ``POST /api/auth/proxy-login`` and send it as a Bearer token.
     """
     from cloud.api.proxy import _try_wake_agent
     from cloud.runtime.proxy_secret import derive_proxy_secret
@@ -169,9 +175,18 @@ async def _tenant_request(
         headers["fly-force-instance-id"] = agent.runtime_ref
     url = f"{(agent.internal_url or '').rstrip('/')}{path}"
 
+    login_url = f"{(agent.internal_url or '').rstrip('/')}/api/auth/proxy-login"
+
     async def _send() -> tuple[int, dict | None]:
         async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10)) as client:
-            resp = await client.request(method, url, headers=headers, json=json_body)
+            send_headers = headers
+            if auth == "jwt":
+                login = await client.post(login_url, headers=headers, json={})
+                if login.status_code != 200:
+                    return login.status_code, {"error": "proxy-login failed"}
+                token = login.json().get("access_token")
+                send_headers = {**headers, "authorization": f"Bearer {token}"}
+            resp = await client.request(method, url, headers=send_headers, json=json_body)
             try:
                 data = resp.json()
             except Exception:  # noqa: BLE001

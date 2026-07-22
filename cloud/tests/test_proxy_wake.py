@@ -118,6 +118,75 @@ class TestProxyAutoWake:
             assert "unreachable" in (agent.error_message or "").lower()
 
 
+class TestHoldingPage:
+    """Browser page loads get a self-refreshing holding page while the machine boots."""
+
+    HTML_HEADERS = {"accept": "text/html,application/xhtml+xml"}
+
+    async def test_stopped_agent_page_load_gets_holding_page(self, admin_client: AsyncClient, sample_agent, db_session):
+        sample_agent.status = "stopped"
+        await db_session.commit()
+
+        with patch("cloud.api.proxy._try_wake_agent", new_callable=AsyncMock, return_value=True) as wake:
+            resp = await admin_client.get(f"/a/{sample_agent.slug}/", headers=self.HTML_HEADERS)
+            assert resp.status_code == 200
+            assert "text/html" in resp.headers["content-type"]
+            assert "__luna_ready" in resp.text
+            assert "refresh" in resp.text.lower()
+            # Wake is fired in the background
+            await asyncio.sleep(0)
+            assert wake.called
+
+    async def test_connect_error_page_load_gets_holding_page(self, admin_client: AsyncClient, sample_agent):
+        import httpx
+
+        async def mock_proxy(*args, **kwargs):
+            raise httpx.ConnectError("Connection refused")
+
+        with (
+            patch("cloud.api.proxy._proxy_request", side_effect=mock_proxy),
+            patch("cloud.api.proxy._try_wake_agent", new_callable=AsyncMock, return_value=True),
+        ):
+            resp = await admin_client.get(f"/a/{sample_agent.slug}/", headers=self.HTML_HEADERS)
+            assert resp.status_code == 200
+            assert "__luna_ready" in resp.text
+
+    async def test_api_requests_keep_old_behavior(self, admin_client: AsyncClient, sample_agent, db_session):
+        """No holding page for fetch/XHR — stopped + failed wake still 503s."""
+        sample_agent.status = "stopped"
+        await db_session.commit()
+
+        with patch("cloud.api.proxy._try_wake_agent", new_callable=AsyncMock, return_value=False):
+            resp = await admin_client.get(f"/a/{sample_agent.slug}/api/health")
+            assert resp.status_code == 503
+
+    async def test_ready_endpoint_true_when_health_ok(self, admin_client: AsyncClient, sample_agent):
+        health_resp = MagicMock(status_code=200)
+        client = MagicMock()
+        client.get = AsyncMock(return_value=health_resp)
+
+        with patch("cloud.api.proxy._get_http_client", return_value=client):
+            resp = await admin_client.get(f"/a/{sample_agent.slug}/__luna_ready")
+            assert resp.status_code == 200
+            assert resp.json() == {"ready": True}
+
+    async def test_ready_endpoint_false_and_wakes_when_unreachable(self, admin_client: AsyncClient, sample_agent):
+        import httpx
+
+        client = MagicMock()
+        client.get = AsyncMock(side_effect=httpx.ConnectError("down"))
+
+        with (
+            patch("cloud.api.proxy._get_http_client", return_value=client),
+            patch("cloud.api.proxy._try_wake_agent", new_callable=AsyncMock, return_value=True) as wake,
+        ):
+            resp = await admin_client.get(f"/a/{sample_agent.slug}/__luna_ready")
+            assert resp.status_code == 200
+            assert resp.json() == {"ready": False}
+            await asyncio.sleep(0)
+            assert wake.called
+
+
 class TestWakeLock:
     """Test that concurrent wake requests are serialized."""
 

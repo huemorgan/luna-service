@@ -65,6 +65,7 @@ async def apply_gateway_env_delta(
             agent_snapshot, "POST", "/api/p/plugin-marketplace/install",
             {"marketplace_url": marketplace_url, "name": plugin_name},
             user_email=admin_email,
+            auth="jwt",  # install is a WRITE — agent core 401s proxy-secret-only auth
         )
         result["plugin_installed"] = code == 200
 

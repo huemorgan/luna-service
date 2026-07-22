@@ -251,7 +251,21 @@ async def add_key(slug: str, body: KeyCreate, admin: User = Depends(require_admi
         _audit(db, actor=admin, action="gateway.key.added", target=slug,
                metadata={"scope": body.scope, "priority": body.priority, "label": body.label})
         await db.commit()
-        return _key_dict(key)
+        key_out = _key_dict(key)
+
+    # Agent-scoped elevenlabs key: push it to the agent's WhatsApp gateway
+    # account so voice notes use the tenant's key (plan 052 §4). Best-effort.
+    if slug == "elevenlabs" and body.scope.startswith("agent:"):
+        agent_id = uuid.UUID(body.scope.removeprefix("agent:"))
+        async with db_session.get_session() as db:
+            agent = (await db.execute(
+                select(Agent).where(Agent.id == agent_id)
+            )).scalar_one_or_none()
+        if agent and "plugin-whatsapp" in ((agent.config_overrides or {}).get("installed_plugins") or []):
+            from cloud.whatsapp import provision
+            await provision.push_voice_key(agent.id, agent.slug)
+
+    return key_out
 
 
 @router.patch("/keys/{key_id}")
