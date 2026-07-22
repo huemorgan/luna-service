@@ -47,3 +47,4 @@ test-results/
 dojo-results/**/.cache/
 .stripe-dev.env
 .stripe-live.env
+errors/
