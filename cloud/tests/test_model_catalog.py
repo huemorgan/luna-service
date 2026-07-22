@@ -56,19 +56,26 @@ async def test_system_catalog_only_enabled_and_shape(db_session):
     assert "opus" in opus.get("aliases", [])
 
 
+async def test_system_catalog_has_kimi_models(db_session):
+    await seed_models(db_session)
+    catalog = await system_catalog(db_session)
+    k3 = next(e for e in catalog if e["model"] == "kimi-k3")
+    assert k3["provider"] == "moonshot"
+    assert "reasoning" in k3["kinds"]
+    assert "kimi" in k3.get("aliases", [])
+    k27 = next(e for e in catalog if e["model"] == "kimi-k2.7-code")
+    assert k27["provider"] == "moonshot"
+
+
 async def test_system_catalog_has_no_invented_ids(db_session):
     await seed_models(db_session)
     await db_session.commit()
     catalog = await system_catalog(db_session)
     ids = {e["model"] for e in catalog}
     # Invented / never-served ids must be absent.
-    for stale in ("o3", "o4-mini", "gpt-4-turbo", "claude-opus-4-20250514"):
+    for stale in ("o3", "o4-mini", "gpt-4-turbo", "claude-opus-4-20250514",
+                  "claude-sonnet-4-20250514"):
         assert stale not in ids
-    # The legacy default is present but only as a deprecated, non-default entry,
-    # so pre-018 machines don't 404 mid-rollout.
-    legacy = next(e for e in catalog if e["model"] == "claude-sonnet-4-20250514")
-    assert legacy.get("deprecated") is True
-    assert legacy.get("recommended_default") is not True
 
 
 # ── resolve_default_heads ────────────────────────────────────────────────────

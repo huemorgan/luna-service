@@ -36,16 +36,8 @@ SEED_MODELS: list[dict] = [
         "kinds": ["summarization"], "aliases": ["haiku", "claude-haiku"],
         "recommended_default": True, "input_cost": 1.0, "output_cost": 5.0,
     },
-    {
-        # Transition entry: machines provisioned before 018 may still be pinned to
-        # this head until the backfill runs. Kept enabled+deprecated so the proxy
-        # never 404s a live agent mid-rollout; never a default. Safe to remove
-        # from the admin catalog once every machine is migrated.
-        "provider": "anthropic", "model": "claude-sonnet-4-20250514",
-        "label": "Claude Sonnet 4 (legacy)", "context_window": 200000,
-        "kinds": ["reasoning", "summarization"], "aliases": [],
-        "deprecated": True, "input_cost": 3.0, "output_cost": 15.0,
-    },
+    # claude-sonnet-4-20250514 ("Sonnet 4 legacy") was a transition entry for
+    # pre-018 machines; removed 2026-07-22 (053) once no machine pinned it.
     # ---- OpenAI ----
     {
         "provider": "openai", "model": "gpt-5.5",
@@ -95,6 +87,19 @@ SEED_MODELS: list[dict] = [
         "label": "Grok Build 0.1", "context_window": 256000,
         "kinds": ["reasoning"], "aliases": ["grok-build", "grok-build-latest"],
         "input_cost": 1.0, "output_cost": 2.0,
+    },
+    # ---- Moonshot AI (Kimi) ---- prices from platform.kimi.ai/docs/pricing, 2026-07-22
+    {
+        "provider": "moonshot", "model": "kimi-k3",
+        "label": "Kimi K3", "context_window": 1048576,
+        "kinds": ["reasoning"], "aliases": ["kimi", "kimi-k3-latest"],
+        "input_cost": 3.0, "output_cost": 15.0,
+    },
+    {
+        "provider": "moonshot", "model": "kimi-k2.7-code",
+        "label": "Kimi K2.7 Code", "context_window": 262144,
+        "kinds": ["reasoning"], "aliases": ["kimi-code", "kimi-k2.7-code-latest"],
+        "input_cost": 0.95, "output_cost": 4.0,
     },
 ]
 

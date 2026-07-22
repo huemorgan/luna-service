@@ -1732,7 +1732,10 @@ async def patch_machine_models(
                      after_state={"config_overrides": agent.config_overrides, "resolved_models": resolved})
         await db.commit()
 
-    if os.environ.get("FLY_API_TOKEN") and agent.runtime_kind in ("fly", "fly-machines"):
+    # runtime_kind is "fly-machine" (RuntimeHandle kind) — match any fly variant,
+    # same as the env backfill; the old ("fly", "fly-machines") tuple silently
+    # skipped the env push for every real machine.
+    if os.environ.get("FLY_API_TOKEN") and (agent.runtime_kind or "").startswith("fly"):
         import json as _json
         from cloud.runtime.fly_machines import FlyMachinesRuntime
         fly = FlyMachinesRuntime()
