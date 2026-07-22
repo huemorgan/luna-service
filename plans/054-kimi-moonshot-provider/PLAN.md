@@ -12,12 +12,13 @@ live GET /v1/models with the provided key):
 | kimi-k2.7-code | 262,144 | 0.95 (0.19 cache hit) | 4.00 | mid (dedicated coding, multimodal) |
 | kimi-k2.6 | 262,144 | ~0.95 | ~4.00 | mid, vision+text |
 
-**Tier verdict: the "high and mid" assumption is one tier off.** Kimi K3
-($3/$15) prices exactly at our MID tier (= Sonnet 4.5); K2.7 Code ($0.95/$4)
-prices at our LOW tier (≈ Haiku 4.5 $1/$5). No Kimi model reaches our high
-tier (Opus $5/$25, GPT-5.5 $5/$30). Rows are priced at Moonshot's actual list
-prices — catalog costs and billing rates must reflect reality, not the
-intended tier.
+**Tier decision (Roy, 2026-07-22): tier is capability, not vendor cost** —
+same rule that put grok-4.5 ($2/$6) in top tier. kimi-k3 → `top_tier_models`
+(flagship), kimi-k2.7-code → `mid_tier_models`. Catalog costs and provider
+rates stay at Moonshot's actual list prices (K3 $3/$15 ≈ Sonnet-level rates;
+K2.7 $0.95/$4) — billing margins come from the tier, prices from the vendor.
+Coverage note: a model in neither tier list fails closed at rating, so this
+listing is load-bearing, not cosmetic.
 
 The account key's /v1/models lists only kimi-k2.7-code and kimi-k2.6 (k3 not
 confirmed reachable — see blocker). Moonshot API is OpenAI-compatible at
@@ -57,5 +58,7 @@ luna-service:
       suspended — "insufficient balance". Recharge at platform.moonshot.ai,
       then: verify kimi-k3 is servable on the account tier.
 - [ ] Prod rollout after recharge: add gateway service row + pooled key +
-      model rows (admin API or redeploy for seeds), publish provider cost v2,
-      build luna 0.44.000 image, roll fleet.
+      model rows (admin API or redeploy for seeds), publish provider cost v2
+      AND commercial pricing v2 (tier lists live in the seeded-once commercial
+      config — prod won't see the seed.py edit), build luna 0.44.000 image,
+      roll fleet.

@@ -38,7 +38,7 @@ def commercial_v1_config() -> dict:
         # Tier is a capability judgment (frontier vs workhorse), not a vendor
         # cost bracket: grok-4.5 and gpt-5.5 are flagship reasoning models even
         # though their token rates sit at or below sonnet's.
-        "top_tier_models": ["claude-opus-4-6", "gpt-5.5", "grok-4.5"],
+        "top_tier_models": ["claude-opus-4-6", "gpt-5.5", "grok-4.5", "kimi-k3"],
         # Explicit coverage: a model in neither list is not billable (fails
         # closed at rating). Publish rejects uncovered enabled gateway models.
         "mid_tier_models": [
@@ -51,6 +51,7 @@ def commercial_v1_config() -> dict:
             "text-embedding-3-large",
             "grok-4.3",
             "grok-build-0.1",
+            "kimi-k2.7-code",
             # Image-generation models (041) — margin llm_constants[context][mid].
             "gemini-3-pro-image",
             "gemini-2.5-flash-image",
