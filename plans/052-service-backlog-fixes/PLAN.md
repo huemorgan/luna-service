@@ -121,3 +121,22 @@ luna-service side:
    c. luna agent image: admin build → promote → migrate fleet (045 phase06
       procedure); expect the SSE reconnect wave, verify approvals UI on a
       canary agent first.
+
+## Execution result (2026-07-22)
+
+All shipped and verified live:
+
+- luna-service `f32c735` → `9a223db` → `6aec5c9` live (`/healthz` ok). `6aec5c9`
+  reverts luna-marketplaces to `c8c33b6` — `ddad618` pins an unpushed nested
+  `luna` sha (f9bbbaf) and breaks the image build's recursive checkout.
+- wa-gateway `8153b60` live (86/86 node tests). Render's autoDeploy webhook did
+  NOT fire on push; deployed via manual `POST /deploys`. Linked account
+  reconnected; `voice_configured`/`voice_key_source` live in `GET /accounts`.
+- Agent image `0.42.013` (luna `76bbd47`, 047 approval resilience): built,
+  test agent `vaselin-test-0-42-013` verified (health + approvals endpoint),
+  `set-main`, canary `vaselin-my-luna` verified, then `migrate-all` — 30
+  updated, 0 errors. Fleet: 32/32 machines `started` on 0.42.013, all agents
+  `running`.
+- Post-migration race: the reconciler marked 5 agents `stopped` while their
+  machines were mid-replace and nothing flips the DB back until a user page-load
+  wake. Fixed the 5 rows directly in the CP DB (temp allowlist, reverted).
