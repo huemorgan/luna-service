@@ -54,11 +54,19 @@ luna-service:
 
 - [x] Code + tests (cloud suite 717 passed; luna provider/router/catalog
       tests 72 passed; 49 luna failures pre-existing, verified via stash)
-- [ ] BLOCKED on Roy: Moonshot account org-3e4ad1c9ed9f4f4bbda6b8794e738cb9 is
-      suspended — "insufficient balance". Recharge at platform.moonshot.ai,
-      then: verify kimi-k3 is servable on the account tier.
-- [ ] Prod rollout after recharge: add gateway service row + pooled key +
-      model rows (admin API or redeploy for seeds), publish provider cost v2
-      AND commercial pricing v2 (tier lists live in the seeded-once commercial
-      config — prod won't see the seed.py edit), build luna 0.44.000 image,
-      roll fleet.
+- [x] Prod rollout (2026-07-22 evening): seeds live via deploy-hook deploy of
+      d1cfb6d; pooled key added (gateway_keys 8b846ee2); provider cost v5
+      published (= v4 + 6 kimi rates, diff verified); commercial pricing v5
+      published (kimi-k3 top tier, kimi-k2.7-code mid, coverage clean); image
+      0.44.000 set main; canary vaselin-pa healthy; migrate-all → 34/34
+      machines on 0.44.000; env backfill for LUNA_MOONSHOT_API_KEY.
+- [x] Proxy path verified end-to-end: /proxy/moonshot/chat/completions with a
+      machine token reaches Moonshot and returns Moonshot's own error.
+- [ ] STILL BLOCKED upstream: org-3e4ad1c9ed9f4f4bbda6b8794e738cb9 balance is
+      $0 (checked repeatedly incl. after Roy reported recharging) — calls fail
+      with "suspended due to insufficient balance". Roy's top-up likely went
+      to a different account/platform (platform.moonshot.cn vs
+      platform.kimi.ai?). Once the balance shows on THIS org, Kimi works
+      fleet-wide with no further action.
+- [ ] After balance lands: confirm kimi-k3 servable (account /v1/models lists
+      only k2.7-code + k2.6 today; k3 may need a higher account tier).
