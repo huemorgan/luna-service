@@ -62,11 +62,11 @@ luna-service:
       machines on 0.44.000; env backfill for LUNA_MOONSHOT_API_KEY.
 - [x] Proxy path verified end-to-end: /proxy/moonshot/chat/completions with a
       machine token reaches Moonshot and returns Moonshot's own error.
-- [ ] STILL BLOCKED upstream: org-3e4ad1c9ed9f4f4bbda6b8794e738cb9 balance is
-      $0 (checked repeatedly incl. after Roy reported recharging) — calls fail
-      with "suspended due to insufficient balance". Roy's top-up likely went
-      to a different account/platform (platform.moonshot.cn vs
-      platform.kimi.ai?). Once the balance shows on THIS org, Kimi works
-      fleet-wide with no further action.
-- [ ] After balance lands: confirm kimi-k3 servable (account /v1/models lists
-      only k2.7-code + k2.6 today; k3 may need a higher account tier).
+- [x] Balance funded (2026-07-22 late: $105 on the org after the first top-up
+      went to the wrong account); /v1/models now serves kimi-k3 as well.
+- [x] LIVE verification: kimi-k3 and kimi-k2.7-code completions succeed via
+      /proxy/moonshot with a machine token; billing rated both
+      (usage/breakdown by=model → kimi-k3 3 credits, kimi-k2.7-code 2).
+- [ ] Follow-up: luna 0.44.001 (dc2e868) adds provisional UI picker ranks for
+      kimi (they show "—" like grok-4.3 until then) — rides the next image
+      build/fleet roll; replace with real Luna Benchmark scores when run.
