@@ -60,6 +60,9 @@ _CATALOG: dict[tuple[str, str, str], RouteClass] = {
     ("xai", "GET", "/models/*"): _FREE,
     ("xai", "GET", "/language-models"): _FREE,
     ("xai", "GET", "/language-models/*"): _FREE,
+    ("moonshot", "POST", "/chat/completions"): _billed("moonshot.chat", "llm_call"),
+    ("moonshot", "GET", "/models"): _FREE,
+    ("moonshot", "GET", "/models/*"): _FREE,
     # Image generation (041). Gemini rows are explicit per model — a /models/*
     # wildcard would also swallow :countTokens / :streamGenerateContent and
     # arbitrary text models, which must stay deny-by-default. The model is in

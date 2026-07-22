@@ -41,6 +41,16 @@ SEED_SERVICES: list[dict] = [
         "provision_by_default": True,
     },
     {
+        # Moonshot AI (Kimi) — OpenAI-compatible API. Same /v1-in-upstream trick
+        # as OpenAI: Luna's MoonshotProvider appends bare paths (/chat/completions).
+        "slug": "moonshot",
+        "display_name": "Moonshot AI",
+        "upstream_url": "https://api.moonshot.ai/v1",
+        "auth_style": "header:Authorization:Bearer",
+        "enabled": True,
+        "provision_by_default": True,
+    },
+    {
         # plugin-web-access honors LUNA_TAVILY_BASE_URL (007.001) and vault.connect
         # (008.991). Not provisioned by default — tenants opt in via connect /
         # plugin binding. Auth is Bearer; the proxy strips a mistaken body
@@ -186,6 +196,7 @@ KNOWN_SERVICES: dict[str, tuple[str, str, str]] = {
     "composio":       ("https://backend.composio.dev/api/v3", "header:x-api-key",         "Composio"),
     "tavily":         ("https://api.tavily.com",           "header:Authorization:Bearer", "Tavily"),
     "openai":         ("https://api.openai.com/v1",         "header:Authorization:Bearer", "OpenAI"),
+    "moonshot":       ("https://api.moonshot.ai/v1",         "header:Authorization:Bearer", "Moonshot AI"),
     "anthropic":      ("https://api.anthropic.com",         "header:x-api-key",            "Anthropic"),
     "elevenlabs":     ("https://api.elevenlabs.io",          "header:xi-api-key",           "ElevenLabs"),
 }

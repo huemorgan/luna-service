@@ -79,6 +79,11 @@ async def test_route_classification():
     assert route_catalog.classify("xai", "GET", "models").kind == "free"
     assert route_catalog.classify("xai", "GET", "models/grok-4.5").kind == "free"
 
+    kimi = route_catalog.classify("moonshot", "POST", "chat/completions")
+    assert kimi.kind == "billed" and kimi.adapter == "moonshot.chat" and kimi.sku == "llm_call"
+    assert route_catalog.classify("moonshot", "GET", "models").kind == "free"
+    assert route_catalog.classify("moonshot", "GET", "models/kimi-k3").kind == "free"
+
 
 async def test_xai_chat_adapter_openai_compatible():
     # xai.chat speaks the OpenAI protocol but excludes reasoning tokens from

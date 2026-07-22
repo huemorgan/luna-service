@@ -103,6 +103,20 @@ PROVIDER_RATES_V1: list[tuple[str, str, str, str, int, int, str]] = [
      "https://docs.x.ai/docs/models"),
     ("xai", "grok-build-0.1", "cached_input_tokens", "token", 1, 5,  # $0.20/Mtok
      "https://docs.x.ai/docs/models"),
+    # Moonshot AI (Kimi) — retrieved 2026-07-22. OpenAI-compat usage;
+    # cached input reported as prompt_tokens_details.cached_tokens.
+    ("moonshot", "kimi-k3", "input_tokens", "token", 3, 1,
+     "https://platform.kimi.ai/docs/pricing/chat-k3"),
+    ("moonshot", "kimi-k3", "output_tokens", "token", 15, 1,
+     "https://platform.kimi.ai/docs/pricing/chat-k3"),
+    ("moonshot", "kimi-k3", "cached_input_tokens", "token", 3, 10,   # $0.30/Mtok
+     "https://platform.kimi.ai/docs/pricing/chat-k3"),
+    ("moonshot", "kimi-k2.7-code", "input_tokens", "token", 19, 20,  # $0.95/Mtok
+     "https://platform.kimi.ai/docs/pricing/chat-k27-code"),
+    ("moonshot", "kimi-k2.7-code", "output_tokens", "token", 4, 1,
+     "https://platform.kimi.ai/docs/pricing/chat-k27-code"),
+    ("moonshot", "kimi-k2.7-code", "cached_input_tokens", "token", 19, 100,  # $0.19/Mtok
+     "https://platform.kimi.ai/docs/pricing/chat-k27-code"),
     # Image generation (041). Gemini bills output images as IMAGE-modality
     # candidate tokens (flash: 1290 tok ≈ $0.039/image; 3-pro: 1120 tok ≈
     # $0.134 at 1K/2K, 2000 tok ≈ $0.24 at 4K); text + thinking output is a

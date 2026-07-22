@@ -473,12 +473,15 @@ _COLLECTORS = {
     "xai.chat": XAIChatCollector,
     # Gemini's OpenAI-compat surface (050) reports OpenAI-shaped usage.
     "gemini.chat": OpenAIChatCollector,
+    # Moonshot (Kimi) is OpenAI-compatible; completion_tokens includes
+    # reasoning output, so the plain OpenAI collector is correct.
+    "moonshot.chat": OpenAIChatCollector,
     "gemini.generate": GeminiGenerateCollector,
     "openai.images": OpenAIImagesCollector,
 }
 
 # Adapters speaking the OpenAI chat protocol (usage shape + stream_options).
-_OPENAI_CHAT_COMPAT = ("openai.chat", "xai.chat", "gemini.chat")
+_OPENAI_CHAT_COMPAT = ("openai.chat", "xai.chat", "gemini.chat", "moonshot.chat")
 
 
 def make_collector(adapter: str, content_type: str) -> UsageCollector:
