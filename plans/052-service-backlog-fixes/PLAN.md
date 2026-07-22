@@ -60,11 +60,12 @@ UI (`luna/ui/src/views/InlineApprovalCard.tsx`):
   resolves server-side.
 - Clear `busy` deterministically (own `resolved` state, not only parent prop).
 
-Infra (047 item 6): hosted machines run single-loop `luna serve` → enable
-`LUNA_DB_POOL=1` with conservative sizing (`LUNA_DB_POOL_SIZE=3`,
-`LUNA_DB_MAX_OVERFLOW=5`; per-tenant role cap is 20, one machine per tenant) as
-image env (Dockerfile) so it rides the same image roll. Verify single-loop
-before flipping; otherwise defer with findings.
+Infra (047 item 6): RESOLVED as already-done — `scripts/start.sh` (since
+0.38.005, live in 0.42.005) defaults `LUNA_DB_POOL=1`, size 2 + overflow 1,
+sized fleet-wide for the shared cluster (25 machines × 3 = 75 vs
+max_connections 103). Do NOT raise to 3+5 (would be 200 worst case). The
+remaining asyncpg connection-termination errors are mid-query provider kills,
+which the new retry+503 layer absorbs.
 
 Tests: pytest route tests (crib `tests/008.003-blanket-approvals/test_routes_scopes.py`
 harness): connect-error → one retry → success; two failures → 503; 409 passthrough.
