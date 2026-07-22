@@ -1624,9 +1624,13 @@ async def backfill_machine_env(
                     select(Agent).where(Agent.id == agent_id)
                 )).scalar_one()
                 image_config = await _agent_image_config(db, agent)
+                # revoke_existing=False: the machine's live token stays valid
+                # until the push below succeeds — only then are old tokens
+                # revoked. A failed push must not brick the machine's LLM calls.
                 env = await build_gateway_env(
                     db, agent.id, image_config=image_config,
                     agent_overrides=agent.config_overrides,
+                    revoke_existing=False,
                 )
                 await db.commit()
             # Plan 042: derived platform secrets ride along, so a machine
@@ -1636,7 +1640,21 @@ async def backfill_machine_env(
             if root_proxy_secret:
                 from cloud.runtime.proxy_secret import derive_jwt_secret
                 env["LUNA_JWT_SECRET"] = derive_jwt_secret(root_proxy_secret, str(agent_id))
-            await fly.update_machine_env(ref, env)
+            new_token = env.get("LUNA_GATEWAY_TOKEN")
+            try:
+                await fly.update_machine_env(ref, env)
+            except Exception:
+                if new_token:
+                    from cloud.gateway.tokens import revoke_raw_token
+                    async with get_db_session() as db:
+                        await revoke_raw_token(db, new_token)
+                        await db.commit()
+                raise
+            if new_token:
+                from cloud.gateway.tokens import revoke_other_tokens
+                async with get_db_session() as db:
+                    await revoke_other_tokens(db, agent_id, new_token)
+                    await db.commit()
             row["status"] = "updated"
             row["pushed_keys"] = sorted(env.keys())
             updated += 1

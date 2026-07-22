@@ -58,12 +58,19 @@ async def build_gateway_env(
     *,
     image_config: dict | None = None,
     agent_overrides: dict | None = None,
+    revoke_existing: bool = True,
 ) -> dict[str, str]:
-    """Env vars for a tenant machine: proxy URLs + tenant token + branding."""
+    """Env vars for a tenant machine: proxy URLs + tenant token + branding.
+
+    ``revoke_existing=False`` keeps the machine's current token valid while the
+    new env is pushed — callers must then finalize with
+    ``tokens.revoke_other_tokens`` on success (or ``revoke_raw_token`` on
+    failure). Fresh provisioning keeps the default.
+    """
     settings = get_settings()
     base = settings.base_url.rstrip("/")
 
-    token = await issue_token(db, agent_id)
+    token = await issue_token(db, agent_id, revoke_existing=revoke_existing)
 
     services = (await db.execute(
         select(GatewayService).where(

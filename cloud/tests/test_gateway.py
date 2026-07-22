@@ -109,6 +109,33 @@ async def test_token_issue_verify_rotate(db_session, sample_agent):
     assert all(raw2 not in r.token_hash for r in rows)
 
 
+async def test_token_issue_without_revoke_keeps_old_valid(db_session, sample_agent):
+    """The safe-rotation path: a running machine's token stays valid while the
+    new one is pushed; only after a confirmed push are the others revoked."""
+    from cloud.gateway.tokens import revoke_other_tokens, revoke_raw_token
+
+    old = await issue_token(db_session, sample_agent.id)
+    new = await issue_token(db_session, sample_agent.id, revoke_existing=False)
+    await db_session.commit()
+    # Both valid until the push is confirmed.
+    assert await verify_token(db_session, old) == sample_agent.id
+    assert await verify_token(db_session, new) == sample_agent.id
+
+    # Push succeeded → everything but the delivered token is revoked.
+    revoked = await revoke_other_tokens(db_session, sample_agent.id, new)
+    await db_session.commit()
+    assert revoked == 1
+    assert await verify_token(db_session, old) is None
+    assert await verify_token(db_session, new) == sample_agent.id
+
+    # Push failed → the undelivered token is revoked, the live one survives.
+    undelivered = await issue_token(db_session, sample_agent.id, revoke_existing=False)
+    await revoke_raw_token(db_session, undelivered)
+    await db_session.commit()
+    assert await verify_token(db_session, undelivered) is None
+    assert await verify_token(db_session, new) == sample_agent.id
+
+
 # ── Key resolution ───────────────────────────────────────────────────────────
 
 async def _add_service(db, slug="echo-test", **over):

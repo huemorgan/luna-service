@@ -295,6 +295,16 @@ async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
         if token_svc.is_tenant_token(credential):
             agent_id = await token_svc.verify_token(db, credential)
             if agent_id is None:
+                # A machine holding a revoked/unknown token means every LLM call
+                # it makes is failing — this must be visible in Error Tracking.
+                from cloud.observability.error_sink import record_error_event
+                await record_error_event(
+                    kind="gateway_auth",
+                    severity="critical",
+                    message=f"Invalid tenant token on gateway service '{service_slug}' "
+                            "(machine token revoked or unknown — agent LLM calls are failing)",
+                    route=f"/proxy/{service_slug}",
+                )
                 raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid tenant token")
             # Plan 026.1 guardrails: per-agent allow/deny + budget. Default = allow.
             denied = await policy.deny_reason(db, agent_id, service_slug)
