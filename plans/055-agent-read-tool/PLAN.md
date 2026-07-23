@@ -80,11 +80,21 @@ an explicit mode.
   fetch, web fetch, playbook status are the known offenders — the 1.86M-char
   incident in 041/phase01).
 
+### Phase 04 — reader subagent ("go find X")
+
+- A delegated reader loop: takes a question, reads/pages/greps sources in its
+  OWN throwaway context (restricted tool registry: `read` + search only),
+  returns answer + citations; raw text never touches the main window.
+- Escalation ladder: page it yourself (01) → single-doc Haiku query (02) →
+  reader subagent for multi-doc / multi-step questions (04).
+- Requires a second isolated reasoning loop in the runtime (own context,
+  budget/billing attribution, kill switch) — new primitive, reusable later
+  for research/playbook delegation. Ship 01/02 first; do not block on this.
+
 ### Later / maybe
 
 - Semantic index over the doc store (Cursor-style embedding chunks) — only if
   query-mode extraction proves too slow/costly on big docs.
-- Reader subagent for multi-doc questions.
 
 ## Status
 
@@ -93,3 +103,4 @@ an explicit mode.
 - [ ] Phase 01 implementation + tests
 - [ ] Phase 02 query mode
 - [ ] Phase 03 plugin handles
+- [ ] Phase 04 reader subagent (needs runtime subagent primitive)
