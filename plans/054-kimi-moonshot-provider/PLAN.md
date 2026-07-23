@@ -67,6 +67,15 @@ luna-service:
 - [x] LIVE verification: kimi-k3 and kimi-k2.7-code completions succeed via
       /proxy/moonshot with a machine token; billing rated both
       (usage/breakdown by=model → kimi-k3 3 credits, kimi-k2.7-code 2).
-- [ ] Follow-up: luna 0.44.001 (dc2e868) adds provisional UI picker ranks for
-      kimi (they show "—" like grok-4.3 until then) — rides the next image
-      build/fleet roll; replace with real Luna Benchmark scores when run.
+- [x] 2026-07-23: chat path fix — reasoning turns crashed with "Unknown
+      provider: moonshot" (pydantic-ai registry has no moonshot key; the
+      string fall-through in `_pydantic_model_object` hit it — same class as
+      the 2026-07-17 gemini bug; Luna's own ModelRouter was fine, which is
+      why direct proxy tests passed). Fixed in luna 0.44.002 (af74d01):
+      moonshot routes through OpenAIChatModel like xai. Fleet rolled to
+      0.44.002 (34/34 + test agent), canary vaselin-pa healthy, end-to-end
+      verified: kimi-k3 chat turn on a test agent answered "I'm Kimi,
+      developed by Moonshot AI". This roll also delivered the 0.44.001 UI
+      picker ranks.
+- [ ] Follow-up: replace provisional kimi picker ranks with real Luna
+      Benchmark scores when a run exists.
