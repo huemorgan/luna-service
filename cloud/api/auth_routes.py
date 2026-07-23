@@ -38,7 +38,11 @@ def _get_identity_provider(settings: Settings):
 
 
 _ALLOWED_DOMAINS = {"monday.com"}
-_ALLOWED_EMAILS = {"vaselin@gmail.com", "dotanbahat@gmail.com"}
+_ALLOWED_EMAILS = {
+    "vaselin@gmail.com",
+    "dotanbahat@gmail.com",
+    "dotanbahat@googlemail.com",
+}
 
 
 def _enforce_email_allowlist(email: str) -> None:
