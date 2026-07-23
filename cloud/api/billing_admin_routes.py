@@ -687,7 +687,8 @@ async def search_accounts(q: str = "", admin: User = Depends(require_admin)):
     """Account picker for the enforcement UI: match slug or name."""
     async with get_db_session() as db:
         query = (
-            select(Account, BillingAccount.enforcement_override)
+            select(Account, BillingAccount.enforcement_override,
+                   BillingAccount.active_luna_cap_override)
             .join(BillingAccount, BillingAccount.account_id == Account.id, isouter=True)
             .order_by(Account.created_at.desc())
             .limit(20)
@@ -700,10 +701,39 @@ async def search_accounts(q: str = "", admin: User = Depends(require_admin)):
         return {
             "accounts": [
                 {"id": str(acc.id), "slug": acc.slug, "name": acc.name,
-                 "override": override}
-                for acc, override in rows
+                 "override": override, "active_luna_cap_override": cap_override}
+                for acc, override, cap_override in rows
             ]
         }
+
+
+# ── Per-account limits (057) ─────────────────────────────────────────────────
+
+class AccountLimitsRequest(BaseModel):
+    active_luna_cap: int | None = Field(default=None, ge=1)
+    reason: str = Field(default="")
+
+
+@router.post("/accounts/{account_id}/limits")
+async def set_account_limits(account_id: uuid.UUID, body: AccountLimitsRequest,
+                             request: Request, admin: User = Depends(require_admin)):
+    """Set/clear the per-account active-Luna cap override (null = pricing
+    default). Never touches metering — agents still burn hosting + usage."""
+    reason = _require_reason(body.reason)
+    async with get_db_session() as db:
+        account = await db.get(Account, account_id)
+        if account is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
+        from cloud.billing.ledger import ensure_billing_account
+        ba = await ensure_billing_account(db, account_id)
+        before = {"active_luna_cap_override": ba.active_luna_cap_override}
+        ba.active_luna_cap_override = body.active_luna_cap
+        _audit(db, request, admin, action="pricing.account_limits.set",
+               target=f"account:{account_id}", reason=reason, before=before,
+               after={"active_luna_cap_override": body.active_luna_cap})
+        await db.commit()
+        return {"account_id": str(account_id),
+                "active_luna_cap_override": ba.active_luna_cap_override}
 
 
 # ── Coverage helper for the UI warning banner ────────────────────────────────

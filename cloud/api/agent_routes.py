@@ -245,34 +245,40 @@ async def create_agent(
         # row lock serializes concurrent creates, so the trial active-Luna cap
         # and the hosting authorization can't be raced past.
         config: dict | None = None
+        billing_acct = None
         if billing_on:
             try:
                 from cloud.billing.ledger import lock_billing_account
-                await lock_billing_account(db, account.id)
+                billing_acct = await lock_billing_account(db, account.id)
                 config = await billing_grants.account_config(db, account.id)
             except Exception as exc:  # noqa: BLE001 — unseeded billing: create without it
                 log.warning("Billing unavailable for create_agent on %s: %s", account.id, exc)
                 config = None
 
-        if config is not None and await billing_grants.is_trial_account(db, account.id):
+        # 057: a per-account override beats the trial default and applies
+        # regardless of trial status. NULL falls through to the trial cap.
+        cap: int | None = None
+        if billing_acct is not None and billing_acct.active_luna_cap_override is not None:
+            cap = billing_acct.active_luna_cap_override
+        elif config is not None and await billing_grants.is_trial_account(db, account.id):
             cap = billing_grants.active_luna_cap(config)
-            if cap is not None:
-                active = (await db.execute(
-                    select(Agent).where(
-                        Agent.account_id == account.id,
-                        Agent.deleted_at.is_(None),
+        if cap is not None:
+            active = (await db.execute(
+                select(Agent).where(
+                    Agent.account_id == account.id,
+                    Agent.deleted_at.is_(None),
+                )
+            )).scalars().all()
+            if len(active) >= cap:
+                if enforce:
+                    raise HTTPException(
+                        status.HTTP_402_PAYMENT_REQUIRED,
+                        {"code": "active_luna_limit",
+                         "message": f"Your plan includes {cap} active Luna."
+                                    " Delete one or upgrade to add more."},
                     )
-                )).scalars().all()
-                if len(active) >= cap:
-                    if enforce:
-                        raise HTTPException(
-                            status.HTTP_402_PAYMENT_REQUIRED,
-                            {"code": "active_luna_limit",
-                             "message": f"Your trial includes {cap} active Luna."
-                                        " Delete one or upgrade to add more."},
-                        )
-                    log.info("would_block active_luna_limit for account %s "
-                             "(billing mode %s)", account.id, effective_mode)
+                log.info("would_block active_luna_limit for account %s "
+                         "(billing mode %s)", account.id, effective_mode)
 
         slug = base_slug
         suffix = 1

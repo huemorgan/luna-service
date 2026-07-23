@@ -421,6 +421,71 @@ async def test_accounts_search(admin_client, account):
     hit = (await admin_client.get("/api/admin/pricing/accounts/search?q=test-acc")).json()
     assert [a["slug"] for a in hit["accounts"]] == ["test-account"]
     assert hit["accounts"][0]["override"] is None
+    assert hit["accounts"][0]["active_luna_cap_override"] is None
 
     miss = (await admin_client.get("/api/admin/pricing/accounts/search?q=zzz-nope")).json()
     assert miss["accounts"] == []
+
+
+# ── 057: per-account active-Luna cap override ────────────────────────────────
+
+
+async def test_account_limits_set_clear_with_audit(admin_client, db_session, account):
+    set_resp = await admin_client.post(
+        f"/api/admin/pricing/accounts/{account.id}/limits",
+        json={"active_luna_cap": 10, "reason": "monday.com rollout"},
+        headers=SAME_ORIGIN,
+    )
+    assert set_resp.status_code == 200
+    assert set_resp.json()["active_luna_cap_override"] == 10
+
+    hit = (await admin_client.get("/api/admin/pricing/accounts/search?q=test-acc")).json()
+    assert hit["accounts"][0]["active_luna_cap_override"] == 10
+
+    audits = (await db_session.execute(
+        select(AuditLog).where(AuditLog.action == "pricing.account_limits.set")
+    )).scalars().all()
+    assert len(audits) == 1
+    assert audits[0].before_state == {"active_luna_cap_override": None}
+    assert audits[0].after_state == {"active_luna_cap_override": 10}
+    assert audits[0].metadata_["reason"] == "monday.com rollout"
+
+    clear_resp = await admin_client.post(
+        f"/api/admin/pricing/accounts/{account.id}/limits",
+        json={"active_luna_cap": None, "reason": "revert"},
+        headers=SAME_ORIGIN,
+    )
+    assert clear_resp.status_code == 200
+    assert clear_resp.json()["active_luna_cap_override"] is None
+
+
+async def test_account_limits_validation(admin_client, account):
+    no_reason = await admin_client.post(
+        f"/api/admin/pricing/accounts/{account.id}/limits",
+        json={"active_luna_cap": 5, "reason": "  "},
+        headers=SAME_ORIGIN,
+    )
+    assert no_reason.status_code == 400
+
+    bad_cap = await admin_client.post(
+        f"/api/admin/pricing/accounts/{account.id}/limits",
+        json={"active_luna_cap": 0, "reason": "x"},
+        headers=SAME_ORIGIN,
+    )
+    assert bad_cap.status_code == 422
+
+    unknown = await admin_client.post(
+        f"/api/admin/pricing/accounts/{uuid.uuid4()}/limits",
+        json={"active_luna_cap": 5, "reason": "x"},
+        headers=SAME_ORIGIN,
+    )
+    assert unknown.status_code == 404
+
+
+async def test_account_limits_requires_admin(regular_client, account):
+    resp = await regular_client.post(
+        f"/api/admin/pricing/accounts/{account.id}/limits",
+        json={"active_luna_cap": 5, "reason": "x"},
+        headers=SAME_ORIGIN,
+    )
+    assert resp.status_code == 403

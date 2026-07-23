@@ -194,6 +194,9 @@ class BillingAccount(Base):
     stripe_customer_id: Mapped[str | None] = mapped_column(Text, unique=True)
     auto_topup: Mapped[dict | None] = mapped_column(JSONB)
     overrun_cap_credits: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1000)
+    # 057: per-account active-Luna cap. NULL = pricing-config default (trial
+    # cap for trial accounts, uncapped for paying). Never touches metering.
+    active_luna_cap_override: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False

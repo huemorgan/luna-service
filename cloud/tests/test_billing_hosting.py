@@ -452,6 +452,51 @@ async def test_create_agent_trial_cap_observe_only_logs(
     assert r.status_code == 201  # would_block, never blocked outside enforce
 
 
+async def test_create_agent_cap_override_lifts_trial_cap(
+    admin_client, db_session, account, sample_agent, monkeypatch,
+):
+    # 057: trial account with override=2 gets a second Luna, not a third.
+    _set_mode(monkeypatch, "enforce")
+    await _seed(db_session, account.id)
+    await _fund(db_session, account.id, 5000)
+    ba = await ledger.ensure_billing_account(db_session, account.id)
+    ba.active_luna_cap_override = 2
+    await db_session.commit()
+
+    r = await admin_client.post("/api/agents", json={"name": "Second Luna"})
+    assert r.status_code == 201
+    # Metering untouched: the new trial agent still gets spend caps.
+    limits = (await db_session.execute(
+        select(AgentCreditLimit).where(
+            AgentCreditLimit.agent_id == uuid.UUID(r.json()["id"]))
+    )).scalars().all()
+    assert len(limits) == 1
+
+    r = await admin_client.post("/api/agents", json={"name": "Third Luna"})
+    assert r.status_code == 402
+    assert r.json()["detail"]["code"] == "active_luna_limit"
+
+
+async def test_create_agent_cap_override_caps_paying_account(
+    admin_client, db_session, account, sample_agent, monkeypatch,
+):
+    # 057: override binds even when the account is not trial (paid grant).
+    _set_mode(monkeypatch, "enforce")
+    await _seed(db_session, account.id)
+    await ledger.create_grant(
+        db_session, account_id=account.id, source_type="subscription_paid",
+        source_key="test:paid", credits=5000, visible_category="paid",
+        effective_at=NOW - timedelta(days=1), expires_at=None, now=NOW,
+    )
+    ba = await ledger.ensure_billing_account(db_session, account.id)
+    ba.active_luna_cap_override = 1
+    await db_session.commit()
+
+    r = await admin_client.post("/api/agents", json={"name": "Second Luna"})
+    assert r.status_code == 402
+    assert r.json()["detail"]["code"] == "active_luna_limit"
+
+
 async def test_create_agent_enforce_broke_402_no_agent_row(
     admin_client, db_session, account, monkeypatch,
 ):

@@ -273,7 +273,12 @@ async def billing_summary(auth: tuple[User, Account] = Depends(require_active_ac
                 "is_trial": trial,
                 "expires_at": trial_expires_at.isoformat() if trial_expires_at else None,
                 "days_remaining": max(0, (trial_expires_at - now).days) if trial_expires_at else None,
-                "active_luna_cap": (config.get("trial") or {}).get("active_luna_cap") if trial else None,
+                # 057: report the EFFECTIVE cap (per-account override wins).
+                "active_luna_cap": (
+                    ba.active_luna_cap_override
+                    if ba.active_luna_cap_override is not None
+                    else (config.get("trial") or {}).get("active_luna_cap")
+                ) if trial else None,
             },
             "hosting": hosting,
             "hosting_price_credits": host_price,
