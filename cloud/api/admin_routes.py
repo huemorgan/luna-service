@@ -1462,10 +1462,10 @@ async def list_machines(admin: User = Depends(require_admin)):
             select(LunaImage).where(LunaImage.version.in_(versions))
         )).scalars().all() if versions else []
         _default_cfg = await _default_image_config(db)
-        image_config_by_version = {
-            img.version: {**_default_cfg, **(img.image_config or {})}
-            for img in images
-        }
+        # Raw per-image configs: the admin defaults go to resolve_default_heads
+        # as their own source — a top-level merge would let an image's empty
+        # models block ({"primary": {}}) clobber the stored default model.
+        image_config_by_version = {img.version: img.image_config or {} for img in images}
         catalog = await system_catalog(db)
 
     fly_machines: list[dict] = []
@@ -1486,7 +1486,9 @@ async def list_machines(admin: User = Depends(require_admin)):
         image_cfg = image_config_by_version.get(agent.image_version or "")
 
         # Plan 018: catalog-validated default heads + per-role override.
-        models_resolved = resolve_default_heads(catalog, image_cfg, agent.config_overrides)
+        models_resolved = resolve_default_heads(
+            catalog, image_cfg, agent.config_overrides, image_defaults=_default_cfg,
+        )
         models_override_raw = (agent.config_overrides or {}).get("models") or {}
         primary_override = models_override_raw.get("primary") if isinstance(models_override_raw.get("primary"), dict) else None
         fast_override = models_override_raw.get("fast") if isinstance(models_override_raw.get("fast"), dict) else None
@@ -1529,9 +1531,13 @@ async def get_machine_env(machine_id: str, admin: User = Depends(require_admin))
             img = (await db.execute(
                 select(LunaImage).where(LunaImage.version == agent.image_version)
             )).scalar_one_or_none()
-        cfg = {**(await _default_image_config(db)), **((img.image_config if img else None) or {})}
+        default_cfg = await _default_image_config(db)
+        img_cfg = (img.image_config if img else None) or {}
+        cfg = {**default_cfg, **img_cfg}
         catalog = await system_catalog(db)
-        heads = resolve_default_heads(catalog, cfg, agent.config_overrides)
+        heads = resolve_default_heads(
+            catalog, img_cfg, agent.config_overrides, image_defaults=default_cfg,
+        )
         cfg = {**cfg, "models": {"primary": heads["primary"], "fast": heads["fast"]}}
         expected = await default_env_manifest(db, cfg)
     expected_names = {e["name"] for e in expected}
@@ -1739,9 +1745,12 @@ async def patch_machine_models(
         img = (await db.execute(
             select(LunaImage).where(LunaImage.version == (agent.image_version or ""))
         )).scalar_one_or_none()
-        image_cfg = {**(await _default_image_config(db)), **(img.image_config or {} if img else {})}
+        default_cfg = await _default_image_config(db)
+        image_cfg = (img.image_config if img else None) or {}
         catalog = await system_catalog(db)
-        resolved = resolve_default_heads(catalog, image_cfg, agent.config_overrides)
+        resolved = resolve_default_heads(
+            catalog, image_cfg, agent.config_overrides, image_defaults=default_cfg,
+        )
 
         await _audit(db, action="machine.models_updated", actor=admin, actor_ip=ip,
                      target=machine_id,

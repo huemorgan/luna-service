@@ -140,9 +140,12 @@ async def _provision_core(
         catalog = await system_catalog(db)
         # Plan 036: the admin-set default machine params apply when the image
         # didn't set its own; the image's machine block still wins per-field.
-        default_machine = (await resolved_default_config(db)).get("machine", {})
+        stored_defaults = await resolved_default_config(db)
+        default_machine = stored_defaults.get("machine", {})
         await db.commit()
-    heads = resolve_default_heads(catalog, image_config, agent.config_overrides)
+    heads = resolve_default_heads(
+        catalog, image_config, agent.config_overrides, image_defaults=stored_defaults,
+    )
 
     # Plan 015: per-agent Composio relay secret — the trigger relay signs
     # forwarded webhook events with this; Luna verifies once 007.003 ships.

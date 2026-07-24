@@ -132,6 +132,42 @@ async def test_head_must_match_kind(db_session):
     assert heads["primary"]["model"] == "claude-opus-4-6"  # fell back to reasoning default
 
 
+async def test_admin_image_defaults_beat_catalog_default(db_session):
+    """The admin-stored default model wins over the catalog recommended_default
+    when neither the image nor the agent pins one — the Defaults-page-says-
+    Sonnet-but-machines-spawn-Opus bug."""
+    await seed_models(db_session)
+    await db_session.commit()
+    catalog = await system_catalog(db_session)
+    stored = {"models": {"primary": {"provider": "anthropic",
+                                     "model": "claude-sonnet-4-5-20250929"}}}
+    heads = resolve_default_heads(
+        catalog, image_config={"models": {"primary": {}, "fast": {}}},
+        agent_overrides=None, image_defaults=stored,
+    )
+    assert heads["primary"]["model"] == "claude-sonnet-4-5-20250929"
+    assert heads["fast"]["model"] == "claude-haiku-4-5-20251001"
+
+
+async def test_image_and_agent_beat_admin_image_defaults(db_session):
+    await seed_models(db_session)
+    await db_session.commit()
+    catalog = await system_catalog(db_session)
+    stored = {"models": {"primary": {"provider": "anthropic",
+                                     "model": "claude-sonnet-4-5-20250929"}}}
+    img = {"models": {"primary": {"provider": "openai", "model": "gpt-4o"}}}
+    heads = resolve_default_heads(
+        catalog, image_config=img, agent_overrides=None, image_defaults=stored,
+    )
+    assert heads["primary"] == {"provider": "openai", "model": "gpt-4o"}
+
+    ov = {"models": {"primary": {"provider": "anthropic", "model": "claude-opus-4-6"}}}
+    heads = resolve_default_heads(
+        catalog, image_config=img, agent_overrides=ov, image_defaults=stored,
+    )
+    assert heads["primary"]["model"] == "claude-opus-4-6"
+
+
 # ── catalog_has (proxy wall) ─────────────────────────────────────────────────
 
 async def test_catalog_has_id_alias_and_provider(db_session):

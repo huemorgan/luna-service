@@ -124,13 +124,15 @@ def _resolve_head(
     catalog: list[dict],
     image_config: dict | None,
     agent_overrides: dict | None,
+    image_defaults: dict | None,
     *,
     role: str,
     kind: str,
     builtin: dict,
 ) -> dict:
-    """agent override → image config → catalog default; validated to be in-catalog."""
-    for src in (agent_overrides, image_config):
+    """agent override → image config → admin image defaults → catalog default;
+    validated to be in-catalog."""
+    for src in (agent_overrides, image_config, image_defaults):
         head = _head_from(src, role)
         if head and _in_catalog(catalog, head["provider"], head["model"], kind):
             return head
@@ -146,15 +148,21 @@ def resolve_default_heads(
     catalog: list[dict],
     image_config: dict | None,
     agent_overrides: dict | None,
+    image_defaults: dict | None = None,
 ) -> dict:
-    """{"primary": {provider, model}, "fast": {provider, model}} — both in-catalog."""
+    """{"primary": {provider, model}, "fast": {provider, model}} — both in-catalog.
+
+    `image_defaults` is the admin-stored overlay (app_settings["image_defaults"]);
+    it must be its own source rather than pre-merged into image_config because an
+    image's empty models block ({"primary": {}}) would clobber it in a dict merge.
+    """
     return {
         "primary": _resolve_head(
-            catalog, image_config, agent_overrides,
+            catalog, image_config, agent_overrides, image_defaults,
             role="primary", kind=PRIMARY_KIND, builtin=_BUILTIN_PRIMARY,
         ),
         "fast": _resolve_head(
-            catalog, image_config, agent_overrides,
+            catalog, image_config, agent_overrides, image_defaults,
             role="fast", kind=FAST_KIND, builtin=_BUILTIN_FAST,
         ),
     }
