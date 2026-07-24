@@ -306,19 +306,36 @@ async def delete_key(key_id: str, admin: User = Depends(require_admin)):
 # ── Tenant tokens ─────────────────────────────────────────────────────────────
 
 @router.post("/agents/{agent_id}/token")
-async def issue_agent_token(agent_id: str, admin: User = Depends(require_admin)):
-    """Issue (and rotate) a tenant token. The raw value is returned ONCE."""
+async def issue_agent_token(
+    agent_id: str,
+    revoke_existing: bool = False,
+    admin: User = Depends(require_admin),
+):
+    """Issue a tenant token. The raw value is returned ONCE.
+
+    060/fix3: by default the machine's current token STAYS VALID — revoking it
+    here, before anyone pushed the new value to the machine env, was one of the
+    sources of production "Invalid tenant token" 401 storms. Pass
+    ``revoke_existing=true`` only when the old token must die immediately
+    (compromise); for a safe rotation use the env-push flow, which revokes old
+    tokens after the new one is confirmed on the machine.
+    """
     async with db_session.get_session() as db:
         agent = (await db.execute(
             select(Agent).where(Agent.id == uuid.UUID(agent_id))
         )).scalar_one_or_none()
         if not agent:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
-        raw = await issue_token(db, agent.id)
+        raw = await issue_token(db, agent.id, revoke_existing=revoke_existing)
         _audit(db, actor=admin, action="gateway.token.issued", target=agent.slug,
-               metadata={"agent_id": agent_id})
+               metadata={"agent_id": agent_id, "revoke_existing": revoke_existing})
         await db.commit()
-    return {"token": raw, "note": "Shown once. Inject as the service env key var on the machine."}
+    note = (
+        "Shown once. Inject as the service env key var on the machine."
+        if revoke_existing
+        else "Shown once. Existing tokens remain valid until an env push revokes them."
+    )
+    return {"token": raw, "note": note}
 
 
 # ── Per-agent guardrail policy (plan 026.1) ───────────────────────────────────

@@ -131,11 +131,17 @@ async def _provision_core(
     # 3. Gateway env: proxy base URLs + tenant token — no real provider keys.
     #    Plan 016: pass image_config + agent overrides for per-service env vars.
     #    Plan 018: also resolve the system model catalog + default heads here.
+    #    060/fix3: revoke_existing=False — on a RECREATE the old machine's live
+    #    token must stay valid until the new machine is actually up (revoking
+    #    up-front 401'd every in-flight gateway call while the new machine
+    #    booted, and left the agent tokenless when provisioning failed). Old
+    #    tokens are revoked below, only after the runtime reports success.
     async with get_db_session() as db:
         llm_keys = await build_gateway_env(
             db, agent_id,
             image_config=image_config,
             agent_overrides=agent.config_overrides,
+            revoke_existing=False,
         )
         catalog = await system_catalog(db)
         # Plan 036: the admin-set default machine params apply when the image
@@ -183,12 +189,36 @@ async def _provision_core(
         image_config=effective_image_config,
     )
 
+    new_token = llm_keys.get("LUNA_GATEWAY_TOKEN", "")
+
     try:
         handle = await runtime.provision(spec)
     except Exception as e:
         log.error("Provisioning failed for %s: %s", agent_slug, e)
+        # 060/fix3: the new machine never came up — drop the token we minted
+        # for it and leave the previous token (if any) untouched, so a running
+        # old machine keeps working.
+        try:
+            from cloud.gateway.tokens import revoke_raw_token
+            async with get_db_session() as db:
+                await revoke_raw_token(db, new_token)
+                await db.commit()
+        except Exception:  # noqa: BLE001 — cleanup must not mask the provision error
+            log.exception("token cleanup after failed provision for %s", agent_slug)
         await _set_agent_error(agent_id, f"Agent startup failed: {e}")
         raise
+
+    # 060/fix3: the new machine is up with the new token in its env — NOW it's
+    # safe to invalidate whatever the old machine was holding.
+    try:
+        from cloud.gateway.tokens import revoke_other_tokens
+        async with get_db_session() as db:
+            revoked = await revoke_other_tokens(db, agent_id, new_token)
+            await db.commit()
+        if revoked:
+            log.info("revoked %d stale gateway token(s) for %s", revoked, agent_slug)
+    except Exception:  # noqa: BLE001 — a failed revoke must not fail the provision
+        log.exception("post-provision token revoke failed for %s", agent_slug)
 
     async with get_db_session() as db:
         agent = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one()
