@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -45,6 +46,13 @@ ADJUSTMENT = "manual_adjustment"
 BURN_PRIORITY = {"bonus": 1, "gift": 2, "free": 2, "paid": 3, "topup": 4}
 
 DEFAULT_HOLD_TTL = timedelta(minutes=30)
+
+# Overdraft (plan 061): paid LLM work is admitted while the posted balance is
+# above this negative floor, instead of blocking on in-flight holds/exposure.
+# A positive balance is never stranded behind reservations; the final charge
+# still posts in full, into debt, on settle. This floor is the only bound on a
+# runaway. Tunable in prod via CLOUD_OVERDRAFT_LIMIT_CREDITS (credits; 100 = $1).
+OVERDRAFT_LIMIT_CREDITS = int(os.environ.get("CLOUD_OVERDRAFT_LIMIT_CREDITS", "2000"))
 
 
 class BillingError(Exception):
@@ -746,17 +754,19 @@ async def authorize(
     now: datetime | None = None,
     ttl: timedelta = DEFAULT_HOLD_TTL,
 ) -> BillingHold:
-    """Open a hold. Raises InsufficientBalance / LimitExceeded when blocked.
+    """Open a hold. Raises InsufficientBalance when the account is past its
+    overdraft floor; per-agent daily/monthly limits still apply.
 
-    Rules: paid actions are blocked at posted balance <= 0; a hold larger than
-    availability is the account's single bounded uncovered overrun (default cap
-    1,000); additional concurrent work needs positive availability.
+    Overdraft policy (plan 061): paid work is admitted while the posted balance
+    is above -OVERDRAFT_LIMIT_CREDITS. Holds no longer reserve credits or block
+    on exposure — a positive balance is never stranded behind in-flight work.
+    The final charge posts in full (into debt) on settle.
     """
     if not isinstance(estimated_credits, int) or isinstance(estimated_credits, bool) or estimated_credits < 0:
         raise BillingError("estimated_credits must be a nonnegative int")
     now = now or _utcnow()
 
-    acct = await lock_billing_account(session, account_id)
+    await lock_billing_account(session, account_id)
 
     payload = {
         "op": operation_id,
@@ -780,34 +790,17 @@ async def authorize(
     await expire_due_grants(session, account_id, now)
     await activate_scheduled_grants(session, account_id, now)
 
+    # Overdraft admission (plan 061): block only once the posted balance has
+    # fallen to the negative overdraft floor. No exposure/overrun guard — an
+    # in-flight hold never blocks new work, so a positive balance is always
+    # usable. The concurrency risk is a bounded overshoot of the floor.
     balance = await posted_balance(session, account_id)
-    if balance <= 0:
-        raise InsufficientBalance(f"posted balance {balance} <= 0")
-
-    open_holds = (
-        await session.execute(
-            select(BillingHold).where(
-                BillingHold.account_id == account_id,
-                BillingHold.status.in_(["open", "needs_reconciliation"]),
-            )
+    if balance <= -OVERDRAFT_LIMIT_CREDITS:
+        raise InsufficientBalance(
+            f"posted balance {balance} at/below overdraft floor "
+            f"-{OVERDRAFT_LIMIT_CREDITS}"
         )
-    ).scalars().all()
-    open_exposure = sum(h.estimated_credits for h in open_holds)
-    available = balance - open_exposure
-
-    overrun = max(estimated_credits - max(available, 0), 0)
-    if overrun > 0:
-        if available <= 0:
-            raise LimitExceeded(
-                "exposure_limit", "concurrent work requires positive availability"
-            )
-        if any(h.overrun_credits > 0 for h in open_holds):
-            raise LimitExceeded("exposure_limit", "an uncovered overrun is already in flight")
-        if overrun > acct.overrun_cap_credits:
-            raise LimitExceeded(
-                "exposure_limit",
-                f"overrun {overrun} exceeds cap {acct.overrun_cap_credits}",
-            )
+    overrun = 0  # overrun/exposure concept retired (061)
 
     daily_period = monthly_period = None
     if agent_id is not None and count_toward_limits:

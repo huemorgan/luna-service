@@ -15,6 +15,7 @@ from cloud.billing.ledger import (
     WALLET,
     BillingError,
     IdempotencyConflict,
+    OVERDRAFT_LIMIT_CREDITS,
     InsufficientBalance,
     LimitExceeded,
     UnbalancedPostings,
@@ -214,7 +215,8 @@ async def test_expiration_exclusive_boundary(db_session, account):
 
 
 @pytest.mark.asyncio
-async def test_expired_grant_never_burns(db_session, account):
+async def test_expired_grant_never_burns(db_session, account, monkeypatch):
+    monkeypatch.setattr("cloud.billing.ledger.OVERDRAFT_LIMIT_CREDITS", 0)  # floor at 0
     await _grant(db_session, account, 100, "gift:exp", expires=NOW + timedelta(days=1))
     with pytest.raises(InsufficientBalance):
         await authorize(
@@ -323,10 +325,18 @@ async def test_projection_matches_ledger_replay(db_session, account):
 # ── Authorize / settle / release ─────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_authorize_blocked_at_zero_balance(db_session, account):
+async def test_authorize_allows_overdraft_until_floor(db_session, account):
     await ensure_billing_account(db_session, account.id)
+    # Overdraft (061): a zero (or positive) balance is admitted — no longer
+    # blocked. Charges may run the wallet into debt.
+    hold = await authorize(db_session, operation_id="op:1", account_id=account.id,
+                           estimated_credits=10, now=NOW)
+    assert hold.estimated_credits == 10
+    # Only once the wallet is at/below the negative overdraft floor does it block.
+    await charge(db_session, account_id=account.id, idempotency_key="c:1",
+                 credits=OVERDRAFT_LIMIT_CREDITS + 5, now=NOW)
     with pytest.raises(InsufficientBalance):
-        await authorize(db_session, operation_id="op:1", account_id=account.id,
+        await authorize(db_session, operation_id="op:2", account_id=account.id,
                         estimated_credits=10, now=NOW)
 
 
@@ -344,41 +354,29 @@ async def test_authorize_idempotent_and_conflict(db_session, account):
 
 
 @pytest.mark.asyncio
-async def test_single_bounded_overrun(db_session, account):
+async def test_overdraft_admits_concurrent_uncovered_work(db_session, account):
+    # 061: in-flight holds no longer reserve credits or block. Concurrent calls
+    # whose estimates exceed the balance are all admitted (bounded only by the
+    # overdraft floor); overrun/exposure is retired.
     await _grant(db_session, account, 100, "gift:1")
-    # Overrun within cap (default 1000) is allowed once.
     await authorize(db_session, operation_id="op:1", account_id=account.id,
                     estimated_credits=600, now=NOW)
-    # Second overrun while one is in flight → blocked (available is 100-600<0).
-    with pytest.raises(LimitExceeded) as exc:
-        await authorize(db_session, operation_id="op:2", account_id=account.id,
-                        estimated_credits=10, now=NOW)
-    assert exc.value.code == "exposure_limit"
+    hold2 = await authorize(db_session, operation_id="op:2", account_id=account.id,
+                            estimated_credits=10, now=NOW)
+    assert hold2.overrun_credits == 0
 
 
 @pytest.mark.asyncio
-async def test_overrun_cap_enforced(db_session, account):
-    acct = await ensure_billing_account(db_session, account.id)
-    acct.overrun_cap_credits = 50
-    await _grant(db_session, account, 100, "gift:1")
-    with pytest.raises(LimitExceeded):
-        await authorize(db_session, operation_id="op:1", account_id=account.id,
-                        estimated_credits=200, now=NOW)  # overrun 100 > cap 50
-    hold = await authorize(db_session, operation_id="op:2", account_id=account.id,
-                           estimated_credits=140, now=NOW)  # overrun 40 <= 50
-    assert hold.overrun_credits == 40
-
-
-@pytest.mark.asyncio
-async def test_concurrent_holds_within_balance(db_session, account):
+async def test_concurrent_holds_over_balance_allowed(db_session, account):
+    # Three concurrent holds summing past the balance are all admitted now.
     await _grant(db_session, account, 100, "gift:1")
     await authorize(db_session, operation_id="op:1", account_id=account.id,
                     estimated_credits=60, now=NOW)
     await authorize(db_session, operation_id="op:2", account_id=account.id,
-                    estimated_credits=40, now=NOW)  # exactly exhausts availability
-    with pytest.raises(LimitExceeded):
-        await authorize(db_session, operation_id="op:3", account_id=account.id,
-                        estimated_credits=1, now=NOW)
+                    estimated_credits=40, now=NOW)
+    hold3 = await authorize(db_session, operation_id="op:3", account_id=account.id,
+                            estimated_credits=50, now=NOW)
+    assert hold3.status == "open"
 
 
 @pytest.mark.asyncio
@@ -401,9 +399,8 @@ async def test_settle_release_lifecycle(db_session, account):
 
 
 @pytest.mark.asyncio
-async def test_stale_holds_keep_bounding_exposure(db_session, account):
-    acct = await ensure_billing_account(db_session, account.id)
-    acct.overrun_cap_credits = 0  # so exceeding availability blocks outright
+async def test_stale_holds_downgrade_and_settle(db_session, account):
+    await ensure_billing_account(db_session, account.id)
     await _grant(db_session, account, 100, "gift:1")
     await authorize(db_session, operation_id="op:1", account_id=account.id,
                     estimated_credits=80, now=NOW, ttl=timedelta(minutes=5))
@@ -411,15 +408,15 @@ async def test_stale_holds_keep_bounding_exposure(db_session, account):
     assert len(stale) == 1 and stale[0].status == "needs_reconciliation"
     projection = await db_session.get(AccountBalanceProjection, account.id)
     assert projection.open_exposure_credits == 80
-    # The unresolved hold still consumes availability.
-    with pytest.raises(LimitExceeded):
-        await authorize(db_session, operation_id="op:2", account_id=account.id,
-                        estimated_credits=30, now=NOW + timedelta(minutes=10))
-    # Settling a needs_reconciliation hold is allowed (reconciliation path).
+    # 061: an unresolved hold no longer blocks new work — overdraft admits it.
+    hold2 = await authorize(db_session, operation_id="op:2", account_id=account.id,
+                            estimated_credits=30, now=NOW + timedelta(minutes=10))
+    assert hold2.status == "open"
+    # Settling a needs_reconciliation hold is still allowed (reconciliation path).
     await settle(db_session, operation_id="op:1", final_credits=20,
                  now=NOW + timedelta(minutes=15))
     projection = await db_session.get(AccountBalanceProjection, account.id)
-    assert projection.open_exposure_credits == 0
+    assert projection.open_exposure_credits == 30  # op:2 still open
 
 
 # ── Agent limits ─────────────────────────────────────────────────────────────

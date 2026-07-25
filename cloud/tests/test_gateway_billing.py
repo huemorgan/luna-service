@@ -661,6 +661,7 @@ async def test_mode_shadow_records_would_block_no_customer_effect(
     anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
 ):
     _set_mode(monkeypatch, "shadow")
+    monkeypatch.setattr("cloud.billing.ledger.OVERDRAFT_LIMIT_CREDITS", 0)  # floor at 0
     token = await _seed_billing_gateway(db_session, sample_agent, credits=0)
     r = await _call_messages(anon_client, token)
     assert r.status_code == 200  # shadow never blocks
@@ -676,6 +677,7 @@ async def test_mode_enforce_blocks_empty_wallet(
     anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
 ):
     _set_mode(monkeypatch, "enforce")
+    monkeypatch.setattr("cloud.billing.ledger.OVERDRAFT_LIMIT_CREDITS", 0)  # floor at 0
     token = await _seed_billing_gateway(db_session, sample_agent, credits=0)
     r = await _call_messages(anon_client, token)
     assert r.status_code == 402
@@ -922,19 +924,19 @@ async def test_revoked_token_cannot_spend(
     assert await _rows(db_session, BillingHold) == []
 
 
-async def test_exposure_limit_second_uncovered_hold_blocked(
+async def test_overdraft_admits_second_concurrent_uncovered_call(
     anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
 ):
     _set_mode(monkeypatch, "enforce")
-    # Balance 1 credit: the first hold (estimate ≫ 1) is the single allowed
-    # uncovered overrun; a second concurrent call must not stack exposure.
+    # 061: with a tiny balance and a hold already open, a second concurrent
+    # call is no longer blocked on exposure — overdraft admits it. Both succeed;
+    # the wallet settles into a small (bounded) debt.
     token = await _seed_billing_gateway(db_session, sample_agent, credits=1)
     r1 = await _call_messages(anon_client, token)
-    assert r1.status_code == 200  # hold open (worker not run yet)
+    assert r1.status_code == 200
     r2 = await _call_messages(anon_client, token)
-    assert r2.status_code == 402
-    err = r2.json()["error"]
-    assert err["code"] == "exposure_limit" and err["retryable"] is True
+    assert r2.status_code == 200
+    assert len(await _rows(db_session, BillingHold)) == 2
 
 
 # ── Failure states: exactly one explainable outcome ──────────────────────────
@@ -1069,6 +1071,7 @@ async def test_override_enforce_blocks_while_global_off(
     from cloud.billing import modes
 
     _set_mode(monkeypatch, "off")
+    monkeypatch.setattr("cloud.billing.ledger.OVERDRAFT_LIMIT_CREDITS", 0)  # floor at 0
     token = await _seed_billing_gateway(db_session, sample_agent, credits=0)
     await modes.set_override(db_session, sample_agent.account_id, "enforce")
     await db_session.commit()
@@ -1085,6 +1088,7 @@ async def test_override_never_lowers_global_enforce(
     from cloud.billing import modes
 
     _set_mode(monkeypatch, "enforce")
+    monkeypatch.setattr("cloud.billing.ledger.OVERDRAFT_LIMIT_CREDITS", 0)  # floor at 0
     token = await _seed_billing_gateway(db_session, sample_agent, credits=0)
     await modes.set_override(db_session, sample_agent.account_id, "observe")
     await db_session.commit()
