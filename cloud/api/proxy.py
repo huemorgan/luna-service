@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 import json
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
@@ -292,6 +292,12 @@ async def _proxy_request(
     headers.pop("accept-encoding", None)
     headers["x-luna-user"] = user.email
     headers["x-luna-proxy-secret"] = proxy_secret
+    # Public base for this agent, so plugins can emit public URLs (e.g. MacRunner's
+    # pairing ws://…) instead of their unreachable internal address.
+    _pub_host = request.headers.get("x-forwarded-host") or request.url.hostname
+    _pub_scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+    if _pub_host:
+        headers["x-luna-public-base"] = f"{_pub_scheme}://{_pub_host}/a/{agent_slug}"
 
     if agent.runtime_ref:
         headers["fly-force-instance-id"] = agent.runtime_ref
@@ -566,3 +572,146 @@ def _rewrite_html_paths(html: str, prefix: str) -> str:
     )
     html = html.replace("</head>", interceptor + reporter + "</head>")
     return html
+
+
+# --- WebSocket reverse proxy (plan 062) -----------------------------------
+
+# MacRunner's pairing socket is gated by the tenant plugin's token (the native
+# app has no browser session), so this path is forwarded by slug and the tenant
+# does the auth. Every other WS path requires the owner's session.
+_TOKEN_GATED_WS_SUFFIXES = ("api/p/luna-macrunner/ws",)
+
+
+async def _resolve_agent_by_slug(agent_slug: str):
+    async with get_db_session() as db:
+        return (
+            await db.execute(select(Agent).where(Agent.slug == agent_slug))
+        ).scalar_one_or_none()
+
+
+@router.websocket("/a/{agent_slug}/{path:path}")
+async def proxy_websocket(websocket: WebSocket, agent_slug: str, path: str):
+    """Reverse-proxy a WebSocket to the tenant's Luna. Auth model: see plan 062."""
+    token_gated = path.rstrip("/").endswith(_TOKEN_GATED_WS_SUFFIXES)
+    user_email: str | None = None
+
+    if token_gated:
+        # Forwarded by slug; the tenant plugin verifies the pairing token.
+        agent = await _resolve_agent_by_slug(agent_slug)
+        if agent is None:
+            await websocket.close(code=4404)
+            return
+    else:
+        # Browser client: require the owner's session + membership.
+        sess = get_session(websocket)  # WebSocket exposes .cookies, like Request
+        if not sess or "user_id" not in sess:
+            await websocket.close(code=4401)
+            return
+        from cloud.auth.deps import check_membership_cached, load_user_cached
+
+        user = await load_user_cached(sess["user_id"])
+        agent = await _resolve_agent_by_slug(agent_slug)
+        if (
+            not user
+            or agent is None
+            or not await check_membership_cached(sess["user_id"], str(agent.account_id))
+        ):
+            await websocket.close(code=4403)
+            return
+        user_email = user.email
+
+    if not agent.internal_url:
+        await websocket.close(code=1011)
+        return
+
+    # Wake a suspended machine before dialing.
+    if agent.status in ("stopped", "error"):
+        await _try_wake_agent(agent)
+        agent = await _resolve_agent_by_slug(agent_slug) or agent
+
+    from cloud.runtime.proxy_secret import derive_proxy_secret
+
+    root_secret = os.environ.get("CLOUD_TRUSTED_PROXY_SECRET", "dev-proxy-secret")
+    proxy_secret = derive_proxy_secret(root_secret, str(agent.id))
+
+    ws_base = (
+        agent.internal_url.replace("https://", "wss://")
+        .replace("http://", "ws://")
+        .rstrip("/")
+    )
+    target = f"{ws_base}/{path}"
+    if websocket.url.query:
+        target += f"?{websocket.url.query}"
+
+    headers = [("x-luna-proxy-secret", proxy_secret)]
+    if user_email:
+        headers.append(("x-luna-user", user_email))
+    if agent.runtime_ref:
+        headers.append(("fly-force-instance-id", agent.runtime_ref))
+
+    await websocket.accept()
+
+    try:
+        import websockets  # local import: only this path needs it
+    except Exception:  # noqa: BLE001
+        log.error("websockets library not installed - cannot proxy WS")
+        await websocket.close(code=1011)
+        return
+
+    try:
+        # websockets>=12 uses additional_headers; older uses extra_headers.
+        try:
+            upstream_cm = websockets.connect(
+                target, additional_headers=headers, open_timeout=15, max_size=None
+            )
+        except TypeError:
+            upstream_cm = websockets.connect(
+                target, extra_headers=headers, open_timeout=15, max_size=None
+            )
+        async with upstream_cm as upstream:
+            log.info("WS proxy %s -> %s", agent_slug, target)
+            await _ws_pump(websocket, upstream)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("WS proxy to %s failed: %s", target, exc)
+        try:
+            await websocket.close(code=1011)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+async def _ws_pump(client: WebSocket, upstream) -> None:
+    """Pump frames both ways until either side closes."""
+
+    async def client_to_upstream() -> None:
+        try:
+            while True:
+                msg = await client.receive()
+                if msg.get("type") == "websocket.disconnect":
+                    break
+                if (text := msg.get("text")) is not None:
+                    await upstream.send(text)
+                elif (data := msg.get("bytes")) is not None:
+                    await upstream.send(data)
+        except Exception:  # noqa: BLE001
+            pass
+
+    async def upstream_to_client() -> None:
+        try:
+            async for m in upstream:
+                if isinstance(m, (bytes, bytearray)):
+                    await client.send_bytes(bytes(m))
+                else:
+                    await client.send_text(m)
+        except Exception:  # noqa: BLE001
+            pass
+
+    t1 = asyncio.create_task(client_to_upstream())
+    t2 = asyncio.create_task(upstream_to_client())
+    _done, pending = await asyncio.wait({t1, t2}, return_when=asyncio.FIRST_COMPLETED)
+    for t in pending:
+        t.cancel()
+    for closer in (upstream.close, client.close):
+        try:
+            await closer()
+        except Exception:  # noqa: BLE001
+            pass
