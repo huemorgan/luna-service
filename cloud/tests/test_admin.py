@@ -146,6 +146,48 @@ class TestImages:
         resp = await admin_client.post(f"/api/admin/images/{img.id}/set-main")
         assert resp.status_code == 400
 
+    async def test_set_main_clears_demoted_warm_marker(self, admin_client: AsyncClient, sample_image, db_session):
+        from cloud.db.models import LunaImage
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        sample_image.cache_warmed_at = now
+        img2 = LunaImage(
+            version="0.01.002",
+            registry_tag="registry.fly.io/luna-tenants-prod:0.01.002",
+            is_main=False,
+            build_status="built",
+            built_at=now,
+        )
+        db_session.add(img2)
+        await db_session.commit()
+        await db_session.refresh(img2)
+
+        resp = await admin_client.post(f"/api/admin/images/{img2.id}/set-main")
+        assert resp.status_code == 200
+
+        data = (await admin_client.get("/api/admin/images")).json()
+        by_version = {i["version"]: i for i in data}
+        assert by_version["0.01.001"]["cache_warmed_at"] is None
+
+    async def test_remove_warm_cache(self, admin_client: AsyncClient, sample_image, db_session):
+        from datetime import datetime, timezone
+
+        sample_image.cache_warmed_at = datetime.now(timezone.utc)
+        await db_session.commit()
+
+        resp = await admin_client.delete(f"/api/admin/images/{sample_image.id}/warm-cache")
+        assert resp.status_code == 200
+
+        data = (await admin_client.get(f"/api/admin/images/{sample_image.id}")).json()
+        assert data["cache_warmed_at"] is None
+
+    async def test_remove_warm_cache_missing(self, admin_client: AsyncClient):
+        import uuid
+
+        resp = await admin_client.delete(f"/api/admin/images/{uuid.uuid4()}/warm-cache")
+        assert resp.status_code == 404
+
     async def test_check_update(self, admin_client: AsyncClient, sample_image):
         from unittest.mock import AsyncMock, patch
         mock_fetch = AsyncMock(return_value=("0.01.002", "github"))

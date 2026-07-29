@@ -1038,8 +1038,10 @@ async def set_main_image(image_id: str, request: Request, admin: User = Depends(
         )).scalar_one_or_none()
         prev_info = {"version": prev_main.version, "id": str(prev_main.id)} if prev_main else None
 
+        # Demoted images also lose their warmed marker: only Main's cache is
+        # kept warm, so a stale "Cache warm" badge on an old image is a lie.
         await db.execute(
-            LunaImage.__table__.update().values(is_main=False)
+            LunaImage.__table__.update().values(is_main=False, cache_warmed_at=None)
         )
         img.is_main = True
         await _audit(db, action="image.promoted_to_main", actor=admin, actor_ip=ip,
@@ -1115,6 +1117,26 @@ async def warm_image_cache(image_id: str, request: Request, admin: User = Depend
         await db.commit()
 
     return {"ok": True, "region": region, "cache_warmed_at": img.cache_warmed_at.isoformat()}
+
+
+@router.delete("/images/{image_id}/warm-cache")
+async def remove_image_cache(image_id: str, request: Request, admin: User = Depends(require_admin)):
+    """Clear an image's warmed-cache marker. Fly's host cache evicts on its own;
+    this drops our bookkeeping so the UI stops claiming the image is warm."""
+    ip = _client_ip(request)
+    async with get_db_session() as db:
+        img = (await db.execute(
+            select(LunaImage).where(LunaImage.id == uuid.UUID(image_id))
+        )).scalar_one_or_none()
+        if not img:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
+        before = img.cache_warmed_at.isoformat() if img.cache_warmed_at else None
+        img.cache_warmed_at = None
+        await _audit(db, action="image.cache_warm_removed", actor=admin, actor_ip=ip,
+                     target=str(img.id), metadata={"version": img.version},
+                     before_state={"cache_warmed_at": before})
+        await db.commit()
+    return {"ok": True}
 
 
 @router.get("/luna/branches")
@@ -1359,7 +1381,10 @@ async def promote_main(image_id: str, request: Request, admin: User = Depends(re
         old_main_id = str(old_main.id) if old_main and old_main.id != img.id else None
         old_main_version = old_main.version if old_main and old_main.id != img.id else None
 
-        await db.execute(LunaImage.__table__.update().values(is_main=False))
+        # Demoted images lose their warmed marker too (see set-main).
+        await db.execute(
+            LunaImage.__table__.update().values(is_main=False, cache_warmed_at=None)
+        )
         img.is_main = True
         await _audit(db, action="image.promoted_to_main", actor=admin, actor_ip=ip,
                      target=str(img.id), metadata={"version": img.version},

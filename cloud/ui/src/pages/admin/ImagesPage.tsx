@@ -204,7 +204,7 @@ interface StaleStatus {
   rebake_image_id: string | null;
 }
 
-function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure, onTestAgent, testingAgent, onWarmCache, warmingCache, staleStatus, onRebake, rebaking }: {
+function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure, onTestAgent, testingAgent, onWarmCache, warmingCache, onRemoveCache, removingCache, staleStatus, onRebake, rebaking }: {
   img: LunaImage;
   settingMain: string | null;
   onSetMain: (id: string) => void;
@@ -215,6 +215,8 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure
   testingAgent: string | null;
   onWarmCache: (id: string) => void;
   warmingCache: string | null;
+  onRemoveCache: (id: string) => void;
+  removingCache: string | null;
   staleStatus: StaleStatus | null;
   onRebake: () => void;
   rebaking: boolean;
@@ -383,6 +385,17 @@ function ImageCard({ img, settingMain, onSetMain, onDelete, onRetry, onConfigure
                 Warm Cache
               </button>
             )}
+            {img.build_status === 'built' && img.cache_warmed_at && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onRemoveCache(img.id); }}
+                disabled={removingCache === img.id}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--ink-light)] disabled:opacity-50"
+                style={{ border: '1px solid var(--ink-lighter)', color: 'var(--text-dim)' }}
+              >
+                {removingCache === img.id ? <Loader2 className="animate-spin" size={12} /> : <RefreshCw size={12} />}
+                Remove Cache
+              </button>
+            )}
             {img.build_status === 'built' && !img.is_main && (
               <button
                 onClick={(e) => { e.stopPropagation(); onSetMain(img.id); }}
@@ -442,6 +455,7 @@ export default function ImagesPage() {
   const [migrateResult, setMigrateResult] = useState<{ updated: number; errors: { agent: string; error: string }[] } | null>(null);
   const [testingAgent, setTestingAgent] = useState<string | null>(null);
   const [warmingCache, setWarmingCache] = useState<string | null>(null);
+  const [removingCache, setRemovingCache] = useState<string | null>(null);
   const [branches, setBranches] = useState<LunaBranch[]>([]);
   const [selectedBranch, setSelectedBranch] = useState('main');
   const [branchesLoading, setBranchesLoading] = useState(false);
@@ -596,6 +610,22 @@ export default function ImagesPage() {
       alert(`Error: ${e instanceof Error ? e.message : e}`);
     }
     setWarmingCache(null);
+  };
+
+  const handleRemoveCache = async (imageId: string) => {
+    setRemovingCache(imageId);
+    try {
+      const res = await fetch(`/api/admin/images/${imageId}/warm-cache`, { method: 'DELETE' });
+      if (res.ok) {
+        await fetchImages();
+      } else {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        alert(`Remove cache failed: ${err.detail || JSON.stringify(err)}`);
+      }
+    } catch (e: unknown) {
+      alert(`Error: ${e instanceof Error ? e.message : e}`);
+    }
+    setRemovingCache(null);
   };
 
   const handleRebake = async () => {
@@ -754,6 +784,8 @@ export default function ImagesPage() {
               testingAgent={testingAgent}
               onWarmCache={handleWarmCache}
               warmingCache={warmingCache}
+              onRemoveCache={handleRemoveCache}
+              removingCache={removingCache}
               staleStatus={staleStatus}
               onRebake={handleRebake}
               rebaking={rebaking}
