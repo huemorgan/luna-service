@@ -7,7 +7,6 @@ vision/
 dojo-vision/
 tests/
 dev/
-scripts/
 agent-transcripts/
 cloud/ui/node_modules/
 cloud/ui/dist/
