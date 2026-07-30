@@ -339,6 +339,50 @@ async def test_image_estimates():
     assert est == {"input_text_tokens": 4000, "output_tokens": 6240}
 
 
+# ── Realtime voice (mint-billed sessions) ────────────────────────────────────
+
+async def test_realtime_mint_route_classification():
+    for path in ("realtime/client_secrets", "v1/realtime/client_secrets"):
+        r = route_catalog.classify("openai", "POST", path)
+        assert r.kind == "billed" and r.adapter == "openai.realtime_mint"
+        assert r.sku == "voice_session"
+    # The mint row must not open up the rest of the Realtime surface.
+    assert route_catalog.classify("openai", "GET", "realtime/client_secrets") is None
+    assert route_catalog.classify("openai", "POST", "realtime/sessions") is None
+
+
+async def test_realtime_mint_adapter():
+    # GA mint response: key in `value`, session metadata nested.
+    c = adapters.make_collector("openai.realtime_mint", "application/json")
+    c.feed(json.dumps({
+        "value": "ek_abc", "expires_at": 1,
+        "session": {"id": "sess_1", "model": "gpt-realtime", "type": "realtime"},
+    }).encode())
+    facts = c.finish(200, {})
+    assert facts.dimensions == {"sessions": 1}
+    assert facts.model == "gpt-realtime"
+    assert facts.provider_response_id == "sess_1"
+    assert facts.usage_seen
+
+    # Older beta shape nests the key under client_secret.
+    c = adapters.make_collector("openai.realtime_mint", "application/json")
+    c.feed(json.dumps({"client_secret": {"value": "ek_x"}, "id": "sess_2"}).encode())
+    assert c.finish(200, {}).dimensions == {"sessions": 1}
+
+    # An error body mints nothing — no phantom session.
+    c = adapters.make_collector("openai.realtime_mint", "application/json")
+    c.feed(json.dumps({"error": {"message": "nope"}}).encode())
+    facts = c.finish(401, {})
+    assert facts.dimensions == {} and not facts.usage_seen
+
+    # Model extraction covers both body shapes; estimate is one flat session.
+    assert adapters.extract_model(
+        "openai.realtime_mint", {"session": {"model": "gpt-realtime"}}, "") == "gpt-realtime"
+    assert adapters.extract_model(
+        "openai.realtime_mint", {"model": "gpt-realtime-mini"}, "") == "gpt-realtime-mini"
+    assert adapters.estimate_dimensions("openai.realtime_mint", {}, 500) == {"sessions": 1}
+
+
 # ── Adapters: Anthropic ──────────────────────────────────────────────────────
 
 def _feed_split(collector, payload: bytes, size: int = 7):
@@ -708,6 +752,69 @@ async def test_mode_enforce_happy_path_holds_and_settles(
     assert charges[0].charge_status == "settled"
     assert charges[0].credits == 4
     assert await ledger.posted_balance(db_session, sample_agent.account_id) == 96
+
+
+async def test_mode_enforce_realtime_mint_flat_session_charge(
+    anon_client, db_session, sample_agent, monkeypatch,
+):
+    """Voice mint is billed as one flat session: hold → upstream mint →
+    settle at vendor session estimate + margin (520,000 µ$ → 52 credits)."""
+    _set_mode(monkeypatch, "enforce")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/realtime/client_secrets")
+        assert request.headers.get("authorization") == "Bearer REAL-OAI-1"
+        return httpx.Response(200, json={
+            "value": "ek_live", "expires_at": 9,
+            "session": {"id": "sess_e2e", "model": "gpt-realtime", "type": "realtime"},
+        }, headers={"x-request-id": "req_rt1"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr("cloud.api.gateway_proxy._get_client", lambda: client)
+
+    db_session.add(GatewayService(
+        slug="openai", display_name="OpenAI",
+        upstream_url="http://upstream.test/v1", auth_style="header:Authorization:Bearer",
+        **default_names("openai"),
+    ))
+    db_session.add(GatewayKey(
+        service_slug="openai", scope="global", priority=1,
+        api_key_enc=encrypt_key("REAL-OAI-1"), label="main", is_active=True,
+    ))
+    await db_session.flush()
+    await seed_billing(db_session)
+    await ledger.ensure_billing_account(db_session, sample_agent.account_id)
+    await ledger.create_grant(
+        db_session, account_id=sample_agent.account_id, source_type="gift",
+        source_key=f"test:{uuid.uuid4()}", credits=100,
+        visible_category="gift", effective_at=NOW - timedelta(days=1),
+        expires_at=None, now=NOW,
+    )
+    token = await issue_token(db_session, sample_agent.id)
+    await db_session.commit()
+
+    r = await anon_client.post(
+        "/proxy/openai/realtime/client_secrets",
+        content=json.dumps({"session": {"type": "realtime", "model": "gpt-realtime"}}),
+        headers={"authorization": f"Bearer {token}", "content-type": "application/json"},
+    )
+    assert r.status_code == 200
+    assert r.json()["value"] == "ek_live"
+
+    ran = await billing_worker.run_once(db_session, worker_id="test")
+    await db_session.commit()
+    assert ran == 1
+    events = await _rows(db_session, BillableEvent)
+    assert len(events) == 1
+    assert events[0].sku == "voice_session"
+    assert events[0].quantity_json == {"sessions": 1}
+    assert events[0].model == "gpt-realtime"
+    charges = await _rows(db_session, RatedCharge)
+    assert charges[0].charge_status == "settled"
+    assert charges[0].vendor_cost_micro_usd == 500_000
+    assert charges[0].margin_micro_usd == 20_000
+    assert charges[0].credits == 52
+    assert await ledger.posted_balance(db_session, sample_agent.account_id) == 48
 
 
 # ── Deny-by-default classification ───────────────────────────────────────────

@@ -151,7 +151,7 @@ async def test_seeded_config_contents(db_session):
     assert config["migration_gift"] == {"credits": 1_800, "days": 28, "active_luna_cap": 1}
     assert config["hosting"]["price_credits"] == 999
     enabled = {s["key"] for s in config["skus"] if s["enabled"]}
-    assert enabled == {"llm_call", "image_gen", "hosting_month"}  # everything else fails closed
+    assert enabled == {"llm_call", "image_gen", "voice_session", "hosting_month"}  # everything else fails closed
     product_keys = {p["key"] for p in config["products"]}
     assert {"hobby_19", "recurring_99", "recurring_199", "topup_10"} <= product_keys
 

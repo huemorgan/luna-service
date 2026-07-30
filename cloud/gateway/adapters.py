@@ -464,6 +464,31 @@ class OpenAIImagesCollector(UsageCollector):
         }
 
 
+class OpenAIRealtimeMintCollector(UsageCollector):
+    """POST /realtime/client_secrets — the only Realtime call the gateway sees.
+    A successful mint IS the billable unit (sessions=1): the audio itself runs
+    browser ⇄ OpenAI over WebRTC on the minted ephemeral key and never
+    transits the gateway. GA responses carry the key in `value`; the older
+    beta shape nested it under `client_secret`."""
+
+    def _handle_event(self, data: dict) -> None:
+        self._handle_document(data)
+
+    def _handle_document(self, data: dict) -> None:
+        session = data.get("session")
+        if isinstance(session, dict):
+            self._capture_identity(session)
+        minted = isinstance(data.get("value"), str) or isinstance(
+            data.get("client_secret"), dict
+        )
+        if minted:
+            self._raw["sessions"] = 1
+            self.usage_seen = True
+
+    def _dimensions(self) -> dict[str, int]:
+        return {"sessions": self._raw.get("sessions", 0)}
+
+
 _COLLECTORS = {
     "anthropic.messages": AnthropicMessagesCollector,
     "openai.chat": OpenAIChatCollector,
@@ -478,6 +503,7 @@ _COLLECTORS = {
     "moonshot.chat": OpenAIChatCollector,
     "gemini.generate": GeminiGenerateCollector,
     "openai.images": OpenAIImagesCollector,
+    "openai.realtime_mint": OpenAIRealtimeMintCollector,
 }
 
 # Adapters speaking the OpenAI chat protocol (usage shape + stream_options).
@@ -512,6 +538,14 @@ def extract_model(
     if adapter == "gemini.generate":
         segment = path.rstrip("/").rpartition("/")[2]
         return segment.partition(":")[0] or None
+    if adapter == "openai.realtime_mint" and isinstance(body_json, dict):
+        # GA mint body nests the model under "session"; fall through to the
+        # top-level "model" lookup for the older flat shape.
+        session = body_json.get("session")
+        if isinstance(session, dict):
+            model = session.get("model")
+            if isinstance(model, str) and model:
+                return model
     if isinstance(body_json, dict):
         model = body_json.get("model")
         if isinstance(model, str) and model:
@@ -532,6 +566,9 @@ def estimate_dimensions(
     body = body_json if isinstance(body_json, dict) else {}
     if adapter == "openai.embeddings":
         return {"input_tokens": est_input}
+    if adapter == "openai.realtime_mint":
+        # Flat per-session billing — the mint is the whole billable unit.
+        return {"sessions": 1}
     if adapter == "gemini.generate":
         # Reference images inflate body_len enormously — input is text-priced,
         # so cap the estimate; the hold is dominated by one 4K output image

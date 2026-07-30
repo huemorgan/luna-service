@@ -154,4 +154,18 @@ PROVIDER_RATES_V1: list[tuple[str, str, str, str, int, int, str]] = [
      "https://developers.openai.com/api/docs/pricing"),
     ("openai", "gpt-image-1-mini", "output_tokens", "token", 8, 1,
      "https://developers.openai.com/api/docs/pricing"),
+    # Realtime voice — flat per-session vendor ESTIMATE, not a list price.
+    # Audio flows browser ⇄ OpenAI over WebRTC on the minted ephemeral key,
+    # so the gateway never sees the minutes; the mint is the billable unit.
+    # Estimate ≈ a typical 5-10 min conversation at gpt-realtime audio token
+    # rates ($32/$64 per Mtok in/out). Reconcile against real invoices and
+    # republish if sessions run materially longer.
+    ("openai", "gpt-realtime", "sessions", "session", 500_000, 1,
+     "https://developers.openai.com/api/docs/pricing"),
+    ("openai", "gpt-4o-realtime-preview", "sessions", "session", 500_000, 1,
+     "https://developers.openai.com/api/docs/pricing"),
+    ("openai", "gpt-realtime-mini", "sessions", "session", 150_000, 1,
+     "https://developers.openai.com/api/docs/pricing"),
+    ("openai", "gpt-4o-mini-realtime-preview", "sessions", "session", 150_000, 1,
+     "https://developers.openai.com/api/docs/pricing"),
 ]

@@ -38,7 +38,13 @@ def commercial_v1_config() -> dict:
         # Tier is a capability judgment (frontier vs workhorse), not a vendor
         # cost bracket: grok-4.5 and gpt-5.5 are flagship reasoning models even
         # though their token rates sit at or below sonnet's.
-        "top_tier_models": ["claude-opus-4-6", "gpt-5.5", "grok-4.5", "kimi-k3"],
+        "top_tier_models": [
+            "claude-opus-4-6", "gpt-5.5", "grok-4.5", "kimi-k3",
+            # OpenAI Realtime voice (flagship voice model — tier is capability,
+            # not token price). Billed per session via the voice_session SKU.
+            "gpt-realtime",
+            "gpt-4o-realtime-preview",
+        ],
         # Explicit coverage: a model in neither list is not billable (fails
         # closed at rating). Publish rejects uncovered enabled gateway models.
         "mid_tier_models": [
@@ -58,11 +64,18 @@ def commercial_v1_config() -> dict:
             "gpt-image-1",  # deprecated upstream, retires 2026-10-23
             "gpt-image-1.5",
             "gpt-image-1-mini",
+            # Realtime voice workhorse variants.
+            "gpt-realtime-mini",
+            "gpt-4o-mini-realtime-preview",
         ],
         "skus": [
             {"key": "llm_call", "service": "llm", "formula": "vendor_plus_context_constant",
              "constants": {}, "enabled": True},
             {"key": "image_gen", "service": "image", "formula": "vendor_plus_context_constant",
+             "constants": {}, "enabled": True},
+            # Realtime voice: flat per-session vendor estimate (the audio
+            # bypasses the gateway — see route_catalog) + context margin.
+            {"key": "voice_session", "service": "voice", "formula": "vendor_plus_context_constant",
              "constants": {}, "enabled": True},
             {"key": "hosting_month", "service": "hosting", "formula": "fixed_credits",
              "constants": {"price_credits": 999}, "enabled": True},

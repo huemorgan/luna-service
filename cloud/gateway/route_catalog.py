@@ -79,6 +79,15 @@ _CATALOG: dict[tuple[str, str, str], RouteClass] = {
     ("gemini", "POST", "/openai/chat/completions"): _billed("gemini.chat", "llm_call"),
     ("gemini", "GET", "/openai/models"): _FREE,
     ("gemini", "GET", "/openai/models/*"): _FREE,
+    # OpenAI Realtime voice (plugin-voice): the gateway only ever sees the
+    # ephemeral-key mint — audio then flows browser ⇄ OpenAI over WebRTC on
+    # that short-lived key, invisible to us. Voice is therefore billed as a
+    # flat per-session charge on the mint itself (dimension "sessions",
+    # priced per model in the provider-cost table).
+    ("openai", "POST", "/realtime/client_secrets"):
+        _billed("openai.realtime_mint", "voice_session"),
+    ("openai", "POST", "/v1/realtime/client_secrets"):
+        _billed("openai.realtime_mint", "voice_session"),
     # /images/edits is multipart form-data — extract_model scans the form.
     ("openai", "POST", "/images/generations"): _billed("openai.images", "image_gen"),
     ("openai", "POST", "/images/edits"): _billed("openai.images", "image_gen"),
