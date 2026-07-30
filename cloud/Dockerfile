@@ -15,6 +15,8 @@ RUN uv pip install --system --no-cache fastapi "uvicorn[standard]" pydantic pyda
     "sqlalchemy[asyncio]" asyncpg alembic authlib itsdangerous httpx python-multipart
 
 COPY cloud/ ./cloud/
+# One-off admin jobs (scripts/rollout_image.py) run in this image too.
+COPY scripts/ ./scripts/
 COPY --from=ui-build /build/dist ./cloud/ui/dist
 
 EXPOSE 8100
