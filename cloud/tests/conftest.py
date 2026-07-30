@@ -77,6 +77,16 @@ def _reset_override_cache():
 
 
 @pytest.fixture(autouse=True)
+def _reset_service_cache():
+    """Gateway service rows are TTL-cached in-process; reset around every test
+    so one test's service config (upstream_url etc.) never leaks into another."""
+    from cloud.gateway.registry import invalidate_service_cache
+    invalidate_service_cache()
+    yield
+    invalidate_service_cache()
+
+
+@pytest.fixture(autouse=True)
 def _reset_catalog_cache():
     """Plan 018: the model catalog has a process-local TTL cache; reset it around
     every test so a seeded catalog from one test never leaks into another."""

@@ -279,6 +279,23 @@ async def test_proxy_managed_flow_injects_real_key(anon_client, db_session, samp
     assert ev.service_slug == "echo-test"
 
 
+async def test_proxy_dedupes_version_prefix_shared_with_upstream(anon_client, db_session, sample_agent, upstream):
+    # SDK-built clients send /proxy/<svc>/v1/... even when upstream_url
+    # already ends in /v1 (e.g. OpenAI) — the shared segment must collapse.
+    await _add_service(db_session, upstream_url="http://upstream.test/v1")
+    await _add_key(db_session, "echo-test", value="REAL-G1")
+    token = await issue_token(db_session, sample_agent.id)
+    await db_session.commit()
+
+    r = await anon_client.get("/proxy/echo-test/v1/things", headers={"x-api-key": token})
+    assert r.status_code == 200
+    assert upstream[0]["url"] == "http://upstream.test/v1/things"
+
+    # A path without the prefix is untouched.
+    r = await anon_client.get("/proxy/echo-test/other/things", headers={"x-api-key": token})
+    assert upstream[1]["url"] == "http://upstream.test/v1/other/things"
+
+
 async def test_proxy_invalid_token_401_never_reaches_upstream(anon_client, db_session, upstream):
     await _add_service(db_session)
     await _add_key(db_session, "echo-test", value="REAL-G1")

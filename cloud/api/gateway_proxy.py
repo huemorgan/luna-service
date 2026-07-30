@@ -127,7 +127,14 @@ def _upstream_headers(request: Request, auth: AuthStyle, credential: str) -> dic
 
 def _upstream_url(request: Request, service: GatewayService, path: str,
                   auth: AuthStyle, credential: str) -> str:
-    url = f"{service.upstream_url.rstrip('/')}/{path}"
+    # Clients built on provider SDKs often send the API version prefix in the
+    # path (e.g. /proxy/openai/v1/...) even though the service's upstream_url
+    # already ends with it — dedupe so both spellings reach the same upstream.
+    base = service.upstream_url.rstrip("/")
+    first, _, rest = path.partition("/")
+    if rest and base.endswith(f"/{first}"):
+        path = rest
+    url = f"{base}/{path}"
     if auth.is_query:
         # Key-in-query APIs (plan 026): swap the inbound token param for the real
         # key; preserve every other query param.
