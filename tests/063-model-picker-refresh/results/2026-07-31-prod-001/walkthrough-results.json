@@ -1,0 +1,64 @@
+[
+ {
+  "name": "W-1 plugin-chat-ui 0.2.0 live on tenant",
+  "ok": true,
+  "detail": "{\"name\":\"plugin-chat-ui\",\"replaces\":[\"chat\"],\"version\":\"0.2.0\"}"
+ },
+ {
+  "name": "W-2 picker menu opens",
+  "ok": true
+ },
+ {
+  "name": "W-3 provider groups contiguous, ordered, hairline dividers between",
+  "ok": true,
+  "detail": "seq=openai>anthropic>moonshot>xai dividers=3"
+ },
+ {
+  "name": "W-4a Kimi K2.6 Agent Ops listed",
+  "ok": true,
+  "detail": "{\"label\":\"Kimi K2.6 Agent Ops\",\"subtitle\":\"\",\"meters\":[\"Quality 4 of 5\",\"Speed 3 of 5\",\"Cost 1 of 5\"],\"disabled\":false}"
+ },
+ {
+  "name": "W-4b kimi k2.6 cost = exactly 1 $",
+  "ok": true,
+  "detail": "cost=1"
+ },
+ {
+  "name": "W-4c every kimi row cost >= 1 (visible)",
+  "ok": true,
+  "detail": "Kimi K3:3, Kimi K2.6 Agent Ops:1, Kimi K2.7 Code:1"
+ },
+ {
+  "name": "W-5a opus cost = 5 $",
+  "ok": true,
+  "detail": "cost=5"
+ },
+ {
+  "name": "W-5b no \"recommended\" tag on any row",
+  "ok": true,
+  "detail": "none"
+ },
+ {
+  "name": "W-6 no 0-pip highlights on ranked rows",
+  "ok": true,
+  "detail": "ranked=10 zeroed=none"
+ },
+ {
+  "name": "W-7a kimi k2.6 selectable (provider connected)",
+  "ok": true
+ },
+ {
+  "name": "W-7b default switched to Kimi K2.6",
+  "ok": true,
+  "detail": "Kimi K2.6 Agent Ops"
+ },
+ {
+  "name": "W-7c kimi-k2.6 chat round-trip replied",
+  "ok": true
+ },
+ {
+  "name": "W-7d default restored",
+  "ok": true,
+  "detail": "Kimi K2.7 Code (was Kimi K2.7 Code)"
+ }
+]

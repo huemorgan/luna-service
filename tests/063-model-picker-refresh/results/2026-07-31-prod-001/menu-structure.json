@@ -1,0 +1,114 @@
+{
+ "rows": [
+  {
+   "label": "GPT-5.5",
+   "subtitle": "",
+   "meters": [
+    "Quality 5 of 5",
+    "Speed 5 of 5",
+    "Cost 4 of 5"
+   ],
+   "disabled": false
+  },
+  {
+   "label": "GPT-4o",
+   "subtitle": "",
+   "meters": [
+    "Quality 3 of 5",
+    "Speed 5 of 5",
+    "Cost 2 of 5"
+   ],
+   "disabled": false
+  },
+  {
+   "divider": true
+  },
+  {
+   "label": "Claude Opus 4.6",
+   "subtitle": "",
+   "meters": [
+    "Quality 5 of 5",
+    "Speed 1 of 5",
+    "Cost 5 of 5"
+   ],
+   "disabled": false
+  },
+  {
+   "label": "Claude Sonnet 4.5",
+   "subtitle": "",
+   "meters": [
+    "Quality 4 of 5",
+    "Speed 3 of 5",
+    "Cost 3 of 5"
+   ],
+   "disabled": false
+  },
+  {
+   "divider": true
+  },
+  {
+   "label": "Kimi K3",
+   "subtitle": "",
+   "meters": [
+    "Quality 5 of 5",
+    "Speed 2 of 5",
+    "Cost 3 of 5"
+   ],
+   "disabled": false
+  },
+  {
+   "label": "Kimi K2.6 Agent Ops",
+   "subtitle": "",
+   "meters": [
+    "Quality 4 of 5",
+    "Speed 3 of 5",
+    "Cost 1 of 5"
+   ],
+   "disabled": false
+  },
+  {
+   "label": "Kimi K2.7 Code",
+   "subtitle": "",
+   "meters": [
+    "Quality 4 of 5",
+    "Speed 3 of 5",
+    "Cost 1 of 5"
+   ],
+   "disabled": false
+  },
+  {
+   "divider": true
+  },
+  {
+   "label": "Grok 4.5",
+   "subtitle": "",
+   "meters": [
+    "Quality 4 of 5",
+    "Speed 4 of 5",
+    "Cost 2 of 5"
+   ],
+   "disabled": false
+  },
+  {
+   "label": "Grok Build 0.1",
+   "subtitle": "",
+   "meters": [
+    "Quality 4 of 5",
+    "Speed 1 of 5",
+    "Cost 1 of 5"
+   ],
+   "disabled": false
+  },
+  {
+   "label": "Grok 4.3",
+   "subtitle": "",
+   "meters": [
+    "Quality 3 of 5",
+    "Speed 4 of 5",
+    "Cost 1 of 5"
+   ],
+   "disabled": false
+  }
+ ],
+ "dividers": 3
+}
