@@ -356,11 +356,11 @@ async def test_realtime_mint_adapter():
     c = adapters.make_collector("openai.realtime_mint", "application/json")
     c.feed(json.dumps({
         "value": "ek_abc", "expires_at": 1,
-        "session": {"id": "sess_1", "model": "gpt-realtime", "type": "realtime"},
+        "session": {"id": "sess_1", "model": "gpt-realtime-2.1", "type": "realtime"},
     }).encode())
     facts = c.finish(200, {})
     assert facts.dimensions == {"sessions": 1}
-    assert facts.model == "gpt-realtime"
+    assert facts.model == "gpt-realtime-2.1"
     assert facts.provider_response_id == "sess_1"
     assert facts.usage_seen
 
@@ -377,9 +377,9 @@ async def test_realtime_mint_adapter():
 
     # Model extraction covers both body shapes; estimate is one flat session.
     assert adapters.extract_model(
-        "openai.realtime_mint", {"session": {"model": "gpt-realtime"}}, "") == "gpt-realtime"
+        "openai.realtime_mint", {"session": {"model": "gpt-realtime-2.1"}}, "") == "gpt-realtime-2.1"
     assert adapters.extract_model(
-        "openai.realtime_mint", {"model": "gpt-realtime-mini"}, "") == "gpt-realtime-mini"
+        "openai.realtime_mint", {"model": "gpt-realtime-2.1-mini"}, "") == "gpt-realtime-2.1-mini"
     assert adapters.estimate_dimensions("openai.realtime_mint", {}, 500) == {"sessions": 1}
 
 
@@ -766,7 +766,7 @@ async def test_mode_enforce_realtime_mint_flat_session_charge(
         assert request.headers.get("authorization") == "Bearer REAL-OAI-1"
         return httpx.Response(200, json={
             "value": "ek_live", "expires_at": 9,
-            "session": {"id": "sess_e2e", "model": "gpt-realtime", "type": "realtime"},
+            "session": {"id": "sess_e2e", "model": "gpt-realtime-2.1", "type": "realtime"},
         }, headers={"x-request-id": "req_rt1"})
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -795,7 +795,7 @@ async def test_mode_enforce_realtime_mint_flat_session_charge(
 
     r = await anon_client.post(
         "/proxy/openai/realtime/client_secrets",
-        content=json.dumps({"session": {"type": "realtime", "model": "gpt-realtime"}}),
+        content=json.dumps({"session": {"type": "realtime", "model": "gpt-realtime-2.1"}}),
         headers={"authorization": f"Bearer {token}", "content-type": "application/json"},
     )
     assert r.status_code == 200
@@ -808,7 +808,7 @@ async def test_mode_enforce_realtime_mint_flat_session_charge(
     assert len(events) == 1
     assert events[0].sku == "voice_session"
     assert events[0].quantity_json == {"sessions": 1}
-    assert events[0].model == "gpt-realtime"
+    assert events[0].model == "gpt-realtime-2.1"
     charges = await _rows(db_session, RatedCharge)
     assert charges[0].charge_status == "settled"
     assert charges[0].vendor_cost_micro_usd == 500_000

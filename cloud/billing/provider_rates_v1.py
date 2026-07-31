@@ -117,6 +117,13 @@ PROVIDER_RATES_V1: list[tuple[str, str, str, str, int, int, str]] = [
      "https://platform.kimi.ai/docs/pricing/chat-k27-code"),
     ("moonshot", "kimi-k2.7-code", "cached_input_tokens", "token", 19, 100,  # $0.19/Mtok
      "https://platform.kimi.ai/docs/pricing/chat-k27-code"),
+    # kimi-k2.6 ("Agent Ops") — retrieved 2026-07-31 (063).
+    ("moonshot", "kimi-k2.6", "input_tokens", "token", 19, 20,  # $0.95/Mtok
+     "https://platform.kimi.ai/docs/pricing/chat-k26"),
+    ("moonshot", "kimi-k2.6", "output_tokens", "token", 4, 1,
+     "https://platform.kimi.ai/docs/pricing/chat-k26"),
+    ("moonshot", "kimi-k2.6", "cached_input_tokens", "token", 3, 20,  # $0.15/Mtok
+     "https://platform.kimi.ai/docs/pricing/chat-k26"),
     # Image generation (041). Gemini bills output images as IMAGE-modality
     # candidate tokens (flash: 1290 tok ≈ $0.039/image; 3-pro: 1120 tok ≈
     # $0.134 at 1K/2K, 2000 tok ≈ $0.24 at 4K); text + thinking output is a
@@ -160,11 +167,11 @@ PROVIDER_RATES_V1: list[tuple[str, str, str, str, int, int, str]] = [
     # Estimate ≈ a typical 5-10 min conversation at gpt-realtime audio token
     # rates ($32/$64 per Mtok in/out). Reconcile against real invoices and
     # republish if sessions run materially longer.
-    ("openai", "gpt-realtime", "sessions", "session", 500_000, 1,
+    ("openai", "gpt-realtime-2.1", "sessions", "session", 500_000, 1,
      "https://developers.openai.com/api/docs/pricing"),
     ("openai", "gpt-4o-realtime-preview", "sessions", "session", 500_000, 1,
      "https://developers.openai.com/api/docs/pricing"),
-    ("openai", "gpt-realtime-mini", "sessions", "session", 150_000, 1,
+    ("openai", "gpt-realtime-2.1-mini", "sessions", "session", 150_000, 1,
      "https://developers.openai.com/api/docs/pricing"),
     ("openai", "gpt-4o-mini-realtime-preview", "sessions", "session", 150_000, 1,
      "https://developers.openai.com/api/docs/pricing"),

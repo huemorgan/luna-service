@@ -8,7 +8,7 @@ projection. Double-claw protection is asserted by replaying handlers."""
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -231,8 +231,10 @@ async def test_yearly_refund_cancels_scheduled_lots_first(db_session, account):
     await _seed_bound_catalog(db_session)
     ba = await ledger.ensure_billing_account(db_session, account.id)
     ba.stripe_customer_id = CUS
-    start = datetime(2026, 1, 31, tzinfo=timezone.utc)
-    end = datetime(2027, 1, 31, tzinfo=timezone.utc)
+    # Anchor to now: with a fixed past start, monthly lots post as real time
+    # advances and the refund no longer fits inside the scheduled remainder.
+    start = datetime.now(timezone.utc) - timedelta(days=1)
+    end = start + timedelta(days=365)
     fake.objects["/v1/invoices/in_year1"] = _invoice(
         "in_year1", amount=118_800, price_id="price_recurring_99_yearly",
         start=start, end=end)

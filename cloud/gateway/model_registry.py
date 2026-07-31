@@ -21,7 +21,7 @@ SEED_MODELS: list[dict] = [
         "provider": "anthropic", "model": "claude-opus-4-6",
         "label": "Claude Opus 4.6", "context_window": 200000,
         "kinds": ["reasoning"], "aliases": ["opus", "opus-4.6", "claude-opus"],
-        "recommended_default": True, "input_cost": 5.0, "output_cost": 25.0,
+        "input_cost": 5.0, "output_cost": 25.0,
     },
     {
         "provider": "anthropic", "model": "claude-sonnet-4-5-20250929",
@@ -99,6 +99,14 @@ SEED_MODELS: list[dict] = [
         "provider": "moonshot", "model": "kimi-k2.7-code",
         "label": "Kimi K2.7 Code", "context_window": 262144,
         "kinds": ["reasoning"], "aliases": ["kimi-code", "kimi-k2.7-code-latest"],
+        "input_cost": 0.95, "output_cost": 4.0,
+    },
+    # 063: swarm-native operational workhorse (300 sub-agents / 4,000 steps,
+    # native video+document processing). Prices from platform.kimi.ai, 2026-07-31.
+    {
+        "provider": "moonshot", "model": "kimi-k2.6",
+        "label": "Kimi K2.6 Agent Ops", "context_window": 262144,
+        "kinds": ["reasoning"], "aliases": ["kimi-agent-ops", "kimi-k2.6-latest"],
         "input_cost": 0.95, "output_cost": 4.0,
     },
 ]

@@ -52,7 +52,8 @@ async def test_system_catalog_only_enabled_and_shape(db_session):
     opus = next(e for e in catalog if e["model"] == "claude-opus-4-6")
     assert opus["provider"] == "anthropic"
     assert "reasoning" in opus["kinds"]
-    assert opus.get("recommended_default") is True
+    # 063: opus no longer carries the recommended flag.
+    assert opus.get("recommended_default") is not True
     assert "opus" in opus.get("aliases", [])
 
 
@@ -65,6 +66,9 @@ async def test_system_catalog_has_kimi_models(db_session):
     assert "kimi" in k3.get("aliases", [])
     k27 = next(e for e in catalog if e["model"] == "kimi-k2.7-code")
     assert k27["provider"] == "moonshot"
+    k26 = next(e for e in catalog if e["model"] == "kimi-k2.6")
+    assert k26["label"] == "Kimi K2.6 Agent Ops"
+    assert "kimi-agent-ops" in k26.get("aliases", [])
 
 
 async def test_system_catalog_has_no_invented_ids(db_session):

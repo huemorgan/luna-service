@@ -42,7 +42,9 @@ def commercial_v1_config() -> dict:
             "claude-opus-4-6", "gpt-5.5", "grok-4.5", "kimi-k3",
             # OpenAI Realtime voice (flagship voice model — tier is capability,
             # not token price). Billed per session via the voice_session SKU.
-            "gpt-realtime",
+            # Exact API model id as sent by plugin-voice — coverage is an
+            # exact-string match, so this must track the client's model name.
+            "gpt-realtime-2.1",
             "gpt-4o-realtime-preview",
         ],
         # Explicit coverage: a model in neither list is not billable (fails
@@ -58,6 +60,9 @@ def commercial_v1_config() -> dict:
             "grok-4.3",
             "grok-build-0.1",
             "kimi-k2.7-code",
+            # 063: agent-ops workhorse — frontier-adjacent but priced and
+            # positioned as the operational core, not the flagship (K3 is).
+            "kimi-k2.6",
             # Image-generation models (041) — margin llm_constants[context][mid].
             "gemini-3-pro-image",
             "gemini-2.5-flash-image",
@@ -65,7 +70,7 @@ def commercial_v1_config() -> dict:
             "gpt-image-1.5",
             "gpt-image-1-mini",
             # Realtime voice workhorse variants.
-            "gpt-realtime-mini",
+            "gpt-realtime-2.1-mini",
             "gpt-4o-mini-realtime-preview",
         ],
         "skus": [
