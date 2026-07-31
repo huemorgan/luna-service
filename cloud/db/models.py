@@ -461,6 +461,30 @@ class ErrorEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class ErrorGroupStatus(Base):
+    """Plan 065 — triage state for one error fingerprint group.
+
+    One row per fingerprint an admin has touched; groups with no row are
+    open by default (no backfill, ingest path untouched). "Regressed"
+    (resolved but events arrived after resolved_at) is derived at query
+    time in the admin list — never stored — so the error sink stays
+    write-only and storm-safe.
+    """
+
+    __tablename__ = "error_group_status"
+
+    fingerprint: Mapped[str] = mapped_column(Text, primary_key=True)
+    # open | resolved
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="open", server_default="open")
+    note: Mapped[str | None] = mapped_column(Text)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+
 class AppSetting(Base):
     """Generic singleton key/value store for control-plane settings (Plan 020).
 

@@ -11,6 +11,17 @@ interface Group {
   kind: string;
   source: string;
   sample_message: string;
+  status: string;
+  note: string | null;
+  resolved_at: string | null;
+  resolved_by_email: string | null;
+}
+
+interface GroupStatus {
+  status: string;
+  note: string | null;
+  resolved_at: string | null;
+  resolved_by_email: string | null;
 }
 
 interface ErrorEventView {
@@ -32,6 +43,9 @@ interface ErrorEventView {
 
 const SEVERITY_COLOR: Record<string, string> = {
   critical: '#ef4444', error: '#f97316', warning: '#eab308', info: 'var(--text-dim)',
+};
+const STATUS_COLOR: Record<string, string> = {
+  open: 'var(--text-dim)', resolved: '#22c55e', regressed: '#ef4444',
 };
 const SOURCE_ICON: Record<string, any> = { ui: Globe, agent: Bot, service: Server };
 const KINDS = [
@@ -61,6 +75,18 @@ function SeverityChip({ severity }: { severity: string }) {
   );
 }
 
+function StatusChip({ status }: { status: string }) {
+  const c = STATUS_COLOR[status] || 'var(--text-dim)';
+  return (
+    <span className="text-xs px-2 py-0.5 rounded-full font-medium capitalize"
+      style={status === 'regressed'
+        ? { color: c, background: `${c}22`, border: `1px solid ${c}` }
+        : { color: c, background: status === 'open' ? 'var(--ink-light)' : `${c}22` }}>
+      {status}
+    </span>
+  );
+}
+
 function SourceBadge({ source }: { source: string }) {
   const Icon = SOURCE_ICON[source] || Globe;
   return (
@@ -77,10 +103,12 @@ function SourceBadge({ source }: { source: string }) {
 export default function ErrorsPage() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [totals, setTotals] = useState<Record<string, number>>({});
+  const [statusTotals, setStatusTotals] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [sourceF, setSourceF] = useState('');
   const [severityF, setSeverityF] = useState('');
   const [kindF, setKindF] = useState('');
+  const [statusF, setStatusF] = useState('active');
   const [hours, setHours] = useState('168');
   const [sort, setSort] = useState('last_seen');
   const [q, setQ] = useState('');
@@ -91,6 +119,7 @@ export default function ErrorsPage() {
     if (sourceF) params.set('source', sourceF);
     if (severityF) params.set('severity', severityF);
     if (kindF) params.set('kind', kindF);
+    if (statusF) params.set('status', statusF);
     if (q) params.set('q', q);
     params.set('hours', hours);
     params.set('sort', sort);
@@ -100,10 +129,11 @@ export default function ErrorsPage() {
         const body = await res.json();
         setGroups(body.groups || []);
         setTotals(body.totals_by_severity || {});
+        setStatusTotals(body.totals_by_status || {});
       }
     } catch { /* offline; keep prior list */ }
     setLoading(false);
-  }, [sourceF, severityF, kindF, q, hours, sort]);
+  }, [sourceF, severityF, kindF, statusF, q, hours, sort]);
 
   useEffect(() => { fetchList(); }, [fetchList]);
 
@@ -121,6 +151,13 @@ export default function ErrorsPage() {
                 {s}: {totals[s] || 0}
               </span>
             ))}
+            <span className="text-xs" style={{ color: 'var(--ink-lighter)' }}>·</span>
+            <span className="text-xs font-mono" style={{ color: STATUS_COLOR.open }}>
+              open: {statusTotals.open || 0}
+            </span>
+            <span className="text-xs font-mono" style={{ color: STATUS_COLOR.regressed }}>
+              regressed: {statusTotals.regressed || 0}
+            </span>
           </div>
           <button onClick={fetchList}
             className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all hover:scale-105"
@@ -141,6 +178,8 @@ export default function ErrorsPage() {
           options={[['', 'All severities'], ['critical', 'Critical'], ['error', 'Error'], ['warning', 'Warning'], ['info', 'Info']]} />
         <Select value={kindF} onChange={setKindF}
           options={[['', 'All kinds'], ...KINDS.map(k => [k, k] as [string, string])]} />
+        <Select value={statusF} onChange={setStatusF}
+          options={[['active', 'Open + regressed'], ['', 'All statuses'], ['open', 'Open'], ['resolved', 'Resolved'], ['regressed', 'Regressed']]} />
         <Select value={hours} onChange={setHours}
           options={[['24', 'Last 24h'], ['168', 'Last 7d'], ['720', 'Last 30d'], ['1440', 'Last 60d']]} />
         <Select value={sort} onChange={setSort}
@@ -156,7 +195,7 @@ export default function ErrorsPage() {
           <table className="w-full">
             <thead>
               <tr style={{ background: 'var(--surface)', borderBottom: '1px solid var(--ink-lighter)' }}>
-                {['Severity', 'Kind', 'Message', 'Source', 'Count', 'Agents', 'Last seen'].map((h, i) => (
+                {['Severity', 'Status', 'Kind', 'Message', 'Source', 'Count', 'Agents', 'Last seen'].map((h, i) => (
                   <th key={i} className="text-left text-xs font-medium px-4 py-3" style={dimText}>{h}</th>
                 ))}
               </tr>
@@ -164,9 +203,10 @@ export default function ErrorsPage() {
             <tbody>
               {groups.length === 0 ? (
                 <tr style={{ background: 'var(--surface)' }}>
-                  <td colSpan={7} className="px-4 py-8 text-center text-sm" style={dimText}>
-                    No errors in this window. Events arrive from browsers and agents via
-                    plugin-feedback, and from luna-service's own edge (proxy, wakes, 5xx).
+                  <td colSpan={8} className="px-4 py-8 text-center text-sm" style={dimText}>
+                    {statusF === 'active'
+                      ? 'No open errors in this window — anything already resolved is hidden by the status filter.'
+                      : "No errors in this window. Events arrive from browsers and agents via plugin-feedback, and from luna-service's own edge (proxy, wakes, 5xx)."}
                   </td>
                 </tr>
               ) : groups.map(g => (
@@ -174,6 +214,7 @@ export default function ErrorsPage() {
                   className="border-t cursor-pointer hover:opacity-90"
                   style={{ borderColor: 'var(--ink-lighter)', background: 'var(--surface)' }}>
                   <td className="px-4 py-3"><SeverityChip severity={g.severity} /></td>
+                  <td className="px-4 py-3"><StatusChip status={g.status} /></td>
                   <td className="px-4 py-3 text-xs font-mono" style={dimText}>{g.kind}</td>
                   <td className="px-4 py-3 text-sm max-w-md truncate" style={{ color: 'var(--text)' }}>{g.sample_message}</td>
                   <td className="px-4 py-3"><SourceBadge source={g.source} /></td>
@@ -188,7 +229,8 @@ export default function ErrorsPage() {
       )}
 
       {selected && (
-        <GroupDrawer fingerprint={selected} onClose={() => setSelected(null)} />
+        <GroupDrawer fingerprint={selected} onClose={() => setSelected(null)}
+          onStatusChange={fetchList} />
       )}
     </div>
   );
@@ -206,10 +248,15 @@ function Select({ value, onChange, options }: { value: string; onChange: (v: str
   );
 }
 
-function GroupDrawer({ fingerprint, onClose }: { fingerprint: string; onClose: () => void }) {
+function GroupDrawer({ fingerprint, onClose, onStatusChange }: {
+  fingerprint: string; onClose: () => void; onStatusChange: () => void;
+}) {
   const [events, setEvents] = useState<ErrorEventView[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  const [groupStatus, setGroupStatus] = useState<GroupStatus | null>(null);
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -219,10 +266,28 @@ function GroupDrawer({ fingerprint, onClose }: { fingerprint: string; onClose: (
           const body = await res.json();
           setEvents(body.events || []);
           setOpen((body.events || [])[0]?.id || null);
+          setGroupStatus(body.group_status || null);
+          setNote(body.group_status?.note || '');
         } else setError(`${res.status} ${res.statusText}`);
       } catch (e: any) { setError(String(e)); }
     })();
   }, [fingerprint]);
+
+  const setStatus = async (status: 'open' | 'resolved') => {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/errors/${fingerprint}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, note: note.trim() || null }),
+      });
+      if (res.ok) {
+        setGroupStatus((await res.json()).group_status);
+        onStatusChange();
+      } else setError(`${res.status} ${res.statusText}`);
+    } catch (e: any) { setError(String(e)); }
+    setSaving(false);
+  };
 
   const head = events[0];
 
@@ -239,6 +304,7 @@ function GroupDrawer({ fingerprint, onClose }: { fingerprint: string; onClose: (
               <div className="flex items-center gap-2 mt-2 flex-wrap">
                 <SeverityChip severity={head.severity} />
                 <SourceBadge source={head.source} />
+                {groupStatus && <StatusChip status={groupStatus.status} />}
                 <span className="text-xs" style={dimText}>{events.length} recent event{events.length === 1 ? '' : 's'}</span>
               </div>
             )}
@@ -248,6 +314,40 @@ function GroupDrawer({ fingerprint, onClose }: { fingerprint: string; onClose: (
 
         {error && (
           <div className="rounded-lg px-3 py-2 mb-3 text-sm" style={{ color: '#ef4444', background: '#ef444411' }}>{error}</div>
+        )}
+
+        {groupStatus && (
+          <div className="rounded-xl border p-3 mb-4" style={{ background: 'var(--surface)', borderColor: 'var(--ink-lighter)' }}>
+            {groupStatus.status !== 'open' && (
+              <div className="text-xs mb-2" style={dimText}>
+                Resolved {fmtAgo(groupStatus.resolved_at)}
+                {groupStatus.resolved_by_email ? ` by ${groupStatus.resolved_by_email}` : ''}
+                {groupStatus.status === 'regressed' && (
+                  <span style={{ color: STATUS_COLOR.regressed }}> — new events arrived since</span>
+                )}
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <input value={note} onChange={e => setNote(e.target.value)}
+                placeholder="Note (optional) — e.g. fixed in 0.54.003"
+                className="flex-1 px-3 py-1.5 rounded-lg text-sm border bg-transparent"
+                style={{ borderColor: 'var(--ink-lighter)', color: 'var(--text)' }} />
+              {groupStatus.status !== 'open' && (
+                <button onClick={() => setStatus('open')} disabled={saving}
+                  className="px-3 py-1.5 rounded-lg text-sm border"
+                  style={{ borderColor: 'var(--ink-lighter)', color: 'var(--text-dim)' }}>
+                  Reopen
+                </button>
+              )}
+              {groupStatus.status !== 'resolved' && (
+                <button onClick={() => setStatus('resolved')} disabled={saving}
+                  className="px-3 py-1.5 rounded-lg text-sm border font-medium"
+                  style={{ borderColor: STATUS_COLOR.resolved, color: STATUS_COLOR.resolved }}>
+                  {groupStatus.status === 'regressed' ? 'Re-resolve' : 'Mark resolved'}
+                </button>
+              )}
+            </div>
+          </div>
         )}
 
         <div className="space-y-3">

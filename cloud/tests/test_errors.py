@@ -330,3 +330,93 @@ async def test_admin_group_404(admin_client):
     assert res.status_code == 404
     res = await admin_client.get(f"/api/admin/errors/events/{uuid.uuid4()}")
     assert res.status_code == 404
+
+
+# ── Triage status (plan 065) ─────────────────────────────────────────────────
+
+async def _groups_by_kind(admin_client, **params):
+    res = await admin_client.get("/api/admin/errors", params=params or None)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    return {g["kind"]: g for g in body["groups"]}, body
+
+
+@pytest.mark.asyncio
+async def test_admin_status_resolve_regress_reopen(admin_client, anon_client, db_session, sample_agent):
+    await _seed_events(anon_client, db_session, sample_agent)
+    by_kind, body = await _groups_by_kind(admin_client)
+    assert {g["status"] for g in by_kind.values()} == {"open"}
+    assert body["totals_by_status"] == {"open": 2, "resolved": 0, "regressed": 0}
+    fp = by_kind["js_error"]["fingerprint"]
+
+    # resolve with a note
+    res = await admin_client.put(
+        f"/api/admin/errors/{fp}/status",
+        json={"status": "resolved", "note": "fixed in 0.54.003"},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["group_status"]["status"] == "resolved"
+
+    by_kind, body = await _groups_by_kind(admin_client)
+    g = by_kind["js_error"]
+    assert g["status"] == "resolved"
+    assert g["note"] == "fixed in 0.54.003"
+    assert g["resolved_at"] and g["resolved_by_email"]
+    assert body["totals_by_status"] == {"open": 1, "resolved": 1, "regressed": 0}
+
+    # the default triage view (open + regressed) hides the resolved group
+    by_kind, _ = await _groups_by_kind(admin_client, status="active")
+    assert set(by_kind) == {"llm_timeout"}
+    by_kind, _ = await _groups_by_kind(admin_client, status="resolved")
+    assert set(by_kind) == {"js_error"}
+
+    # group detail carries the status for the drawer
+    res = await admin_client.get(f"/api/admin/errors/{fp}")
+    assert res.json()["group_status"]["status"] == "resolved"
+
+    # new events for the same fingerprint after resolve → regressed
+    await _seed_events(anon_client, db_session, sample_agent)
+    by_kind, body = await _groups_by_kind(admin_client)
+    assert by_kind["js_error"]["status"] == "regressed"
+    assert body["totals_by_status"]["regressed"] == 1
+    by_kind, _ = await _groups_by_kind(admin_client, status="active")
+    assert "js_error" in by_kind
+    res = await admin_client.get(f"/api/admin/errors/{fp}")
+    assert res.json()["group_status"]["status"] == "regressed"
+
+    # re-resolving a regressed group moves resolved_at forward
+    res = await admin_client.put(f"/api/admin/errors/{fp}/status", json={"status": "resolved"})
+    assert res.json()["group_status"]["status"] == "resolved"
+    by_kind, _ = await _groups_by_kind(admin_client)
+    assert by_kind["js_error"]["status"] == "resolved"
+
+    # reopen clears the resolution entirely
+    res = await admin_client.put(f"/api/admin/errors/{fp}/status", json={"status": "open"})
+    assert res.json()["group_status"]["status"] == "open"
+    by_kind, _ = await _groups_by_kind(admin_client, status="open")
+    assert by_kind["js_error"]["resolved_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_admin_status_validation_and_auth(
+    admin_client, regular_client, anon_client, db_session, sample_agent
+):
+    # unknown fingerprint → 404 (typo guard, no orphan status rows)
+    res = await admin_client.put(
+        "/api/admin/errors/" + "ab" * 20 + "/status", json={"status": "resolved"}
+    )
+    assert res.status_code == 404
+
+    await _seed_events(anon_client, db_session, sample_agent)
+    by_kind, _ = await _groups_by_kind(admin_client)
+    fp = by_kind["js_error"]["fingerprint"]
+
+    res = await admin_client.put(f"/api/admin/errors/{fp}/status", json={"status": "bogus"})
+    assert res.status_code == 422
+    res = await admin_client.get("/api/admin/errors", params={"status": "bogus"})
+    assert res.status_code == 422
+
+    res = await regular_client.put(f"/api/admin/errors/{fp}/status", json={"status": "resolved"})
+    assert res.status_code in (401, 403)
+    res = await anon_client.put(f"/api/admin/errors/{fp}/status", json={"status": "resolved"})
+    assert res.status_code in (401, 403)
