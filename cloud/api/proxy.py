@@ -209,6 +209,15 @@ def _is_page_navigation(request: Request) -> bool:
     return request.method == "GET" and "text/html" in request.headers.get("accept", "")
 
 
+class _UpstreamGatewayError(Exception):
+    """Upstream answered a page navigation with 502/503/504 — usually Fly's
+    edge speaking for a stopped/booting machine instead of refusing the
+    connection (plan 067). Only ever raised for page navigations."""
+
+    def __init__(self, status_code: int) -> None:
+        self.status_code = status_code
+
+
 _HOLDING_PAGE = """<!doctype html>
 <html lang="en">
 <head>
@@ -232,8 +241,8 @@ _HOLDING_PAGE = """<!doctype html>
 <body>
 <div class="wrap">
   <div class="spinner"></div>
-  <h1>Starting Luna&rsquo;s machine</h1>
-  <p>This window will refresh when Luna is ready.</p>
+  <h1 id="hd">Starting Luna&rsquo;s machine</h1>
+  <p id="msg">This window will refresh when Luna is ready.</p>
   <p id="slow">This is taking longer than usual. You can keep waiting, or check the
      <a href="/dashboard">dashboard</a> for its status.</p>
 </div>
@@ -241,11 +250,22 @@ _HOLDING_PAGE = """<!doctype html>
 (function(){
   var READY_URL=__READY_URL__;
   var started=Date.now();
+  function fail(detail){
+    document.querySelector('.spinner').style.display='none';
+    document.getElementById('hd').textContent="Luna couldn't start";
+    var m=document.getElementById('msg');
+    m.textContent=detail?detail+' ':'';
+    var a=document.createElement('a');
+    a.href='/dashboard';a.textContent='Open the dashboard';
+    m.appendChild(a);
+    document.getElementById('slow').style.display='none';
+  }
   function poll(){
     fetch(READY_URL,{cache:'no-store'})
       .then(function(r){return r.ok?r.json():null;})
       .then(function(d){
         if(d&&d.ready){location.reload();return;}
+        if(d&&d.state==='failed'){fail(d.detail);return;}
         next();
       })
       .catch(next);
@@ -326,6 +346,14 @@ async def _proxy_request(
     log.info("Proxying %s %s → %s", request.method, request.url.path, target_url)
     resp = await client.send(req, stream=True)
 
+    # Plan 067: Fly's edge answers for a stopped/booting machine with its own
+    # 502/503/504 instead of refusing the connection. A browser navigation
+    # must get the holding page, never a raw gateway error (Cloudflare
+    # replaces origin 502/504 with its branded page).
+    if resp.status_code in (502, 503, 504) and _is_page_navigation(request):
+        await resp.aclose()
+        raise _UpstreamGatewayError(resp.status_code)
+
     content_type = resp.headers.get("content-type", "")
     is_html = "text/html" in content_type
     is_sse = "text/event-stream" in content_type
@@ -392,18 +420,37 @@ async def _proxy_request(
     )
 
 
+async def _wake_is_hopeless(agent: Agent) -> str | None:
+    """A reason string when no amount of polling will bring this Luna up —
+    the holding page stops spinning and shows it (plan 067)."""
+    if agent.status == "error" and "no longer exists" in (agent.error_message or ""):
+        return "Luna's machine no longer exists — recreate it from the dashboard."
+    from cloud.billing import hosting as billing_hosting
+    async with get_db_session() as db:
+        if await billing_hosting.hosting_blocked(db, agent.id):
+            return "Hosting is paused until billing is settled."
+    return None
+
+
 @router.get("/a/{agent_slug}/__luna_ready", include_in_schema=False)
 async def luna_ready(request: Request, agent_slug: str):
     """Readiness probe for the holding page. Checks the machine's /api/health
     directly; when it's down, (re)triggers a wake in the background so polling
-    alone is enough to bring the machine up. Always 200 with {"ready": bool}."""
+    alone is enough to bring the machine up. Always 200; `state: "failed"`
+    tells the page to stop polling and show the reason (plan 067)."""
     _, agent = await _resolve_agent(request, agent_slug)
-    if not agent.runtime_ref or not agent.internal_url:
-        return {"ready": False}
 
-    headers = {}
-    if agent.runtime_ref:
-        headers["fly-force-instance-id"] = agent.runtime_ref
+    detail = await _wake_is_hopeless(agent)
+    if detail:
+        return {"ready": False, "state": "failed", "detail": detail}
+
+    if not agent.runtime_ref or not agent.internal_url:
+        return {
+            "ready": False, "state": "failed",
+            "detail": "This Luna has no machine to start.",
+        }
+
+    headers = {"fly-force-instance-id": agent.runtime_ref}
     try:
         client = _get_http_client()
         resp = await client.get(
@@ -417,7 +464,7 @@ async def luna_ready(request: Request, agent_slug: str):
         pass
 
     _spawn_wake(agent)
-    return {"ready": False}
+    return {"ready": False, "state": "starting"}
 
 
 @router.api_route(
@@ -457,7 +504,23 @@ async def proxy_to_luna(request: Request, agent_slug: str, path: str = ""):
     # Try proxying the request
     try:
         return await _proxy_request(request, user, agent, agent_slug, path)
-    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
+    except _UpstreamGatewayError as exc:
+        # Only raised for page navigations: the machine is evidently not
+        # serving even though the DB says "running" — wake it and hold.
+        log.warning(
+            "Upstream %s on page load for %s — serving holding page",
+            exc.status_code, agent_slug,
+        )
+        await record_error_event(
+            kind="proxy_502", severity="warning",
+            message=f"Upstream {exc.status_code} on page load — served holding page",
+            route=f"/a/{agent_slug}/{path}",
+            context={"method": request.method, "status_code": exc.status_code},
+            agent_id=agent.id, account_id=agent.account_id,
+        )
+        _spawn_wake(agent)
+        return _holding_page(agent_slug)
+    except httpx.TransportError as exc:
         # Machine might have died while DB still says "running" — try to wake it
         log.warning("Proxy failed for %s, attempting auto-wake: %s", agent_slug, exc)
         if wants_page:
@@ -510,6 +573,10 @@ async def proxy_to_luna(request: Request, agent_slug: str, path: str = ""):
             context={"method": request.method},
             agent_id=agent.id, account_id=agent.account_id,
         )
+        # Plan 067: whatever went wrong, a page navigation never sees a 5xx.
+        if wants_page:
+            _spawn_wake(agent)
+            return _holding_page(agent_slug)
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
             f"Cannot reach Luna instance: {type(exc).__name__}",

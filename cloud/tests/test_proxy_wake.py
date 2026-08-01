@@ -182,9 +182,141 @@ class TestHoldingPage:
         ):
             resp = await admin_client.get(f"/a/{sample_agent.slug}/__luna_ready")
             assert resp.status_code == 200
-            assert resp.json() == {"ready": False}
+            assert resp.json() == {"ready": False, "state": "starting"}
             await asyncio.sleep(0)
             assert wake.called
+
+
+class TestHoldingPageEverywhere:
+    """Plan 067: a browser page navigation to /a/{slug}/… never sees a 5xx —
+    every failure mode yields the 200 holding page (Cloudflare replaces raw
+    origin 502/504 with its branded error page, which users must never see).
+
+    NB: `_try_wake_agent` is always patched here — the fire-and-forget wake
+    task would otherwise race the shared StaticPool SQLite connection
+    (see plan 066 / sqlite-staticpool-test-race)."""
+
+    HTML_HEADERS = {"accept": "text/html,application/xhtml+xml"}
+
+    def _upstream(self, status_code: int, body: str = "upstream says no"):
+        import httpx
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                status_code, text=body, headers={"content-type": "text/html"}
+            )
+
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    @pytest.mark.parametrize("upstream_status", [502, 503, 504])
+    async def test_page_load_upstream_5xx_gets_holding_page(
+        self, admin_client: AsyncClient, sample_agent, db_session, upstream_status,
+    ):
+        """Gap A: Fly's edge answers with 502/503/504 for a stopped machine —
+        no exception is raised, so the status must be intercepted."""
+        from sqlalchemy import select
+        from cloud.db.models import ErrorEvent
+        from cloud.observability import error_sink
+        error_sink._buckets.clear()
+
+        with (
+            patch("cloud.api.proxy._get_http_client", return_value=self._upstream(upstream_status)),
+            patch("cloud.api.proxy._try_wake_agent", new_callable=AsyncMock, return_value=True) as wake,
+        ):
+            resp = await admin_client.get(f"/a/{sample_agent.slug}/", headers=self.HTML_HEADERS)
+            assert resp.status_code == 200
+            assert "__luna_ready" in resp.text
+            await asyncio.sleep(0)
+            assert wake.called
+
+        events = (await db_session.execute(select(ErrorEvent))).scalars().all()
+        assert len(events) == 1
+        assert events[0].kind == "proxy_502"
+        assert events[0].severity == "warning"
+        assert events[0].context["status_code"] == upstream_status
+
+    async def test_xhr_upstream_502_passes_through(self, admin_client: AsyncClient, sample_agent):
+        """API/fetch contract intact: upstream 502 is relayed, not swallowed."""
+        with patch("cloud.api.proxy._get_http_client", return_value=self._upstream(502)):
+            resp = await admin_client.get(f"/a/{sample_agent.slug}/api/thing")
+            assert resp.status_code == 502
+
+    async def test_page_load_protocol_error_gets_holding_page(self, admin_client: AsyncClient, sample_agent):
+        """Gap B: transport errors beyond the old three-exception tuple."""
+        import httpx
+
+        with (
+            patch("cloud.api.proxy._proxy_request", side_effect=httpx.RemoteProtocolError("Server disconnected")),
+            patch("cloud.api.proxy._try_wake_agent", new_callable=AsyncMock, return_value=True),
+        ):
+            resp = await admin_client.get(f"/a/{sample_agent.slug}/", headers=self.HTML_HEADERS)
+            assert resp.status_code == 200
+            assert "__luna_ready" in resp.text
+
+    async def test_page_load_unexpected_error_gets_holding_page(self, admin_client: AsyncClient, sample_agent):
+        """Gap B: even an arbitrary exception must not surface as a 5xx page."""
+        with (
+            patch("cloud.api.proxy._proxy_request", side_effect=RuntimeError("boom")),
+            patch("cloud.api.proxy._try_wake_agent", new_callable=AsyncMock, return_value=True),
+        ):
+            resp = await admin_client.get(f"/a/{sample_agent.slug}/", headers=self.HTML_HEADERS)
+            assert resp.status_code == 200
+            assert "__luna_ready" in resp.text
+
+    async def test_xhr_unexpected_error_still_502(self, admin_client: AsyncClient, sample_agent):
+        with (
+            patch("cloud.api.proxy._proxy_request", side_effect=RuntimeError("boom")),
+            patch("cloud.api.proxy._try_wake_agent", new_callable=AsyncMock, return_value=False),
+        ):
+            resp = await admin_client.get(f"/a/{sample_agent.slug}/api/thing")
+            assert resp.status_code == 502
+
+    async def test_post_never_gets_holding_page(self, admin_client: AsyncClient, sample_agent, db_session):
+        """Only GET navigations hold — a POST with an html Accept still errors."""
+        sample_agent.status = "stopped"
+        await db_session.commit()
+
+        with patch("cloud.api.proxy._try_wake_agent", new_callable=AsyncMock, return_value=False):
+            resp = await admin_client.post(
+                f"/a/{sample_agent.slug}/api/thing", headers=self.HTML_HEADERS
+            )
+            assert resp.status_code == 503
+
+    async def test_holding_page_contains_failed_state_handler(self, admin_client: AsyncClient, sample_agent, db_session):
+        sample_agent.status = "stopped"
+        await db_session.commit()
+
+        with patch("cloud.api.proxy._try_wake_agent", new_callable=AsyncMock, return_value=True):
+            resp = await admin_client.get(f"/a/{sample_agent.slug}/", headers=self.HTML_HEADERS)
+            assert resp.status_code == 200
+            assert "state==='failed'" in resp.text
+
+    async def test_ready_failed_when_machine_gone(self, admin_client: AsyncClient, sample_agent, db_session):
+        """Gap C: terminal states stop the polling instead of spinning forever."""
+        sample_agent.status = "error"
+        sample_agent.error_message = "Machine no longer exists"
+        await db_session.commit()
+
+        with patch("cloud.api.proxy._try_wake_agent", new_callable=AsyncMock, return_value=False) as wake:
+            resp = await admin_client.get(f"/a/{sample_agent.slug}/__luna_ready")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["ready"] is False
+            assert body["state"] == "failed"
+            assert "no longer exists" in body["detail"]
+            await asyncio.sleep(0)
+            assert not wake.called
+
+    async def test_ready_failed_when_hosting_blocked(self, admin_client: AsyncClient, sample_agent):
+        with (
+            patch("cloud.billing.hosting.hosting_blocked", new_callable=AsyncMock, return_value=True),
+            patch("cloud.api.proxy._try_wake_agent", new_callable=AsyncMock, return_value=False),
+        ):
+            resp = await admin_client.get(f"/a/{sample_agent.slug}/__luna_ready")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["state"] == "failed"
+            assert "billing" in body["detail"].lower()
 
 
 class TestWakeLock:
