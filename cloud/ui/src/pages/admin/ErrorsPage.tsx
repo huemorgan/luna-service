@@ -44,8 +44,13 @@ interface ErrorEventView {
 const SEVERITY_COLOR: Record<string, string> = {
   critical: '#ef4444', error: '#f97316', warning: '#eab308', info: 'var(--text-dim)',
 };
+// 068: monday.com-style board cells. API values stay open/resolved/regressed;
+// the operator-facing labels are new / resolved / not resolved.
 const STATUS_COLOR: Record<string, string> = {
-  open: 'var(--text-dim)', resolved: '#22c55e', regressed: '#ef4444',
+  open: '#579bfc', resolved: '#00c875', regressed: '#e2445c',
+};
+const STATUS_LABEL: Record<string, string> = {
+  open: 'new', resolved: 'resolved', regressed: 'not resolved',
 };
 const SOURCE_ICON: Record<string, any> = { ui: Globe, agent: Bot, service: Server };
 const KINDS = [
@@ -79,11 +84,45 @@ function StatusChip({ status }: { status: string }) {
   const c = STATUS_COLOR[status] || 'var(--text-dim)';
   return (
     <span className="text-xs px-2 py-0.5 rounded-full font-medium capitalize"
-      style={status === 'regressed'
-        ? { color: c, background: `${c}22`, border: `1px solid ${c}` }
-        : { color: c, background: status === 'open' ? 'var(--ink-light)' : `${c}22` }}>
-      {status}
+      style={{ color: '#fff', background: c }}>
+      {STATUS_LABEL[status] || status}
     </span>
+  );
+}
+
+// 068: monday-style board cell — the status color fills the WHOLE cell.
+// Hovering shows the resolve/reopen reason (note), who and when.
+function StatusCell({ g }: { g: Group }) {
+  const c = STATUS_COLOR[g.status] || 'var(--ink-light)';
+  const hasTip = !!(g.note || g.resolved_at || g.status === 'regressed');
+  return (
+    <td className="p-0 relative group/st" style={{ background: c, minWidth: '7.5rem' }}>
+      <div className="flex items-center justify-center px-3 py-3 h-full text-xs font-semibold"
+        style={{ color: '#fff' }}>
+        {STATUS_LABEL[g.status] || g.status}
+      </div>
+      {hasTip && (
+        <div className="pointer-events-none absolute left-1/2 top-full z-30 hidden w-64 -translate-x-1/2 group-hover/st:block"
+          onClick={e => e.stopPropagation()}>
+          <div className="mt-1 rounded-lg border px-3 py-2 text-left text-xs shadow-xl"
+            style={{ background: 'var(--ink)', borderColor: 'var(--ink-lighter)', color: 'var(--text)' }}>
+            {g.note
+              ? <p className="whitespace-pre-wrap">{g.note}</p>
+              : <p style={dimText}>No reason given.</p>}
+            {g.status === 'regressed' && (
+              <p className="mt-1 font-medium" style={{ color: STATUS_COLOR.regressed }}>
+                Kept happening after resolve.
+              </p>
+            )}
+            {g.resolved_at && (
+              <p className="mt-1" style={dimText}>
+                {g.status === 'open' ? 'reopened' : 'resolved'} by {g.resolved_by_email || 'unknown'} · {fmtAgo(g.resolved_at)}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </td>
   );
 }
 
@@ -108,7 +147,8 @@ export default function ErrorsPage() {
   const [sourceF, setSourceF] = useState('');
   const [severityF, setSeverityF] = useState('');
   const [kindF, setKindF] = useState('');
-  const [statusF, setStatusF] = useState('active');
+  // 068: default shows EVERYTHING — resolved rows stay visible, marked green.
+  const [statusF, setStatusF] = useState('');
   const [hours, setHours] = useState('168');
   const [sort, setSort] = useState('last_seen');
   const [q, setQ] = useState('');
@@ -153,10 +193,13 @@ export default function ErrorsPage() {
             ))}
             <span className="text-xs" style={{ color: 'var(--ink-lighter)' }}>·</span>
             <span className="text-xs font-mono" style={{ color: STATUS_COLOR.open }}>
-              open: {statusTotals.open || 0}
+              new: {statusTotals.open || 0}
             </span>
             <span className="text-xs font-mono" style={{ color: STATUS_COLOR.regressed }}>
-              regressed: {statusTotals.regressed || 0}
+              not resolved: {statusTotals.regressed || 0}
+            </span>
+            <span className="text-xs font-mono" style={{ color: STATUS_COLOR.resolved }}>
+              resolved: {statusTotals.resolved || 0}
             </span>
           </div>
           <button onClick={fetchList}
@@ -179,7 +222,7 @@ export default function ErrorsPage() {
         <Select value={kindF} onChange={setKindF}
           options={[['', 'All kinds'], ...KINDS.map(k => [k, k] as [string, string])]} />
         <Select value={statusF} onChange={setStatusF}
-          options={[['active', 'Open + regressed'], ['', 'All statuses'], ['open', 'Open'], ['resolved', 'Resolved'], ['regressed', 'Regressed']]} />
+          options={[['', 'All statuses'], ['active', 'New + not resolved'], ['open', 'New'], ['resolved', 'Resolved'], ['regressed', 'Not resolved']]} />
         <Select value={hours} onChange={setHours}
           options={[['24', 'Last 24h'], ['168', 'Last 7d'], ['720', 'Last 30d'], ['1440', 'Last 60d']]} />
         <Select value={sort} onChange={setSort}
@@ -205,7 +248,7 @@ export default function ErrorsPage() {
                 <tr style={{ background: 'var(--surface)' }}>
                   <td colSpan={8} className="px-4 py-8 text-center text-sm" style={dimText}>
                     {statusF === 'active'
-                      ? 'No open errors in this window — anything already resolved is hidden by the status filter.'
+                      ? 'No new or not-resolved errors in this window — resolved ones are hidden by the status filter.'
                       : "No errors in this window. Events arrive from browsers and agents via plugin-feedback, and from luna-service's own edge (proxy, wakes, 5xx)."}
                   </td>
                 </tr>
@@ -214,7 +257,7 @@ export default function ErrorsPage() {
                   className="border-t cursor-pointer hover:opacity-90"
                   style={{ borderColor: 'var(--ink-lighter)', background: 'var(--surface)' }}>
                   <td className="px-4 py-3"><SeverityChip severity={g.severity} /></td>
-                  <td className="px-4 py-3"><StatusChip status={g.status} /></td>
+                  <StatusCell g={g} />
                   <td className="px-4 py-3 text-xs font-mono" style={dimText}>{g.kind}</td>
                   <td className="px-4 py-3 text-sm max-w-md truncate" style={{ color: 'var(--text)' }}>{g.sample_message}</td>
                   <td className="px-4 py-3"><SourceBadge source={g.source} /></td>
