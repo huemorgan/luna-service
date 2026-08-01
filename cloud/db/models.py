@@ -446,7 +446,7 @@ class ErrorEvent(Base):
     # js_error | unhandled_rejection | page_load_failed | resource_error |
     # fetch_error | http_5xx | timeout | proxy_502 | proxy_read_timeout |
     # agent_wake_failed | plugin_exception | llm_timeout | embed_error |
-    # agent_report | unhandled_exception
+    # agent_report | unhandled_exception | gateway_auth | upstream_4xx
     kind: Mapped[str] = mapped_column(Text, nullable=False)
     # info | warning | error | critical
     severity: Mapped[str] = mapped_column(Text, nullable=False, default="error")

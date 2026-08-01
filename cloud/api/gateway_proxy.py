@@ -27,6 +27,7 @@ from cloud.gateway import policy
 from cloud.gateway import tokens as token_svc
 from cloud.gateway.crypto import decrypt_key
 from cloud.gateway.metering import UsageScanner, record_usage
+from cloud.observability.error_sink import record_error_event
 from cloud.gateway.registry import AuthStyle, get_service_cached, parse_auth_style
 from cloud.provisioning.model_catalog import cached_system_catalog, catalog_has
 from cloud.relay import capture as composio_capture
@@ -164,6 +165,10 @@ async def _send_upstream(
     return await _get_client().send(req, stream=True)
 
 
+# Plan 066: upstream error bodies are small JSON; the cap is a safety rail.
+_ERROR_CAPTURE_BYTES = 2048
+
+
 def _stream_response(
     resp: httpx.Response,
     *,
@@ -174,6 +179,7 @@ def _stream_response(
     billing: enforcement.BillingContext | None = None,
     attempts: list[AttemptFacts] | None = None,
     attempt_number: int = 1,
+    model: str | None = None,
 ) -> StreamingResponse:
     content_type = resp.headers.get("content-type", "")
     scanner = UsageScanner(content_type)
@@ -199,6 +205,12 @@ def _stream_response(
     )
     capture_buf = bytearray()
 
+    # Plan 066: an upstream 4xx/5xx that reaches a managed client is a defect
+    # worth a fingerprint (e.g. a provider rejecting every turn of an agent).
+    # Managed traffic only — BYOK is "never billed, never logged" by contract.
+    capture_error = agent_id is not None and resp.status_code >= 400
+    error_buf = bytearray()
+
     async def stream():
         try:
             async for chunk in resp.aiter_bytes():
@@ -207,6 +219,8 @@ def _stream_response(
                     collector.feed(chunk)
                 if capture_composio and len(capture_buf) <= composio_capture.MAX_CAPTURE_BYTES:
                     capture_buf.extend(chunk)
+                if capture_error and len(error_buf) < _ERROR_CAPTURE_BYTES:
+                    error_buf.extend(chunk)
                 yield chunk
         finally:
             await resp.aclose()
@@ -222,6 +236,33 @@ def _stream_response(
                 )
             except Exception:  # noqa: BLE001 — metering must never break the response
                 log.exception("usage_event write failed for %s", service_slug)
+            if capture_error:
+                # record_error_event never raises; the guard is for the
+                # decode/format code around it (same rule as metering).
+                try:
+                    excerpt = " ".join(
+                        bytes(error_buf).decode("utf-8", errors="replace").split()
+                    )
+                    await record_error_event(
+                        kind="upstream_4xx" if resp.status_code < 500 else "http_5xx",
+                        severity="warning" if resp.status_code == 429 else "error",
+                        source="service",
+                        message=(
+                            f"{service_slug} upstream {resp.status_code} for model "
+                            f"{model or '-'}: {excerpt[:300]}"
+                        ),
+                        route=f"/proxy/{service_slug}",
+                        agent_id=agent_id,
+                        context={
+                            "service": service_slug,
+                            "model": model,
+                            "status_code": resp.status_code,
+                            "attempt_number": attempt_number,
+                            "body": excerpt[:_ERROR_CAPTURE_BYTES],
+                        },
+                    )
+                except Exception:  # noqa: BLE001
+                    log.exception("upstream error event write failed for %s", service_slug)
             if collector is not None:
                 # Financial settlement: persist attempt facts + rated charge
                 # and enqueue the durable settle/release job. Shielded so a
@@ -478,6 +519,11 @@ async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
             billing=billing,
             attempts=billing_attempts,
             attempt_number=attempt + 1,
+            model=(
+                billing.canonical_model
+                if billing is not None and billing.active and billing.canonical_model
+                else _requested_model(body)
+            ),
         )
 
     # Unreachable in practice (loop always returns), kept for type-safety.

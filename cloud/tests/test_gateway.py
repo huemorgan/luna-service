@@ -10,7 +10,7 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from cloud.db.models import GatewayKey, GatewayService, GatewayTenantToken, UsageEvent
+from cloud.db.models import ErrorEvent, GatewayKey, GatewayService, GatewayTenantToken, UsageEvent
 from cloud.gateway.crypto import decrypt_key, encrypt_key
 from cloud.gateway.keys import mark_key_failure, resolve_keys
 from cloud.gateway.metering import UsageScanner
@@ -587,6 +587,212 @@ async def test_proxy_4xx_not_billable(anon_client, db_session, sample_agent, ups
     assert len(events) == 1
     assert events[0].billable is False
     assert events[0].status_code == 401
+
+
+# ── Upstream error tracking (Plan 066) ───────────────────────────────────────
+
+@pytest.fixture
+def _reset_error_sink():
+    from cloud.observability import error_sink
+    error_sink._buckets.clear()
+    yield
+    error_sink._buckets.clear()
+
+
+def _fixed_upstream(monkeypatch, status_code: int, body: dict | str):
+    """MockTransport returning one fixed response for every request.
+
+    Also neutralizes the fire-and-forget `_mark_key_used_bg` task: the test
+    engine is a single shared aiosqlite :memory: connection (StaticPool), so a
+    concurrent session's rollback can silently wipe the sink's uncommitted
+    insert — a test-only artifact; prod Postgres gives each session its own
+    connection."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        if isinstance(body, dict):
+            return httpx.Response(status_code, json=body)
+        return httpx.Response(status_code, text=body)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr("cloud.api.gateway_proxy._get_client", lambda: client)
+
+    async def _noop_mark_used(key_id):
+        return None
+
+    monkeypatch.setattr(
+        "cloud.api.gateway_proxy._mark_key_used_bg", _noop_mark_used
+    )
+
+
+async def _openai_setup(db, sample_agent):
+    await _add_service(db, slug="openai")
+    await _add_key(db, "openai", value="REAL-G1")
+    await _add_model(db, "openai", "gpt-5.5")
+    token = await issue_token(db, sample_agent.id)
+    await db.commit()
+    return token
+
+
+async def test_proxy_upstream_400_records_error_event(
+    anon_client, db_session, sample_agent, monkeypatch, _reset_error_sink,
+):
+    """The incident this exists for: a provider 400 must become a fingerprinted
+    error event carrying model + provider message, alongside the usage row."""
+    _fixed_upstream(monkeypatch, 400, {"error": {
+        "message": "Invalid 'tools': array too long. Expected an array with "
+                   "maximum length 128, but got an array with length 135 instead.",
+        "type": "invalid_request_error", "param": "tools",
+    }})
+    token = await _openai_setup(db_session, sample_agent)
+
+    r = await anon_client.post(
+        "/proxy/openai/v1/chat/completions",
+        headers={"x-api-key": token}, json={"model": "gpt-5.5"},
+    )
+    assert r.status_code == 400
+
+    errors = (await db_session.execute(select(ErrorEvent))).scalars().all()
+    assert len(errors) == 1
+    ev = errors[0]
+    assert ev.kind == "upstream_4xx"
+    assert ev.severity == "error"
+    assert ev.source == "service"
+    assert ev.agent_id == sample_agent.id
+    assert "gpt-5.5" in ev.message
+    assert "array too long" in ev.message
+    assert ev.context["status_code"] == 400
+    assert ev.context["model"] == "gpt-5.5"
+    assert "array too long" in ev.context["body"]
+
+    usage = (await db_session.execute(select(UsageEvent))).scalars().all()
+    assert len(usage) == 1
+    assert usage[0].billable is False
+
+
+async def test_proxy_upstream_429_is_warning(
+    anon_client, db_session, sample_agent, monkeypatch, _reset_error_sink,
+):
+    _fixed_upstream(monkeypatch, 429, {"error": {"message": "rate limited"}})
+    token = await _openai_setup(db_session, sample_agent)
+
+    r = await anon_client.post(
+        "/proxy/openai/v1/chat/completions",
+        headers={"x-api-key": token}, json={"model": "gpt-5.5"},
+    )
+    assert r.status_code == 429
+    errors = (await db_session.execute(select(ErrorEvent))).scalars().all()
+    assert len(errors) == 1
+    assert errors[0].kind == "upstream_4xx"
+    assert errors[0].severity == "warning"
+
+
+async def test_proxy_upstream_5xx_records_http_5xx(
+    anon_client, db_session, sample_agent, monkeypatch, _reset_error_sink,
+):
+    _fixed_upstream(monkeypatch, 500, {"error": {"message": "server exploded"}})
+    token = await _openai_setup(db_session, sample_agent)
+
+    r = await anon_client.post(
+        "/proxy/openai/v1/chat/completions",
+        headers={"x-api-key": token}, json={"model": "gpt-5.5"},
+    )
+    assert r.status_code == 500
+    errors = (await db_session.execute(select(ErrorEvent))).scalars().all()
+    assert len(errors) == 1
+    assert errors[0].kind == "http_5xx"
+    assert errors[0].severity == "error"
+
+
+async def test_proxy_upstream_200_no_error_event(
+    anon_client, db_session, sample_agent, monkeypatch, _reset_error_sink,
+):
+    _fixed_upstream(monkeypatch, 200, {"ok": True})
+    token = await _openai_setup(db_session, sample_agent)
+
+    r = await anon_client.post(
+        "/proxy/openai/v1/chat/completions",
+        headers={"x-api-key": token}, json={"model": "gpt-5.5"},
+    )
+    assert r.status_code == 200
+    errors = (await db_session.execute(select(ErrorEvent))).scalars().all()
+    assert errors == []
+
+
+async def test_proxy_byok_4xx_never_recorded(
+    anon_client, db_session, sample_agent, monkeypatch, _reset_error_sink,
+):
+    """BYOK is 'never billed, never logged' — no error events either."""
+    _fixed_upstream(monkeypatch, 400, {"error": {"message": "bad request"}})
+    await _add_service(db_session, slug="openai")
+    await _add_model(db_session, "openai", "gpt-5.5")
+    await db_session.commit()
+
+    r = await anon_client.post(
+        "/proxy/openai/v1/chat/completions",
+        headers={"x-api-key": "sk-users-own-key"}, json={"model": "gpt-5.5"},
+    )
+    assert r.status_code == 400
+    errors = (await db_session.execute(select(ErrorEvent))).scalars().all()
+    assert errors == []
+
+
+async def test_proxy_upstream_error_body_bounded(
+    anon_client, db_session, sample_agent, monkeypatch, _reset_error_sink,
+):
+    _fixed_upstream(monkeypatch, 400, "x" * 100_000)
+    token = await _openai_setup(db_session, sample_agent)
+
+    r = await anon_client.post(
+        "/proxy/openai/v1/chat/completions",
+        headers={"x-api-key": token}, json={"model": "gpt-5.5"},
+    )
+    assert r.status_code == 400
+    assert len(r.content) == 100_000  # passthrough untouched
+    errors = (await db_session.execute(select(ErrorEvent))).scalars().all()
+    assert len(errors) == 1
+    assert len(errors[0].context["body"]) <= 2048
+    assert len(errors[0].message) <= 500
+
+
+async def test_proxy_upstream_error_sink_failure_never_breaks_response(
+    anon_client, db_session, sample_agent, monkeypatch, _reset_error_sink,
+):
+    _fixed_upstream(monkeypatch, 400, {"error": {"message": "bad"}})
+    token = await _openai_setup(db_session, sample_agent)
+
+    async def boom(**kwargs):
+        raise RuntimeError("sink down")
+    monkeypatch.setattr("cloud.api.gateway_proxy.record_error_event", boom)
+
+    r = await anon_client.post(
+        "/proxy/openai/v1/chat/completions",
+        headers={"x-api-key": token}, json={"model": "gpt-5.5"},
+    )
+    assert r.status_code == 400
+    assert r.json()["error"]["message"] == "bad"
+
+
+async def test_proxy_repeated_4xx_throttled_per_fingerprint(
+    anon_client, db_session, sample_agent, monkeypatch, _reset_error_sink,
+):
+    """A retry storm of the same defect must not amplify DB load."""
+    import types
+    from cloud.observability import error_sink
+    # Freeze the sink's clock so the per-minute window can't roll mid-test.
+    monkeypatch.setattr(
+        error_sink, "time",
+        types.SimpleNamespace(time=lambda: 1_000_000.0, monotonic=lambda: 0.0),
+    )
+    _fixed_upstream(monkeypatch, 400, {"error": {"message": "same failure"}})
+    token = await _openai_setup(db_session, sample_agent)
+
+    for _ in range(15):
+        r = await anon_client.post(
+            "/proxy/openai/v1/chat/completions",
+            headers={"x-api-key": token}, json={"model": "gpt-5.5"},
+        )
+        assert r.status_code == 400
+    errors = (await db_session.execute(select(ErrorEvent))).scalars().all()
+    assert len(errors) == 10  # sink throttle: 10/min per fingerprint
 
 
 # ── Provisioning env ─────────────────────────────────────────────────────────
