@@ -124,6 +124,29 @@ PROVIDER_RATES_V1: list[tuple[str, str, str, str, int, int, str]] = [
      "https://platform.kimi.ai/docs/pricing/chat-k26"),
     ("moonshot", "kimi-k2.6", "cached_input_tokens", "token", 3, 20,  # $0.15/Mtok
      "https://platform.kimi.ai/docs/pricing/chat-k26"),
+    # Qwen (Alibaba DashScope intl, compatible-mode) — retrieved 2026-08-03
+    # (070). 3.8-max is preview/credit-billed upstream with no official
+    # per-token list price; rate is the published third-party per-token
+    # equivalent. Cached input estimated at 0.2× input (DashScope implicit
+    # cache) except flash, whose cache-read rate is published.
+    ("qwen", "qwen3.8-max", "input_tokens", "token", 17, 100,     # $0.17/Mtok
+     "https://www.eesel.ai/blog/qwen38-max-pricing"),
+    ("qwen", "qwen3.8-max", "output_tokens", "token", 51, 100,    # $0.51/Mtok
+     "https://www.eesel.ai/blog/qwen38-max-pricing"),
+    ("qwen", "qwen3.8-max", "cached_input_tokens", "token", 17, 500,  # $0.034/Mtok
+     "https://www.eesel.ai/blog/qwen38-max-pricing"),
+    ("qwen", "qwen3-coder-next", "input_tokens", "token", 11, 100,  # $0.11/Mtok
+     "https://openrouter.ai/qwen/qwen3-coder-next"),
+    ("qwen", "qwen3-coder-next", "output_tokens", "token", 4, 5,    # $0.80/Mtok
+     "https://openrouter.ai/qwen/qwen3-coder-next"),
+    ("qwen", "qwen3-coder-next", "cached_input_tokens", "token", 11, 500,  # $0.022/Mtok
+     "https://openrouter.ai/qwen/qwen3-coder-next"),
+    ("qwen", "qwen3.7-flash", "input_tokens", "token", 3, 100,      # $0.03/Mtok (≤32k tier)
+     "https://openrouter.ai/qwen/qwen3.7-flash"),
+    ("qwen", "qwen3.7-flash", "output_tokens", "token", 13, 100,    # $0.13/Mtok (≤32k tier)
+     "https://openrouter.ai/qwen/qwen3.7-flash"),
+    ("qwen", "qwen3.7-flash", "cached_input_tokens", "token", 3, 500,  # $0.006/Mtok
+     "https://openrouter.ai/qwen/qwen3.7-flash"),
     # Image generation (041). Gemini bills output images as IMAGE-modality
     # candidate tokens (flash: 1290 tok ≈ $0.039/image; 3-pro: 1120 tok ≈
     # $0.134 at 1K/2K, 2000 tok ≈ $0.24 at 4K); text + thinking output is a

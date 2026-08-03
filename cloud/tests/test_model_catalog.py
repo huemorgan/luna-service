@@ -71,6 +71,22 @@ async def test_system_catalog_has_kimi_models(db_session):
     assert "kimi-agent-ops" in k26.get("aliases", [])
 
 
+async def test_system_catalog_has_qwen_models(db_session):
+    await seed_models(db_session)
+    catalog = await system_catalog(db_session)
+    qmax = next(e for e in catalog if e["model"] == "qwen3.8-max")
+    assert qmax["provider"] == "qwen"
+    assert qmax["label"] == "Qwen3.8 Max"
+    assert "reasoning" in qmax["kinds"]
+    assert "qwen-max" in qmax.get("aliases", [])
+    coder = next(e for e in catalog if e["model"] == "qwen3-coder-next")
+    assert coder["label"] == "Qwen3 Coder Next"
+    assert "qwen-coder" in coder.get("aliases", [])
+    flash = next(e for e in catalog if e["model"] == "qwen3.7-flash")
+    assert flash["label"] == "Qwen3.7 Flash"
+    assert "summarization" in flash["kinds"]
+
+
 async def test_system_catalog_has_no_invented_ids(db_session):
     await seed_models(db_session)
     await db_session.commit()

@@ -501,13 +501,16 @@ _COLLECTORS = {
     # Moonshot (Kimi) is OpenAI-compatible; completion_tokens includes
     # reasoning output, so the plain OpenAI collector is correct.
     "moonshot.chat": OpenAIChatCollector,
+    # Qwen (DashScope compatible-mode) is OpenAI-compatible; cached input
+    # arrives as prompt_tokens_details.cached_tokens like OpenAI's.
+    "qwen.chat": OpenAIChatCollector,
     "gemini.generate": GeminiGenerateCollector,
     "openai.images": OpenAIImagesCollector,
     "openai.realtime_mint": OpenAIRealtimeMintCollector,
 }
 
 # Adapters speaking the OpenAI chat protocol (usage shape + stream_options).
-_OPENAI_CHAT_COMPAT = ("openai.chat", "xai.chat", "gemini.chat", "moonshot.chat")
+_OPENAI_CHAT_COMPAT = ("openai.chat", "xai.chat", "gemini.chat", "moonshot.chat", "qwen.chat")
 
 
 def make_collector(adapter: str, content_type: str) -> UsageCollector:

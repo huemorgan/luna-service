@@ -40,7 +40,7 @@ _client: httpx.AsyncClient | None = None
 
 # Plan 018: managed requests to these services are gated on the model catalog.
 # service_slug == provider for both. Other services (e.g. composio) are not gated.
-_MODEL_GATED_PROVIDERS = {"anthropic", "openai", "xai", "moonshot"}
+_MODEL_GATED_PROVIDERS = {"anthropic", "openai", "xai", "moonshot", "qwen"}
 
 # Status codes that trigger a fallback to the next pool key (managed flow only).
 _FALLBACK_STATUSES = (401, 403, 429)

@@ -46,6 +46,9 @@ def commercial_v1_config() -> dict:
             # exact-string match, so this must track the client's model name.
             "gpt-realtime-2.1",
             "gpt-4o-realtime-preview",
+            # 070: Qwen flagship (preview) — frontier agentic reasoning at a
+            # bargain token rate; tier is capability, not price.
+            "qwen3.8-max",
         ],
         # Explicit coverage: a model in neither list is not billable (fails
         # closed at rating). Publish rejects uncovered enabled gateway models.
@@ -63,6 +66,9 @@ def commercial_v1_config() -> dict:
             # 063: agent-ops workhorse — frontier-adjacent but priced and
             # positioned as the operational core, not the flagship (K3 is).
             "kimi-k2.6",
+            # 070: Qwen workhorses — agentic coder + cheap fast tier.
+            "qwen3-coder-next",
+            "qwen3.7-flash",
             # Image-generation models (041) — margin llm_constants[context][mid].
             "gemini-3-pro-image",
             "gemini-2.5-flash-image",

@@ -109,6 +109,27 @@ SEED_MODELS: list[dict] = [
         "kinds": ["reasoning"], "aliases": ["kimi-agent-ops", "kimi-k2.6-latest"],
         "input_cost": 0.95, "output_cost": 4.0,
     },
+    # ---- Qwen (Alibaba DashScope intl) ---- 070. Prices are the only published
+    # per-token rates as of 2026-08-03 (3.8-max is preview/credit-billed
+    # upstream; rate is the third-party per-token equivalent, estimated).
+    {
+        "provider": "qwen", "model": "qwen3.8-max",
+        "label": "Qwen3.8 Max", "context_window": 1000000,
+        "kinds": ["reasoning"], "aliases": ["qwen-max", "qwen3.8-max-latest"],
+        "input_cost": 0.17, "output_cost": 0.51,
+    },
+    {
+        "provider": "qwen", "model": "qwen3-coder-next",
+        "label": "Qwen3 Coder Next", "context_window": 262144,
+        "kinds": ["reasoning"], "aliases": ["qwen-coder", "qwen3-coder-next-latest"],
+        "input_cost": 0.11, "output_cost": 0.8,
+    },
+    {
+        "provider": "qwen", "model": "qwen3.7-flash",
+        "label": "Qwen3.7 Flash", "context_window": 1000000,
+        "kinds": ["reasoning", "summarization"], "aliases": ["qwen-flash", "qwen3.7-flash-latest"],
+        "input_cost": 0.03, "output_cost": 0.13,
+    },
 ]
 
 

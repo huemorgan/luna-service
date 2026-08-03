@@ -51,6 +51,18 @@ SEED_SERVICES: list[dict] = [
         "provision_by_default": True,
     },
     {
+        # Qwen (Alibaba DashScope, international) — OpenAI-compatible
+        # "compatible-mode" surface; the /compatible-mode/v1 prefix lives in
+        # the upstream so tenant providers append bare paths, same trick as
+        # OpenAI/xAI/Moonshot above.
+        "slug": "qwen",
+        "display_name": "Qwen (Alibaba)",
+        "upstream_url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+        "auth_style": "header:Authorization:Bearer",
+        "enabled": True,
+        "provision_by_default": True,
+    },
+    {
         # plugin-web-access honors LUNA_TAVILY_BASE_URL (007.001) and vault.connect
         # (008.991). Not provisioned by default — tenants opt in via connect /
         # plugin binding. Auth is Bearer; the proxy strips a mistaken body
@@ -197,6 +209,7 @@ KNOWN_SERVICES: dict[str, tuple[str, str, str]] = {
     "tavily":         ("https://api.tavily.com",           "header:Authorization:Bearer", "Tavily"),
     "openai":         ("https://api.openai.com/v1",         "header:Authorization:Bearer", "OpenAI"),
     "moonshot":       ("https://api.moonshot.ai/v1",         "header:Authorization:Bearer", "Moonshot AI"),
+    "qwen":           ("https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "header:Authorization:Bearer", "Qwen (Alibaba)"),
     "anthropic":      ("https://api.anthropic.com",         "header:x-api-key",            "Anthropic"),
     "elevenlabs":     ("https://api.elevenlabs.io",          "header:xi-api-key",           "ElevenLabs"),
 }
