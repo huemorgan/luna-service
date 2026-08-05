@@ -465,9 +465,46 @@ async def _negative_margin_calls(session: AsyncSession, now: datetime) -> int:
     return int(count)
 
 
+# Plan 071: the shared tenant Postgres has ~100 usable slots (max_connections
+# 103, 3 reserved). Alert while there is still room to act, not at the wall.
+TENANT_DB_CONN_ALERT_AT = 80
+
+
+async def _tenant_db_connections() -> dict:
+    """Client-backend census on the shared tenant Postgres (plan 071).
+
+    Best-effort: a census failure must never fail the whole snapshot, so
+    errors come back as a field and the signal stays 0."""
+    from sqlalchemy import text as sql_text
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from cloud.config import get_settings
+
+    settings = get_settings()
+    url = settings.tenant_database_url or settings.database_url
+    if not url:
+        return {"clients": None, "idle": None, "error": "no tenant db url"}
+    engine = create_async_engine(url, poolclass=NullPool)
+    try:
+        async with engine.connect() as conn:
+            row = (await conn.execute(sql_text(
+                "select count(*) as clients,"
+                " count(*) filter (where state = 'idle') as idle"
+                " from pg_stat_activity where backend_type = 'client backend'"
+            ))).one()
+            return {"clients": int(row.clients), "idle": int(row.idle), "error": None}
+    except Exception as e:  # noqa: BLE001 — census is advisory
+        log.warning("tenant db connection census failed: %s", e)
+        return {"clients": None, "idle": None, "error": f"{type(e).__name__}: {e}"}
+    finally:
+        await engine.dispose()
+
+
 async def ops_snapshot(session: AsyncSession, *, now: datetime | None = None) -> dict:
     now = now or _utcnow()
     return {
+        "tenant_db": await _tenant_db_connections(),
         "generated_at": now.isoformat(),
         "holds": await _hold_counters(session),
         "rated_charges": await _charge_counters(session),
@@ -520,6 +557,8 @@ ALERT_RULES = {
                                 "stripe payment clawbacks off their refund/dispute target"),
     "negative_margin": AlertRule("negative_margin", "warning", timedelta(hours=12),
                                  "calls rated below vendor cost in the last 7 days"),
+    "tenant_db_saturation": AlertRule("tenant_db_saturation", "warning", timedelta(hours=1),
+                                      "shared tenant Postgres near its connection ceiling"),
 }
 
 # Thresholds: a signal at or below its threshold is healthy. Bounded debt and
@@ -537,6 +576,7 @@ ALERT_THRESHOLDS = {
     "scheduled_lot_backlog": 0,
     "clawback_drift": 0,
     "negative_margin": 0,
+    "tenant_db_saturation": 0,
 }
 
 
@@ -558,6 +598,9 @@ def _signals(snapshot: dict, invariants: dict) -> dict[str, int]:
         "scheduled_lot_backlog": snapshot["scheduled_lots"]["activation_backlog"],
         "clawback_drift": snapshot["clawback"]["drifted_count"],
         "negative_margin": snapshot["negative_margin_calls_7d"],
+        "tenant_db_saturation": max(
+            0, ((snapshot.get("tenant_db") or {}).get("clients") or 0)
+            - TENANT_DB_CONN_ALERT_AT),
     }
 
 

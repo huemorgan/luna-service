@@ -88,8 +88,21 @@ async def provision_tenant_database(admin_db_url: str, agent_slug: str) -> Tenan
             else:
                 await conn.execute(text(
                     f'CREATE ROLE "{role}" WITH LOGIN PASSWORD \'{password}\' '
-                    f'NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT CONNECTION LIMIT 20'
+                    f'NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT CONNECTION LIMIT 6'
                 ))
+
+            # Plan 071: the shared cluster has ~100 usable slots. Cap each
+            # role just above the fleet pool bounds (pool 2 + overflow 3) and
+            # have the server evict idle sessions — the client's
+            # pool_recycle=300 would discard any conn idle >5min at next
+            # checkout anyway, so a 15min server-side kill is invisible.
+            await conn.execute(text(f'ALTER ROLE "{role}" CONNECTION LIMIT 6'))
+            await conn.execute(text(
+                f'ALTER ROLE "{role}" SET idle_session_timeout = \'15min\''
+            ))
+            await conn.execute(text(
+                f'ALTER ROLE "{role}" SET idle_in_transaction_session_timeout = \'5min\''
+            ))
 
             # Postgres 16 requires the creating role to be a member of the
             # owner role before CREATE DATABASE ... OWNER. The membership also

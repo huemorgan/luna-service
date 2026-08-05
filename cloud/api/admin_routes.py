@@ -746,6 +746,30 @@ class ImageDefaultsUpdate(BaseModel):
     models: dict | None = None
     plugin_set: list[dict] | None = None
     machine: dict | None = None
+    env: dict | None = None
+
+
+_ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+
+
+def _validate_default_env(env: dict) -> dict[str, str]:
+    """Plan 071: admin-stored env defaults for new machines. Plain name=value
+    pairs only — per-agent dynamic vars stay owned by provisioning."""
+    from cloud.provisioning.env_manifest import DYNAMIC_VARS
+
+    out: dict[str, str] = {}
+    for name, value in env.items():
+        if not _ENV_NAME_RE.match(name or ""):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                f"invalid env var name: {name!r}")
+        if name in DYNAMIC_VARS:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                f"{name} is provision-owned and cannot be defaulted")
+        if not isinstance(value, (str, int, float, bool)):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                f"env var {name} must be a scalar")
+        out[name] = str(value)
+    return out
 
 
 # Fly guest sizing, mirrored on the frontend (MachineConfigEditor). Dedicated
@@ -828,6 +852,7 @@ async def get_image_defaults(admin: User = Depends(require_admin)):
         "models": cfg.get("models", {}),
         "plugin_set": cfg.get("plugin_set", []),
         "machine": cfg.get("machine", {}),
+        "env": cfg.get("env", {}),
     }
 
 
@@ -859,6 +884,8 @@ async def update_image_defaults(
         patch["models"] = _validate_default_models(patch["models"])
     if "machine" in patch:
         patch["machine"] = _validate_machine(patch["machine"])
+    if "env" in patch:
+        patch["env"] = _validate_default_env(patch["env"])
 
     async with get_db_session() as db:
         before = await _get_app_setting(db, IMAGE_DEFAULTS_KEY)
@@ -873,6 +900,7 @@ async def update_image_defaults(
         "models": cfg.get("models", {}),
         "plugin_set": cfg.get("plugin_set", []),
         "machine": cfg.get("machine", {}),
+        "env": cfg.get("env", {}),
     }
 
 

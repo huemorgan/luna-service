@@ -339,3 +339,26 @@ async def test_invariant_break_fires_critical_alert(db_session, account):
     keys = {a["alert_key"] for a in active}
     assert "trial_balance" in keys
     assert all(a["severity"] == "critical" for a in active if a["alert_key"] == "trial_balance")
+
+
+@asyncio_test
+async def test_tenant_db_saturation_alert(db_session, account):
+    """Plan 071: census above the ceiling threshold fires the warning; a
+    failed census (clients=None) stays silent."""
+    await _funded_account(db_session, account)
+    snapshot = await ops_snapshot(db_session, now=NOW)
+    invariants = await run_invariants(db_session)
+
+    snapshot["tenant_db"] = {"clients": 95, "idle": 90, "error": None}
+    active = await evaluate_alerts(db_session, now=NOW,
+                                   snapshot=snapshot, invariants=invariants)
+    assert [a["alert_key"] for a in active] == ["tenant_db_saturation"]
+    row = (await db_session.execute(
+        select(OpsAlert).where(OpsAlert.alert_key == "tenant_db_saturation"))).scalar_one()
+    assert row.severity == "warning"
+    assert row.value_json == {"value": 95 - operations.TENANT_DB_CONN_ALERT_AT}
+
+    snapshot["tenant_db"] = {"clients": None, "idle": None, "error": "boom"}
+    active = await evaluate_alerts(db_session, now=NOW + timedelta(minutes=5),
+                                   snapshot=snapshot, invariants=invariants)
+    assert active == []
