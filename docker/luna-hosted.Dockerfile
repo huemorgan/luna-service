@@ -68,6 +68,16 @@ COPY --from=ui-build /build/ui/dist ./ui/dist
 COPY --from=plugin-set /opt/luna/plugin-set /opt/luna/plugin-set
 ENV LUNA_PLUGIN_SET_DIR=/opt/luna/plugin-set
 
+# Node 22 runtime for stdio MCP servers (`npx -y <pkg>`) — plugin-mcp's
+# contract ("the luna-service image ships Node 22") was never honored here,
+# so every npx-based server died with ENOENT. Copied from the ui-build stage
+# (same Debian bookworm base as python:3.12-slim); symlinks recreated by hand
+# because COPY dereferences them.
+COPY --from=ui-build /usr/local/bin/node /usr/local/bin/node
+COPY --from=ui-build /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+ && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+
 EXPOSE 8000
 
 CMD ["./scripts/start.sh"]
