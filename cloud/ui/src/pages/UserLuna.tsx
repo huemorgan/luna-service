@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Moon, Loader2, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle } from 'lucide-react';
 
 export default function UserLuna() {
   const { slug } = useParams<{ slug: string }>();
@@ -30,9 +30,17 @@ export default function UserLuna() {
 
   if (status === 'loading' || status === 'pending' || status === 'provisioning') {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: 'var(--ink)' }}>
-        <Moon className="mb-6" size={48} style={{ color: 'var(--moon)' }} />
-        <Loader2 className="animate-spin mb-4" size={32} style={{ color: 'var(--moon-dim)' }} />
+      <div className="min-h-screen flex flex-col items-center justify-center text-center" style={{ background: 'var(--ink)' }}>
+        <img
+          src="/luna-mark.png"
+          alt=""
+          width={160}
+          height={160}
+          className="mb-6"
+          style={{ filter: 'drop-shadow(0 0 40px rgba(201,184,255,0.18))' }}
+        />
+        <img src="/luna-wordmark.png" alt="Luna" style={{ height: 34, width: 'auto' }} className="mb-8" />
+        <Loader2 className="animate-spin mb-4" size={28} style={{ color: 'var(--moon-dim)' }} />
         <h2 className="text-xl font-semibold mb-2" style={{ color: 'var(--text)' }}>Setting up your Luna...</h2>
         <p className="text-sm" style={{ color: 'var(--text-dim)' }}>This usually takes about 20 seconds.</p>
       </div>
