@@ -38,7 +38,7 @@ RUN python bake_plugin_set.py --out /opt/luna/plugin-set --context /bake
 FROM python:3.12-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev gcc curl \
+    libpq-dev gcc curl bubblewrap \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir uv
