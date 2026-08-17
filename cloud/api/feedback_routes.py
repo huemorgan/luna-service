@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import func, or_, select, update
 
 from cloud.auth.deps import enforce_same_origin, require_admin
 from cloud.db import session as db_session
@@ -43,11 +43,30 @@ class StatusBody(BaseModel):
     status: str
 
 
+def _aware(dt: datetime | None) -> datetime | None:
+    """Postgres returns tz-aware datetimes; the SQLite test engine drops tzinfo."""
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _unread_by_us_expr():
+    """SQL predicate: client spoke after the team last opened the ticket.
+
+    Legacy rows (pre-0015) have no last_client_reply_at on the opening
+    message, so fall back to created_at.
+    """
+    last_client = func.coalesce(FeedbackTicket.last_client_reply_at, FeedbackTicket.created_at)
+    return FeedbackTicket.admin_read_at.is_(None) | (last_client > FeedbackTicket.admin_read_at)
+
+
+def _is_unread_by_us(t: FeedbackTicket) -> bool:
+    last_client = _aware(t.last_client_reply_at or t.created_at)
+    read_at = _aware(t.admin_read_at)
+    return last_client is not None and (read_at is None or last_client > read_at)
+
+
 def _ticket_row(t: FeedbackTicket, agent: Agent | None, account: Account | None) -> dict:
-    # "unread by us" = the client (owner/agent) spoke after the team last did.
-    unread_by_us = t.last_client_reply_at is not None and (
-        t.last_admin_reply_at is None or t.last_client_reply_at > t.last_admin_reply_at
-    )
     return {
         "id": str(t.id),
         "title": t.title,
@@ -63,7 +82,8 @@ def _ticket_row(t: FeedbackTicket, agent: Agent | None, account: Account | None)
         "last_client_reply_at": (
             t.last_client_reply_at.isoformat() if t.last_client_reply_at else None
         ),
-        "unread_by_us": unread_by_us,
+        "unread_by_us": _is_unread_by_us(t),
+        "admin_read_at": t.admin_read_at.isoformat() if t.admin_read_at else None,
         "agent_name": agent.name if agent else None,
         "agent_slug": agent.slug if agent else None,
         "account_slug": account.slug if account else None,
@@ -111,16 +131,30 @@ async def list_tickets(
         if q:
             stmt = stmt.where(FeedbackTicket.title.ilike(f"%{q}%"))
 
-        # Unanswered-first: open before answered before closed; within a group,
-        # oldest updated first (FIFO triage).
-        status_rank = case(
-            (FeedbackTicket.status == "open", 0),
-            (FeedbackTicket.status == "answered", 1),
-            else_=2,
+        # Newest first: last one in at the top.
+        stmt = (
+            stmt.order_by(FeedbackTicket.created_at.desc(), FeedbackTicket.id.desc())
+            .limit(limit)
+            .offset(offset)
         )
-        stmt = stmt.order_by(status_rank, FeedbackTicket.updated_at).limit(limit).offset(offset)
         rows = (await db.execute(stmt)).all()
     return {"tickets": [_ticket_row(t, ag, ac) for (t, ag, ac) in rows]}
+
+
+@router.get("/unread-count")
+async def unread_count(admin: User = Depends(require_admin)):
+    """Number of tickets with client activity the team hasn't opened yet.
+
+    Polled by the admin nav for the Feedback badge. Closed tickets are
+    excluded — closing is an explicit triage decision.
+    """
+    async with db_session.get_session() as db:
+        n = (await db.execute(
+            select(func.count())
+            .select_from(FeedbackTicket)
+            .where(_unread_by_us_expr(), FeedbackTicket.status != "closed")
+        )).scalar_one()
+    return {"unread": int(n or 0)}
 
 
 @router.get("/tickets/{ticket_id}")
@@ -140,6 +174,17 @@ async def get_ticket(ticket_id: str, admin: User = Depends(require_admin)):
             .where(FeedbackMessage.ticket_id == ticket.id)
             .order_by(FeedbackMessage.created_at)
         )).scalars().all()
+        # Opening the ticket marks it read by the team. Explicit updated_at
+        # keeps the onupdate hook from bumping "Updated" just for a read.
+        if _is_unread_by_us(ticket):
+            now = datetime.now(timezone.utc)
+            await db.execute(
+                update(FeedbackTicket)
+                .where(FeedbackTicket.id == ticket.id)
+                .values(admin_read_at=now, updated_at=FeedbackTicket.updated_at)
+            )
+            ticket.admin_read_at = now
+            await db.commit()
     return {
         "ticket": {**_ticket_row(ticket, agent, account), "context": ticket.context},
         "messages": [_message_view(m) for m in messages],
@@ -171,6 +216,7 @@ async def reply(
         )
         db.add(msg)
         ticket.last_admin_reply_at = now
+        ticket.admin_read_at = now
         ticket.status = "answered"
         await db.flush()
         await db.refresh(msg)

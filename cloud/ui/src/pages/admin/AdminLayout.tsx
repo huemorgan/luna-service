@@ -37,7 +37,10 @@ const NAV_BOTTOM = [
   { to: '/admin/changelog', label: 'Changelog', icon: ScrollText },
 ];
 
-function NavItem({ item }: { item: { to: string; label: string; icon: typeof Shield; end?: boolean } }) {
+/** Fired by FeedbackPage after a ticket is opened/replied so the nav badge refreshes immediately. */
+export const FEEDBACK_UNREAD_EVENT = 'luna:feedback-unread-changed';
+
+function NavItem({ item, badge }: { item: { to: string; label: string; icon: typeof Shield; end?: boolean }; badge?: number }) {
   return (
     <NavLink
       to={item.to}
@@ -50,8 +53,43 @@ function NavItem({ item }: { item: { to: string; label: string; icon: typeof Shi
     >
       <item.icon size={16} />
       {item.label}
+      {!!badge && (
+        <span
+          className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full text-[11px] font-bold leading-[18px] text-center"
+          style={{ background: '#ef4444', color: '#fff' }}
+          title={`${badge} unread`}
+          aria-label={`${badge} unread`}
+        >
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
     </NavLink>
   );
+}
+
+function useFeedbackUnread(): number {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      fetch('/api/admin/feedback/unread-count')
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => { if (alive && d) setN(d.unread || 0); })
+        .catch(() => { /* keep last value */ });
+    };
+    load();
+    const id = setInterval(load, 60_000);
+    const onVis = () => { if (document.visibilityState === 'visible') load(); };
+    window.addEventListener(FEEDBACK_UNREAD_EVENT, load);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      alive = false;
+      clearInterval(id);
+      window.removeEventListener(FEEDBACK_UNREAD_EVENT, load);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, []);
+  return n;
 }
 
 export default function AdminLayout() {
@@ -61,6 +99,7 @@ export default function AdminLayout() {
   const [pricingOpen, setPricingOpen] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const navigate = useNavigate();
+  const feedbackUnread = useFeedbackUnread();
 
   useEffect(() => {
     fetch('/api/auth/me')
@@ -144,7 +183,9 @@ export default function AdminLayout() {
           </button>
           {servicesOpen && (
             <div className="flex flex-col gap-1 pl-4">
-              {SERVICE_ITEMS.map(item => <NavItem key={item.to} item={item} />)}
+              {SERVICE_ITEMS.map(item => (
+                <NavItem key={item.to} item={item} badge={item.to === '/admin/feedback' ? feedbackUnread : undefined} />
+              ))}
             </div>
           )}
 

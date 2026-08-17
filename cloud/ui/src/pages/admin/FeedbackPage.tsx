@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { MessageSquareWarning, RefreshCw, Loader2, X, Send, User, Bot, Shield } from 'lucide-react';
+import { FEEDBACK_UNREAD_EVENT } from './AdminLayout';
+
+const notifyUnreadChanged = () => window.dispatchEvent(new Event(FEEDBACK_UNREAD_EVENT));
 
 interface TicketRow {
   id: string;
@@ -150,7 +153,7 @@ export default function FeedbackPage() {
                   className="border-t cursor-pointer hover:opacity-90"
                   style={{ borderColor: 'var(--ink-lighter)', background: 'var(--surface)' }}>
                   <td className="px-4 py-3">
-                    {t.unread_by_us && <span className="inline-block w-2 h-2 rounded-full" style={{ background: '#eab308' }} title="Client replied — awaiting the team" />}
+                    {t.unread_by_us && <span className="inline-block w-2 h-2 rounded-full" style={{ background: '#ef4444' }} title="Unread — new client message" />}
                   </td>
                   <td className="px-4 py-3 text-sm max-w-xs truncate" style={{ color: 'var(--text)' }}>{t.title}</td>
                   <td className="px-4 py-3 text-xs" style={dimText}>{CATEGORY_LABEL[t.category] || t.category}</td>
@@ -168,7 +171,7 @@ export default function FeedbackPage() {
       )}
 
       {selected && (
-        <TicketDrawer id={selected} onClose={() => setSelected(null)} onChanged={fetchList} />
+        <TicketDrawer id={selected} onClose={() => { setSelected(null); fetchList(); }} onChanged={fetchList} />
       )}
     </div>
   );
@@ -195,7 +198,7 @@ function TicketDrawer({ id, onClose, onChanged }: { id: string; onClose: () => v
   const load = useCallback(async () => {
     try {
       const res = await fetch(`/api/admin/feedback/tickets/${id}`);
-      if (res.ok) setDetail(await res.json());
+      if (res.ok) { setDetail(await res.json()); notifyUnreadChanged(); }
       else setError(`${res.status} ${res.statusText}`);
     } catch (e: any) { setError(String(e)); }
   }, [id]);

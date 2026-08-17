@@ -269,6 +269,43 @@ async def test_admin_reply_and_close_reopen(admin_client, anon_client, db_sessio
 
 
 @pytest.mark.asyncio
+async def test_admin_list_newest_first_and_unread_badge(admin_client, anon_client, db_session, sample_agent):
+    tok = await _token(db_session, sample_agent)
+    ids = []
+    for i in range(3):
+        ids.append((await anon_client.post(
+            "/api/agent/feedback/tickets", headers=_auth(tok),
+            json={"title": f"t{i}", "body": "b"},
+        )).json()["id"])
+
+    # newest first
+    listed = [t["id"] for t in (await admin_client.get("/api/admin/feedback/tickets")).json()["tickets"]]
+    assert listed == list(reversed(ids))
+
+    # all three unread until the team opens them
+    assert (await admin_client.get("/api/admin/feedback/unread-count")).json()["unread"] == 3
+    await admin_client.get(f"/api/admin/feedback/tickets/{ids[0]}")
+    assert (await admin_client.get("/api/admin/feedback/unread-count")).json()["unread"] == 2
+    row = next(t for t in (await admin_client.get("/api/admin/feedback/tickets")).json()["tickets"] if t["id"] == ids[0])
+    assert row["unread_by_us"] is False and row["admin_read_at"]
+
+    # replying marks read too
+    await admin_client.post(f"/api/admin/feedback/tickets/{ids[1]}/reply", json={"body": "hi"})
+    assert (await admin_client.get("/api/admin/feedback/unread-count")).json()["unread"] == 1
+
+    # a client reply on a read ticket makes it unread again
+    await anon_client.post(
+        f"/api/agent/feedback/tickets/{ids[0]}/replies", headers=_auth(tok),
+        json={"author": "user", "body": "more"},
+    )
+    assert (await admin_client.get("/api/admin/feedback/unread-count")).json()["unread"] == 2
+
+    # closed tickets don't count
+    await admin_client.post(f"/api/admin/feedback/tickets/{ids[2]}/status", json={"status": "closed"})
+    assert (await admin_client.get("/api/admin/feedback/unread-count")).json()["unread"] == 1
+
+
+@pytest.mark.asyncio
 async def test_admin_ticket_404(admin_client):
     res = await admin_client.get(f"/api/admin/feedback/tickets/{uuid.uuid4()}")
     assert res.status_code == 404

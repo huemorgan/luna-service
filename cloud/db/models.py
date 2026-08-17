@@ -383,6 +383,8 @@ class FeedbackTicket(Base):
     last_admin_reply_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_client_reply_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     agent_read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # last time an admin opened/replied to the ticket — drives the admin unread badge
+    admin_read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     messages: Mapped[list[FeedbackMessage]] = relationship(

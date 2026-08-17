@@ -171,6 +171,8 @@ async def create_ticket(
             status="open",
             title=title[:200],
             context=context,
+            # the opening message is client-authored → unread for the team
+            last_client_reply_at=datetime.now(timezone.utc),
         )
         db.add(ticket)
         await db.flush()
