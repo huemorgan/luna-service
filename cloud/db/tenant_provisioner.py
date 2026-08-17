@@ -59,6 +59,24 @@ def _admin_role(url: str) -> str:
     return m.group(1) if m else "postgres"
 
 
+# Plan 071/073: per-role connection guardrails on the shared tenant cluster.
+ROLE_CONNECTION_LIMIT = 12
+ROLE_SETTINGS: dict[str, str] = {
+    "idle_session_timeout": "'15min'",
+    "idle_in_transaction_session_timeout": "'5min'",
+    "tcp_keepalives_idle": "30",
+    "tcp_keepalives_interval": "10",
+    "tcp_keepalives_count": "3",
+}
+
+
+def role_settings_sql(role: str) -> list[str]:
+    """ALTER ROLE statements applied to every tenant role (new or existing)."""
+    out = [f'ALTER ROLE "{role}" CONNECTION LIMIT {ROLE_CONNECTION_LIMIT}']
+    out += [f'ALTER ROLE "{role}" SET {k} = {v}' for k, v in ROLE_SETTINGS.items()]
+    return out
+
+
 async def provision_tenant_database(admin_db_url: str, agent_slug: str) -> TenantDb:
     """Create (or refresh) an isolated database + login role for an agent.
 
@@ -88,7 +106,8 @@ async def provision_tenant_database(admin_db_url: str, agent_slug: str) -> Tenan
             else:
                 await conn.execute(text(
                     f'CREATE ROLE "{role}" WITH LOGIN PASSWORD \'{password}\' '
-                    f'NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT CONNECTION LIMIT 6'
+                    f'NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT '
+                    f'CONNECTION LIMIT {ROLE_CONNECTION_LIMIT}'
                 ))
 
             # Plan 071: the shared cluster has ~100 usable slots. Cap each
@@ -96,13 +115,13 @@ async def provision_tenant_database(admin_db_url: str, agent_slug: str) -> Tenan
             # have the server evict idle sessions — the client's
             # pool_recycle=300 would discard any conn idle >5min at next
             # checkout anyway, so a 15min server-side kill is invisible.
-            await conn.execute(text(f'ALTER ROLE "{role}" CONNECTION LIMIT 6'))
-            await conn.execute(text(
-                f'ALTER ROLE "{role}" SET idle_session_timeout = \'15min\''
-            ))
-            await conn.execute(text(
-                f'ALTER ROLE "{role}" SET idle_in_transaction_session_timeout = \'5min\''
-            ))
+            # Plan 073: a machine restart/update leaves the old process's
+            # pool as orphaned server backends (no FIN from a halted VM) —
+            # with limit 6 the new process hit TooManyConnectionsError until
+            # they aged out. Limit covers old+new pool (2×5) and per-role TCP
+            # keepalives reap dead peers in ~60 s (server default is 10 min).
+            for stmt in role_settings_sql(role):
+                await conn.execute(text(stmt))
 
             # Postgres 16 requires the creating role to be a member of the
             # owner role before CREATE DATABASE ... OWNER. The membership also
