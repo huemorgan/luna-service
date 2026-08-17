@@ -1624,9 +1624,16 @@ async def backfill_machine_env(
     request: Request,
     dry_run: bool = True,
     keys: str = "",
+    slugs: str = "",
     admin: User = Depends(require_admin),
 ):
     """Plan 029: push the gateway env block to any machine that is missing it.
+
+    Plan 072: the pushed block also carries the image's static env
+    (`image_defaults.env` overlaid by `image_config.env`, i.e. what a NEW
+    machine of that image would get), so `keys=<VAR>` rolls a newly added
+    default such as LUNA_INLINE_CODE_RUN_VENV_DIR out to existing machines.
+    `slugs` (comma-separated agent slugs) restricts the run to those agents.
 
     Only touches machines whose LIVE env lacks the LUNA_GATEWAY_URL/TOKEN pair,
     so healthy machines are skipped — no token rotation and no needless restart.
@@ -1646,12 +1653,14 @@ async def backfill_machine_env(
     fly = FlyMachinesRuntime()
     sentinels = ("LUNA_GATEWAY_URL", "LUNA_GATEWAY_TOKEN")
     sentinels += tuple(k.strip() for k in keys.split(",") if k.strip())
+    only_slugs = {s.strip() for s in slugs.split(",") if s.strip()}
 
     async with get_db_session() as db:
         agents = (await db.execute(
             select(Agent).where(Agent.runtime_ref.is_not(None))
         )).scalars().all()
-        targets = [(a.id, a.slug, a.name, a.runtime_ref, a.runtime_kind) for a in agents]
+        targets = [(a.id, a.slug, a.name, a.runtime_ref, a.runtime_kind) for a in agents
+                   if not only_slugs or a.slug in only_slugs]
 
     results: list[dict] = []
     updated = skipped = errored = 0
@@ -1699,6 +1708,10 @@ async def backfill_machine_env(
             if root_proxy_secret:
                 from cloud.runtime.proxy_secret import derive_jwt_secret
                 env["LUNA_JWT_SECRET"] = derive_jwt_secret(root_proxy_secret, str(agent_id))
+            # Plan 072: static image env rides along; provisioning-derived keys
+            # above always win over an image/default entry of the same name.
+            for k, v in (image_config.get("env") or {}).items():
+                env.setdefault(k, str(v))
             new_token = env.get("LUNA_GATEWAY_TOKEN")
             try:
                 await fly.update_machine_env(ref, env)

@@ -24,7 +24,7 @@ from cloud.db.tenant_provisioner import (
     provision_tenant_database,
 )
 from cloud.gateway.provision_env import build_gateway_env
-from cloud.provisioning.image_defaults import resolved_default_config
+from cloud.provisioning.image_defaults import effective_env_overrides, resolved_default_config
 from cloud.provisioning.model_catalog import resolve_default_heads, system_catalog
 from cloud.relay.secrets import derive_relay_secret
 from cloud.runtime.base import AgentSpec
@@ -170,6 +170,9 @@ async def _provision_core(
     # the runtime injects (LUNA_PRIMARY_MODEL / LUNA_FAST_MODEL / LUNA_MODEL_CATALOG).
     effective_image_config = {**image_config}
     effective_image_config["machine"] = {**default_machine, **(image_config.get("machine") or {})}
+    # Plan 072: admin-stored default env (images/defaults → env) reaches new
+    # machines too; the image's own env block still wins per-key.
+    effective_image_config["env"] = effective_env_overrides(stored_defaults, image_config)
     effective_image_config["models"] = {
         "primary": heads["primary"],
         "fast": heads["fast"],

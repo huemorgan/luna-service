@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 async def _agent_image_config(db, agent: Agent) -> dict:
     """The agent's effective image_config (baked plugin_set lives here)."""
     from cloud.api.admin_routes import _default_image_config
+    from cloud.provisioning.image_defaults import effective_env_overrides
 
     default_cfg = await _default_image_config(db)
     img = None
@@ -32,7 +33,13 @@ async def _agent_image_config(db, agent: Agent) -> dict:
         img = (await db.execute(
             select(LunaImage).where(LunaImage.version == agent.image_version)
         )).scalar_one_or_none()
-    return {**default_cfg, **((img.image_config if img else None) or {})}
+    img_cfg = (img.image_config if img else None) or {}
+    cfg = {**default_cfg, **img_cfg}
+    # Plan 072: `env` is a one-level dict — the image's own entries overlay the
+    # admin-stored defaults instead of replacing the whole block, matching how
+    # provisioning composes it (`effective_env_overrides`).
+    cfg["env"] = effective_env_overrides(default_cfg, img_cfg)
+    return cfg
 
 
 async def apply_gateway_env_delta(

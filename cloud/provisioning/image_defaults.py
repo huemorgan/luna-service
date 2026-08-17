@@ -60,6 +60,22 @@ def overlay_config(base: dict, overlay: dict | None) -> dict:
     return out
 
 
+def effective_env_overrides(defaults: dict | None, image_config: dict | None) -> dict[str, str]:
+    """Plan 072: the static env block a machine should carry — admin-stored
+    defaults (`image_defaults.env`, set via PUT /api/admin/images/defaults)
+    overlaid by the image's own `image_config.env`. Values are stringified;
+    provisioning-owned dynamic vars are validated out at write time
+    (`_validate_default_env`)."""
+    out: dict[str, str] = {}
+    for src in (defaults, image_config):
+        env = (src or {}).get("env") if isinstance(src, dict) else None
+        if isinstance(env, dict):
+            for k, v in env.items():
+                if k and v is not None:
+                    out[str(k)] = str(v)
+    return out
+
+
 async def get_stored_image_defaults(db: AsyncSession) -> dict:
     """The raw admin-stored overlay (app_settings["image_defaults"]), or {}."""
     row = (await db.execute(
