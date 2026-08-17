@@ -19,6 +19,6 @@ def test_keepalives_reap_orphans_fast():
 def test_role_settings_sql_shape():
     stmts = role_settings_sql("luna_a_x")
     assert stmts[0] == f'ALTER ROLE "luna_a_x" CONNECTION LIMIT {ROLE_CONNECTION_LIMIT}'
-    assert any("idle_session_timeout = '15min'" in s for s in stmts)
+    assert any("idle_session_timeout = '5min'" in s for s in stmts)
     assert any("tcp_keepalives_idle = 30" in s for s in stmts)
     assert all(s.startswith('ALTER ROLE "luna_a_x"') for s in stmts)

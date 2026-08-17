@@ -62,7 +62,7 @@ def _admin_role(url: str) -> str:
 # Plan 071/073: per-role connection guardrails on the shared tenant cluster.
 ROLE_CONNECTION_LIMIT = 12
 ROLE_SETTINGS: dict[str, str] = {
-    "idle_session_timeout": "'15min'",
+    "idle_session_timeout": "'5min'",
     "idle_in_transaction_session_timeout": "'5min'",
     "tcp_keepalives_idle": "30",
     "tcp_keepalives_interval": "10",
