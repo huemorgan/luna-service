@@ -302,6 +302,11 @@ async def prepare(
                     unpriced_reason = "model_uncovered"
 
         if unpriced_reason is not None:
+            log.warning(
+                "unpriced route (%s): %s %s %s — %s",
+                unpriced_reason, service_slug, method, path,
+                "blocking" if mode == "enforce" else "would-block",
+            )
             if mode == "enforce":
                 ctx.block = "sku_unpriced"
             else:

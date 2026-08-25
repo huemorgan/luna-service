@@ -89,6 +89,30 @@ async def test_route_classification():
     assert route_catalog.classify("qwen", "GET", "models").kind == "free"
     assert route_catalog.classify("qwen", "GET", "models/qwen3.8-max").kind == "free"
 
+    # Browser Use rides a service-wide default (_SERVICE_DEFAULTS): the whole
+    # v3 surface is free-interim, so no path on the service can 402 as
+    # sku_unpriced (the vaselin-scanny-2 incident, 2026-08-25).
+    assert route_catalog.classify("browser-use", "GET", "browsers").kind == "free"
+    assert route_catalog.classify("browser-use", "POST", "browsers").kind == "free"
+    assert route_catalog.classify("browser-use", "POST", "tasks").kind == "free"
+    assert route_catalog.classify("browser-use", "GET", "tasks/task-123").kind == "free"
+    # Deny-by-default is untouched for services without rows or a default.
+    assert route_catalog.classify("giphy", "GET", "gifs/search") is None
+
+
+async def test_every_enabled_seed_service_has_billing_coverage():
+    """A registry service must never ship provisioned-but-blocked again: every
+    enabled seed service needs a catalog row or a service default, or enforce
+    mode 402s all its traffic as sku_unpriced before upstream."""
+    from cloud.gateway.registry import SEED_SERVICES
+
+    covered = route_catalog.covered_services()
+    missing = {s["slug"] for s in SEED_SERVICES if s["enabled"]} - covered
+    assert not missing, (
+        f"enabled gateway services with no route_catalog coverage: {sorted(missing)} — "
+        "add billed/free rows or a _SERVICE_DEFAULTS entry before enabling"
+    )
+
 
 async def test_xai_chat_adapter_openai_compatible():
     # xai.chat speaks the OpenAI protocol but excludes reasoning tokens from

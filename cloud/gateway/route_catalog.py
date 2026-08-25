@@ -10,7 +10,8 @@ A route is either:
   counting) that never spends provider money worth metering;
 - **unknown** — everything else. Unknown routes are `sku_unpriced`: blocked
   before upstream in enforce mode, recorded as a would-block decision in
-  observe/shadow.
+  observe/shadow. A service listed in ``_SERVICE_DEFAULTS`` falls back to its
+  declared service-wide class instead of unknown.
 
 BYOK passthrough traffic is never classified — it is never billed.
 Phase 005 adds non-LLM services through this table instead of duplicating
@@ -119,6 +120,28 @@ _CATALOG: dict[tuple[str, str, str], RouteClass] = {
     ("tavily", "POST", "/search"): _FREE,
 }
 
+# Service-wide fallback classification, consulted only when no _CATALOG row
+# matches. This is an explicit per-service opt-in — deny-by-default still
+# applies to every service absent from BOTH tables. Use it for non-LLM
+# services whose entire API surface shares one billing posture, where
+# enumerating vendor paths row-by-row only creates drift (a path the plugin
+# uses but the catalog missed 402s as sku_unpriced in enforce mode — the
+# browser-use incident, previously tavily).
+_SERVICE_DEFAULTS: dict[str, RouteClass] = {
+    # Browser Use Cloud (plugin-browser): the whole v3 surface (/browsers,
+    # /tasks, /sessions, /files, …) is vendor-billed browser automation.
+    # Free until a browser_task SKU is priced/enabled — same interim posture
+    # as Composio ("Included with Luna Cloud").
+    "browser-use": _FREE,
+}
+
+
+def covered_services() -> set[str]:
+    """Slugs with billing coverage: at least one catalog row or a service
+    default. test_gateway_billing checks every enabled registry service is in
+    this set, so a service can no longer ship provisioned-but-blocked."""
+    return {slug for (slug, _method, _path) in _CATALOG} | set(_SERVICE_DEFAULTS)
+
 
 def normalize_path(path: str) -> str:
     """Normalize the proxied sub-path: one leading slash, collapsed duplicate
@@ -145,4 +168,4 @@ def classify(service_slug: str, method: str, path: str) -> RouteClass | None:
         hit = _CATALOG.get((service_slug, method, candidate))
         if hit is not None:
             return hit
-    return None
+    return _SERVICE_DEFAULTS.get(service_slug)
