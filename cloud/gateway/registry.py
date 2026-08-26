@@ -75,12 +75,12 @@ SEED_SERVICES: list[dict] = [
         "provision_by_default": False,
     },
     {
-        # Browser Use Cloud — managed AI browser automation. v3 REST API lives
-        # under /api/v3, so the gateway supplies that prefix (same trick as
+        # Browser Use Cloud — managed AI browser automation. v4 REST API lives
+        # under /api/v4, so the gateway supplies that prefix (same trick as
         # OpenAI's /v1). Auth is a bare custom header (no scheme); keys are bu_…
         "slug": "browser-use",
         "display_name": "Browser Use",
-        "upstream_url": "https://api.browser-use.com/api/v3",
+        "upstream_url": "https://api.browser-use.com/api/v4",
         "auth_style": "header:X-Browser-Use-API-Key",
         "enabled": True,
         "provision_by_default": True,
@@ -204,7 +204,7 @@ KNOWN_SERVICES: dict[str, tuple[str, str, str]] = {
     "monday":         ("https://api.monday.com/v2",      "header:Authorization",        "monday.com"),
     "render":         ("https://api.render.com/v1",       "header:Authorization:Bearer", "Render"),
     "giphy":          ("https://api.giphy.com/v1",        "query:api_key",               "GIPHY"),
-    "browser-use":    ("https://api.browser-use.com/api/v3", "header:X-Browser-Use-API-Key", "Browser Use"),
+    "browser-use":    ("https://api.browser-use.com/api/v4", "header:X-Browser-Use-API-Key", "Browser Use"),
     "composio":       ("https://backend.composio.dev/api/v3", "header:x-api-key",         "Composio"),
     "tavily":         ("https://api.tavily.com",           "header:Authorization:Bearer", "Tavily"),
     "openai":         ("https://api.openai.com/v1",         "header:Authorization:Bearer", "OpenAI"),
