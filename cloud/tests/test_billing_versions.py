@@ -44,6 +44,39 @@ def test_floats_rejected_anywhere():
         validate_commercial_config(config)
 
 
+def test_domain_gifts_validation():
+    # Launch config carries the monday.com offer and validates (checked by
+    # test_launch_config_is_valid); malformed variants are rejected.
+    config = _valid()
+    config["trial"]["domain_gifts"] = "monday.com"
+    with pytest.raises(ConfigValidationError, match="map"):
+        validate_commercial_config(config)
+
+    config = _valid()
+    config["trial"]["domain_gifts"] = {"user@monday.com": {"gift_credits": 20_000}}
+    with pytest.raises(ConfigValidationError, match="lowercase email domain"):
+        validate_commercial_config(config)
+
+    config = _valid()
+    config["trial"]["domain_gifts"] = {"MONDAY.com": {"gift_credits": 20_000}}
+    with pytest.raises(ConfigValidationError, match="lowercase email domain"):
+        validate_commercial_config(config)
+
+    config = _valid()
+    config["trial"]["domain_gifts"] = {"monday.com": 20_000}
+    with pytest.raises(ConfigValidationError, match="object"):
+        validate_commercial_config(config)
+
+    config = _valid()
+    config["trial"]["domain_gifts"] = {"monday.com": {"gift_credits": 200.0}}
+    with pytest.raises(ConfigValidationError, match="float"):
+        validate_commercial_config(config)
+
+    config = _valid()
+    config["trial"]["domain_gifts"] = {"monday.com": {"gift_credits": 20_000, "days": 30}}
+    validate_commercial_config(config)
+
+
 def test_credit_value_fixed():
     config = _valid()
     config["credit_value_micro_usd"] = 20_000
@@ -147,6 +180,7 @@ async def test_seeded_config_contents(db_session):
         "gift_credits": 1_800, "days": 14,
         "daily_limit_credits": 75, "monthly_limit_credits": 800,
         "active_luna_cap": 1,
+        "domain_gifts": {"monday.com": {"gift_credits": 20_000}},
     }
     assert config["migration_gift"] == {"credits": 1_800, "days": 28, "active_luna_cap": 1}
     assert config["hosting"]["price_credits"] == 999

@@ -148,6 +148,10 @@ def commercial_v1_config() -> dict:
             "gift_credits": 1_800, "days": 14,
             "daily_limit_credits": 75, "monthly_limit_credits": 800,
             "active_luna_cap": 1,
+            # Partner signup offers by verified email domain — replaces the
+            # standard gift for matching signups ($200; days falls back to
+            # trial.days when unset).
+            "domain_gifts": {"monday.com": {"gift_credits": 20_000}},
         },
         # M9 (owner decision): migrated accounts get exactly the trial
         # treatment — configurable here like every other product.

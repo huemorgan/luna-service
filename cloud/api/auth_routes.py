@@ -172,7 +172,7 @@ async def _upsert_user_and_account(info: UserInfo) -> tuple[User, Account]:
                 # assigned version's config.trial) lands in the same
                 # transaction — exactly once under concurrent callbacks.
                 from cloud.billing.grants import grant_trial_gift
-                await grant_trial_gift(db, account.id)
+                await grant_trial_gift(db, account.id, email=info.email)
             except AssignmentError as exc:
                 # Signup must not fail on an unseeded environment; billing
                 # stays off for the account until versions exist.

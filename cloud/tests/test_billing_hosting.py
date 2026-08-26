@@ -97,6 +97,57 @@ async def test_trial_gift_exactly_once(db_session, account):
     assert await ledger.posted_balance(db_session, account.id) == 1800
 
 
+async def test_trial_gift_domain_offer_replaces_standard(db_session, account):
+    # monday.com signup gets the partner gift instead of the standard 1800;
+    # days falls back to trial.days when the offer sets none.
+    await _seed(db_session, account.id)
+    g = await grants.grant_trial_gift(
+        db_session, account.id, email="someone@monday.com", now=NOW
+    )
+    assert g.original_credits == 20_000
+    assert g.expires_at == NOW + timedelta(days=14)
+    tx = (await db_session.execute(
+        select(CreditLedgerTransaction).where(CreditLedgerTransaction.id == g.grant_transaction_id)
+    )).scalar_one()
+    assert tx.reason == "trial gift (monday.com signup offer)"
+    lots = (await db_session.execute(
+        select(CreditGrant).where(CreditGrant.account_id == account.id)
+    )).scalars().all()
+    assert len(lots) == 1  # replaces, never stacks
+
+
+async def test_trial_gift_domain_match_is_case_insensitive(db_session, account):
+    await _seed(db_session, account.id)
+    g = await grants.grant_trial_gift(
+        db_session, account.id, email="Someone@MONDAY.com", now=NOW
+    )
+    assert g.original_credits == 20_000
+
+
+async def test_trial_gift_non_partner_email_gets_standard(db_session, account):
+    await _seed(db_session, account.id)
+    g = await grants.grant_trial_gift(
+        db_session, account.id, email="someone@example.com", now=NOW
+    )
+    assert g.original_credits == 1800
+    tx = (await db_session.execute(
+        select(CreditLedgerTransaction).where(CreditLedgerTransaction.id == g.grant_transaction_id)
+    )).scalar_one()
+    assert tx.reason == "trial gift"
+
+
+async def test_trial_gift_domain_offer_still_exactly_once(db_session, account):
+    # Same idempotency key regardless of email: a repeated callback (with or
+    # without the email) never issues a second lot.
+    await _seed(db_session, account.id)
+    g1 = await grants.grant_trial_gift(
+        db_session, account.id, email="someone@monday.com", now=NOW
+    )
+    g2 = await grants.grant_trial_gift(db_session, account.id, now=NOW)
+    assert g1.id == g2.id
+    assert await ledger.posted_balance(db_session, account.id) == 20_000
+
+
 async def test_trial_flips_to_paid_on_topup(db_session, account):
     await _seed(db_session, account.id)
     await grants.grant_trial_gift(db_session, account.id, now=NOW)

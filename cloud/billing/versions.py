@@ -23,7 +23,10 @@ reaching here):
                  "yearly_gift_credits": int, "expiration": ...}, ...],
   "trial": {"gift_credits": 1800, "days": 28,
              "daily_limit_credits": 75, "monthly_limit_credits": 800,
-             "active_luna_cap": 1},
+             "active_luna_cap": 1,
+             # optional partner signup offers by verified email domain;
+             # replaces the standard gift (days falls back to trial.days)
+             "domain_gifts": {"monday.com": {"gift_credits": 20000}}},
   "migration_gift": {"credits": 1800, "days": 28},   # M9: trial treatment
   "gift_default_days": 90,
   "topup_steps_usd_cents": [1000, 2500, 5000, 10000]
@@ -206,6 +209,21 @@ def validate_commercial_config(config: dict) -> None:
         raise ConfigValidationError("trial missing")
     _require_int(trial.get("gift_credits"), "trial.gift_credits", minimum=0)
     _require_int(trial.get("days"), "trial.days", minimum=1)
+
+    domain_gifts = trial.get("domain_gifts")
+    if domain_gifts is not None:
+        if not isinstance(domain_gifts, dict):
+            raise ConfigValidationError("trial.domain_gifts must be a map of email domain -> gift")
+        for dom, gift in domain_gifts.items():
+            if not isinstance(dom, str) or not dom or "@" in dom or dom != dom.lower():
+                raise ConfigValidationError(
+                    f"trial.domain_gifts key {dom!r} must be a lowercase email domain"
+                )
+            if not isinstance(gift, dict):
+                raise ConfigValidationError(f"trial.domain_gifts.{dom} must be an object")
+            _require_int(gift.get("gift_credits"), f"trial.domain_gifts.{dom}.gift_credits", minimum=0)
+            if gift.get("days") is not None:
+                _require_int(gift.get("days"), f"trial.domain_gifts.{dom}.days", minimum=1)
 
     migration = config.get("migration_gift")
     if not isinstance(migration, dict):
