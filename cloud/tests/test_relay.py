@@ -361,6 +361,20 @@ class TestForwarder:
         row = await self._reload(db_session, d.id)
         assert row.status == "delivered" and row.attempts == 1 and row.delivered_at
 
+    async def test_custom_target_path_used(self, _patch_db, db_session, sample_agent):
+        # Plan 076: a delivery with target_path set goes to that route.
+        d = await self._pending(db_session, sample_agent, target_path="/api/p/plugin-webhooks/hooks/abc123")
+        client = await self._run(db_session, d.id, lambda url: 200)
+        url, _, _ = client.calls[0]
+        assert url.endswith("/api/p/plugin-webhooks/hooks/abc123")
+        row = await self._reload(db_session, d.id)
+        assert row.status == "delivered"
+
+    async def test_null_target_path_falls_back_to_composio(self, _patch_db, db_session, sample_agent):
+        d = await self._pending(db_session, sample_agent)  # target_path NULL
+        client = await self._run(db_session, d.id, lambda url: 200)
+        assert client.calls[0][0].endswith("/api/p/plugin-connectors/events/composio")
+
     async def test_connection_error_backs_off(self, _patch_db, db_session, sample_agent):
         import httpx
         d = await self._pending(db_session, sample_agent)

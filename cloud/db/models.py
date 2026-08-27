@@ -322,6 +322,40 @@ class RelayDelivery(Base):
     body: Mapped[str] = mapped_column(Text, nullable=False)  # raw JSON payload (≤200 KB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Machine route to deliver to; NULL = legacy composio events path (plan 076).
+    target_path: Mapped[str | None] = mapped_column(Text)
+
+
+class WebhookEndpoint(Base):
+    """A minted inbound-webhook URL for one agent (plan 076).
+
+    Public URL is /api/webhooks/hooks/{agent_slug}/{hook_slug}. The ingress
+    does no auth beyond slug knowledge — the tenant plugin verifies the
+    per-hook HMAC (`secret`), same trust model as the scheduler fire relay.
+    """
+
+    __tablename__ = "webhook_endpoints"
+    __table_args__ = (
+        UniqueConstraint("agent_id", "plugin", "name"),
+        Index("ix_webhook_endpoints_agent", "agent_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    hook_slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    plugin: Mapped[str] = mapped_column(Text, nullable=False)
+    target_path: Mapped[str] = mapped_column(Text, nullable=False)  # must start /api/p/
+    # sync = forward inline (wake + wait-ready + retry once); queue = outbox row
+    mode: Mapped[str] = mapped_column(Text, nullable=False, default="sync")
+    secret: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    last_delivery_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivery_count: Mapped[int] = mapped_column(nullable=False, default=0)
+    last_status_code: Mapped[int | None] = mapped_column()
 
 
 class AuditLog(Base):

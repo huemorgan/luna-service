@@ -51,6 +51,7 @@ BASELINE_REVISION = "0001"
 POST_BASELINE_COLUMNS: dict[str, set[str]] = {
     "agents": {"deleted_at"},  # 0004
     "users": {"tos_version", "tos_accepted_at"},  # 0009
+    "relay_deliveries": {"target_path"},  # 0016
 }
 
 

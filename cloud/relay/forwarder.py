@@ -71,6 +71,7 @@ async def deliver_one(delivery_id: uuid.UUID, client: httpx.AsyncClient) -> None
             return
         body = delivery.body.encode()
         webhook_id = delivery.webhook_id
+        target_path = delivery.target_path or EVENTS_PATH
         agent_data = (agent.id, agent.slug, agent.internal_url, agent.runtime_ref, agent.status)
 
     agent_id, agent_slug, internal_url, runtime_ref, agent_status = agent_data
@@ -92,7 +93,7 @@ async def deliver_one(delivery_id: uuid.UUID, client: httpx.AsyncClient) -> None
     status_code: int | None = None
     error: str | None = None
     try:
-        resp = await client.post(f"{internal_url}{EVENTS_PATH}", content=body, headers=headers)
+        resp = await client.post(f"{internal_url}{target_path}", content=body, headers=headers)
         status_code = resp.status_code
     except httpx.HTTPError as exc:
         error = f"{type(exc).__name__}"
