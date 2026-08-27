@@ -17,6 +17,7 @@ import ServicesPage from './pages/admin/ServicesPage';
 import WhatsAppPage from './pages/admin/WhatsAppPage';
 import TelegramPage from './pages/admin/TelegramPage';
 import SchedulerPage from './pages/admin/SchedulerPage';
+import WebhooksPage from './pages/admin/WebhooksPage';
 import FeedbackPage from './pages/admin/FeedbackPage';
 import ErrorsPage from './pages/admin/ErrorsPage';
 import PricingOverviewPage from './pages/admin/pricing/PricingOverviewPage';
@@ -74,6 +75,7 @@ export default function App() {
           <Route path="whatsapp" element={<WhatsAppPage />} />
           <Route path="telegram" element={<TelegramPage />} />
           <Route path="scheduler" element={<SchedulerPage />} />
+          <Route path="webhooks" element={<WebhooksPage />} />
           <Route path="feedback" element={<FeedbackPage />} />
           <Route path="errors" element={<ErrorsPage />} />
           <Route path="pricing" element={<PricingOverviewPage />} />

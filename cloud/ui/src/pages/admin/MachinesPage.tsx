@@ -230,6 +230,96 @@ function ModelsSection({
 /*  Webhooks tab                                                       */
 /* ------------------------------------------------------------------ */
 
+interface MintedHook {
+  id: string;
+  name: string;
+  plugin: string;
+  hook_slug: string;
+  public_url: string;
+  mode: string;
+  enabled: boolean;
+  delivery_count: number;
+  last_status_code: number | null;
+  last_delivery_at: string | null;
+}
+
+function MintedHooksSection({ agentSlug }: { agentSlug: string }) {
+  const [hooks, setHooks] = useState<MintedHook[] | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/admin/webhooks/endpoints?agent_slug=${encodeURIComponent(agentSlug)}`)
+      .then(r => (r.ok ? r.json() : []))
+      .then(rows => { if (alive) setHooks(rows); })
+      .catch(() => { if (alive) setHooks([]); });
+    return () => { alive = false; };
+  }, [agentSlug]);
+
+  return (
+    <div
+      className="rounded-xl border overflow-hidden"
+      style={{ background: 'var(--ink)', borderColor: 'var(--ink-lighter)' }}
+    >
+      <div className="px-4 py-3 border-b" style={{ borderColor: 'var(--ink-lighter)' }}>
+        <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
+          Minted hooks <span className="font-normal" style={{ color: 'var(--text-dim)' }}>({hooks?.length ?? '…'})</span>
+        </span>
+      </div>
+      {!hooks || hooks.length === 0 ? (
+        <div className="px-4 py-6 text-center text-xs" style={{ color: 'var(--text-dim)' }}>
+          {hooks ? 'No inbound webhook URLs minted by plugins on this agent.' : 'Loading…'}
+        </div>
+      ) : (
+        <table className="w-full">
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--ink-lighter)' }}>
+              <th className="text-left text-[11px] font-medium px-4 py-2" style={{ color: 'var(--text-dim)' }}>Hook</th>
+              <th className="text-left text-[11px] font-medium px-4 py-2" style={{ color: 'var(--text-dim)' }}>Mode</th>
+              <th className="text-left text-[11px] font-medium px-4 py-2" style={{ color: 'var(--text-dim)' }}>URL</th>
+              <th className="text-left text-[11px] font-medium px-4 py-2" style={{ color: 'var(--text-dim)' }}>Deliveries</th>
+              <th className="text-left text-[11px] font-medium px-4 py-2" style={{ color: 'var(--text-dim)' }}>Last Code</th>
+              <th className="text-left text-[11px] font-medium px-4 py-2" style={{ color: 'var(--text-dim)' }}>Enabled</th>
+            </tr>
+          </thead>
+          <tbody>
+            {hooks.map(h => (
+              <tr key={h.id} className="border-t" style={{ borderColor: 'var(--ink-lighter)', opacity: h.enabled ? 1 : 0.5 }}>
+                <td className="px-4 py-2 text-xs" style={{ color: 'var(--text)' }}>
+                  <span className="font-mono">{h.plugin}</span>
+                  <span style={{ color: 'var(--text-dim)' }}> / {h.name}</span>
+                </td>
+                <td className="px-4 py-2 text-xs" style={{ color: 'var(--text-dim)' }}>{h.mode}</td>
+                <td className="px-4 py-2">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(h.public_url).then(() => {
+                        setCopiedId(h.id);
+                        setTimeout(() => setCopiedId(c => (c === h.id ? null : c)), 1500);
+                      });
+                    }}
+                    className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono transition-all hover:opacity-80"
+                    style={{ border: '1px solid var(--ink-lighter)', color: copiedId === h.id ? '#22c55e' : 'var(--text-dim)' }}
+                    title={h.public_url}
+                  >
+                    {copiedId === h.id ? <Check size={10} /> : null}
+                    {copiedId === h.id ? 'Copied' : `…/${h.hook_slug}`}
+                  </button>
+                </td>
+                <td className="px-4 py-2 text-xs" style={{ color: 'var(--text-dim)' }}>{h.delivery_count}</td>
+                <td className="px-4 py-2 text-xs" style={{ color: 'var(--text-dim)' }}>{h.last_status_code ?? '—'}</td>
+                <td className="px-4 py-2 text-xs" style={{ color: h.enabled ? '#22c55e' : 'var(--text-dim)' }}>
+                  {h.enabled ? 'yes' : 'no'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 function WebhooksTab({
   machine, links, deliveries, onChange,
 }: {
@@ -272,6 +362,9 @@ function WebhooksTab({
 
   return (
     <div className="space-y-4">
+      {/* Minted generic hooks (plan 076) */}
+      <MintedHooksSection agentSlug={machine.agent_slug} />
+
       {/* Account links */}
       <div
         className="rounded-xl border overflow-hidden"
