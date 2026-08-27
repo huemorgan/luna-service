@@ -49,9 +49,15 @@ READY_MAX_WAIT_S = 45.0
 READY_POLL_S = 2.0
 
 # Request headers never forwarded to the machine.
+# accept-encoding: Fly's edge compresses per this header (br since 2026-08-27),
+# and httpx here may not be able to decode what the *caller* accepts — the
+# response would pass through as raw brotli with the content-encoding header
+# dropped, corrupting sync-mode echoes (Monday challenge). Let httpx negotiate
+# only encodings it can decode.
 _DROP_HEADERS = {
     "host", "content-length", "connection", "transfer-encoding", "keep-alive",
     "upgrade", "proxy-authorization", "authorization", "cookie",
+    "accept-encoding",
 }
 
 

@@ -223,6 +223,21 @@ class TestIngress:
         method, url, _, _ = fake.calls[0]
         assert method == "GET" and url.endswith("?challenge=abc")
 
+    async def test_sync_drops_accept_encoding(self, anon_client, db_session, sample_agent):
+        # Fly's edge compresses per accept-encoding, and httpx here may not be
+        # able to decode what the caller accepts (br) — the echo would come
+        # back as raw brotli labeled application/json. Never forward it.
+        hook = await self._hook(anon_client, db_session, sample_agent)
+        fake, patcher = _patch_client(lambda url: 200)
+        with patcher:
+            res = await anon_client.post(
+                f"/api/webhooks/hooks/{sample_agent.slug}/{hook['hook_slug']}",
+                content=b"{}",
+                headers={"accept-encoding": "br"})
+        assert res.status_code == 200
+        _, _, _, headers = fake.calls[0]
+        assert "accept-encoding" not in headers
+
     async def test_sync_wake_retry_once(self, anon_client, db_session, sample_agent):
         hook = await self._hook(anon_client, db_session, sample_agent)
         attempts = []
