@@ -59,3 +59,13 @@ a coverage loss.
   remain optional/deferred — no changes.
 - The gateway is complete and live. Next work item is the plugin-webhooks plan
   (in luna-plugins), which also completes the deferred end-to-end verification.
+
+## Addendum (2026-08-27, plugin-webhooks phase 5)
+
+The deferred end-to-end verification is complete, via plugin-webhooks 0.1.0
+installed on tenant vaselin-test-agent-6: hosted two-step mint, sync
+delivery 0.78 s while running, cold wake + readiness + deliver in 42.5 s,
+queue-mode relay delivered in ~5 s (attempts 1, target answered 200),
+admin /admin/webhooks page verified visually, hooks deleted (registry back
+to 0). Details: luna-plugins
+`plugins/plugin-webhooks/plans/001-initial/phase-5-production/execution_summary.md`.
