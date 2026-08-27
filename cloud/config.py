@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     scheduler_service_url: str = ""
     scheduler_service_admin_key: str = ""
 
+    # Generic webhook gateway (plan 076). Optional vanity host for minted hook
+    # URLs (e.g. https://webhooks.luna.com.ai pointing at this same service);
+    # empty = base_url.
+    webhooks_base_url: str = ""
+
     # Telegram multi-account gateway monitoring + tenant provisioning (plan 045).
     # Bot tokens pass through the control plane once and are never persisted here.
     telegram_gateway_url: str = ""

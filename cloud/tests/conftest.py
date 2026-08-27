@@ -138,6 +138,7 @@ async def _patch_db(db_engine):
         patch("cloud.api.agent_routes.get_db_session", _test_session),
         patch("cloud.api.proxy.get_db_session", _test_session),
         patch("cloud.api.relay_routes.get_db_session", _test_session),
+        patch("cloud.api.webhook_routes.get_db_session", _test_session),
         patch("cloud.api.whatsapp_routes.get_db_session", _test_session),
         patch("cloud.relay.forwarder.get_db_session", _test_session),
         patch("cloud.api.gateway_env_delta.get_db_session", _test_session),

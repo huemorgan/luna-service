@@ -33,6 +33,8 @@ from cloud.api.scheduler_routes import router as scheduler_router
 from cloud.api.telegram_agent_routes import router as telegram_agent_router
 from cloud.api.telegram_routes import relay_router as telegram_relay_router
 from cloud.api.telegram_routes import router as telegram_router
+from cloud.api.webhook_agent_routes import router as webhook_agent_router
+from cloud.api.webhook_routes import relay_router as webhook_relay_router
 from cloud.api.whatsapp_agent_routes import router as whatsapp_agent_router
 from cloud.api.whatsapp_routes import relay_router as whatsapp_relay_router
 from cloud.api.whatsapp_routes import router as whatsapp_router
@@ -268,6 +270,11 @@ def create_app() -> FastAPI:
     app.include_router(scheduler_agent_router)
     app.include_router(scheduler_agent_router, prefix="/proxy")
     app.include_router(scheduler_relay_router)
+    # Generic webhook gateway (plan 076): agent-facing minting (also under
+    # /proxy, machines carry LUNA_GATEWAY_URL = "<host>/proxy") + public ingress.
+    app.include_router(webhook_agent_router)
+    app.include_router(webhook_agent_router, prefix="/proxy")
+    app.include_router(webhook_relay_router)
     app.include_router(telegram_router)
     app.include_router(telegram_agent_router)
     app.include_router(telegram_agent_router, prefix="/proxy")
