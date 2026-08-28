@@ -242,7 +242,7 @@ def create_app() -> FastAPI:
     @app.get("/")
     async def root():
         if UI_DIR.is_dir():
-            return FileResponse(UI_DIR / "index.html")
+            return FileResponse(UI_DIR / "index.html", headers={"cache-control": "no-cache"})
         return {"service": "luna-service", "status": "no UI built"}
 
     app.include_router(auth_router)
@@ -307,7 +307,7 @@ def create_app() -> FastAPI:
             if file.is_file():
                 return FileResponse(file, headers={"cache-control": "public, max-age=3600"})
         if UI_DIR.is_dir():
-            return FileResponse(UI_DIR / "index.html")
+            return FileResponse(UI_DIR / "index.html", headers={"cache-control": "no-cache"})
         raise HTTPException(404)
 
     return app
