@@ -4,13 +4,13 @@ import { StartFree } from '../components/cta';
 import { useSeo } from '../lib/seo';
 import { PRODUCTS } from '../lib/constants';
 
-import heroImg from '../assets/hero.png';
-import reliabilityImg from '../assets/reliability.png';
-import trustImg from '../assets/trust-vault.png';
-import selfImg from '../assets/self-improving.png';
-import ossImg from '../assets/open-source.png';
-import hostingImg from '../assets/hosting-service.png';
-import marketImg from '../assets/marketplaces.png';
+import heroImg from '../assets/hero.jpg';
+import reliabilityImg from '../assets/reliability.jpg';
+import trustImg from '../assets/trust-vault.jpg';
+import selfImg from '../assets/self-improving.jpg';
+import ossImg from '../assets/open-source.jpg';
+import hostingImg from '../assets/hosting-service.jpg';
+import marketImg from '../assets/marketplaces.jpg';
 
 const PRODUCT_IMG: Record<string, string> = {
   '/products/open-source': ossImg,
@@ -55,7 +55,7 @@ export default function Home() {
 
           <Reveal>
             <div className="media" style={{ marginTop: 18 }}>
-              <img src={heroImg} alt="An operations lead watching Luna work through her task list" />
+              <img src={heroImg} alt="A team gathered around a laptop watching their Luna work" />
             </div>
           </Reveal>
         </div>
@@ -114,7 +114,7 @@ export default function Home() {
           <div className="grid cols-2" style={{ marginTop: 30 }}>
             <Reveal>
               <div className="card hov">
-                <img className="visual" src={reliabilityImg} alt="An SRE watching steady, all-green dashboards" />
+                <img className="visual" src={reliabilityImg} alt="Engineers reviewing output together on a robotics production floor" />
                 <h3>Reliable</h3>
                 <ul className="checklist" style={{ marginTop: 14 }}>
                   <li><span><b>Repeats tasks without failing.</b> Deterministic playbooks the agent builds and refines.</span></li>
@@ -125,7 +125,7 @@ export default function Home() {
             </Reveal>
             <Reveal>
               <div className="card hov">
-                <img className="visual" src={trustImg} alt="A security lead confident in a modern server room" />
+                <img className="visual" src={trustImg} alt="A technician working hands-on inside a secured server rack" />
                 <h3>Trustworthy</h3>
                 <ul className="checklist" style={{ marginTop: 14 }}>
                   <li><span><b>Secure.</b> No keys to the LLM, a proper one-way vault, safe on any environment.</span></li>
@@ -186,7 +186,7 @@ export default function Home() {
               </ul>
             </div>
             <Reveal className="media">
-              <img src={selfImg} alt="An analyst beside an upward-trending performance chart" />
+              <img src={selfImg} alt="Two engineers testing and refining a robot arm" />
             </Reveal>
           </div>
         </div>

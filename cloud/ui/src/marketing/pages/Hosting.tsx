@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import Reveal from '../components/Reveal';
 import { StartFree } from '../components/cta';
 import { useSeo } from '../lib/seo';
-import hostingImg from '../assets/hosting-service.png';
+import hostingImg from '../assets/hosting-service.jpg';
 
 export default function Hosting() {
   useSeo({
@@ -30,7 +30,7 @@ export default function Hosting() {
           </div>
           <Reveal>
             <div className="media" style={{ marginTop: 30 }}>
-              <img src={hostingImg} alt="A person setting up Luna effortlessly on a laptop" />
+              <img src={hostingImg} alt="A person setting up Luna from a cafe laptop" />
             </div>
           </Reveal>
         </div>

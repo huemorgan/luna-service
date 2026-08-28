@@ -1,7 +1,7 @@
 import Reveal from '../components/Reveal';
 import { useSeo } from '../lib/seo';
 import { StartFree } from '../components/cta';
-import selfImg from '../assets/self-improving.png';
+import selfImg from '../assets/self-improving.jpg';
 
 export default function About() {
   useSeo({
@@ -25,7 +25,7 @@ export default function About() {
           </div>
           <Reveal>
             <div className="media" style={{ marginTop: 30 }}>
-              <img src={selfImg} alt="An analyst beside an upward-trending performance chart" />
+              <img src={selfImg} alt="Two engineers testing and refining a robot arm" />
             </div>
           </Reveal>
         </div>

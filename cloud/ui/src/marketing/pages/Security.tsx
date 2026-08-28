@@ -1,6 +1,6 @@
 import Reveal from '../components/Reveal';
 import { useSeo } from '../lib/seo';
-import trustImg from '../assets/trust-vault.png';
+import trustImg from '../assets/trust-vault.jpg';
 
 export default function Security() {
   useSeo({
@@ -23,7 +23,7 @@ export default function Security() {
           </div>
           <Reveal>
             <div className="media" style={{ marginTop: 30 }}>
-              <img src={trustImg} alt="A security lead confident in a modern server room" />
+              <img src={trustImg} alt="A technician working hands-on inside a secured server rack" />
             </div>
           </Reveal>
         </div>

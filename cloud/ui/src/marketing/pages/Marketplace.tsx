@@ -3,7 +3,7 @@ import { MarketplaceCta } from '../components/cta';
 import MarketplaceCtaBand from '../components/MarketplaceCtaBand';
 import { useSeo } from '../lib/seo';
 import { PLUGIN_CURSOR_ZIP_URL, MARKETPLACE_BASE_URL } from '../lib/constants';
-import marketImg from '../assets/marketplaces.png';
+import marketImg from '../assets/marketplaces.jpg';
 
 export default function Marketplace() {
   useSeo({
@@ -30,7 +30,7 @@ export default function Marketplace() {
           </div>
           <Reveal>
             <div className="media" style={{ marginTop: 30 }}>
-              <img src={marketImg} alt="A person browsing a grid of installable plugin tiles on a monitor" />
+              <img src={marketImg} alt="Operators walking a warehouse floor, scanner in hand" />
             </div>
           </Reveal>
         </div>
