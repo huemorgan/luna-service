@@ -338,6 +338,14 @@ img.hero-moon {
   pointer-events: none;
 }
 
+.feature-visual .feature-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .feature-visual .placeholder {
   position: relative;
   z-index: 1;
