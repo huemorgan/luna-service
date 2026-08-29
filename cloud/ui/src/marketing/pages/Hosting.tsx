@@ -30,7 +30,7 @@ export default function Hosting() {
           </div>
           <Reveal>
             <div className="media" style={{ marginTop: 30 }}>
-              <img src={hostingImg} alt="A person setting up Luna from a cafe laptop" />
+              <img src={hostingImg} alt="A developer relaxing on a couch, working from a laptop" />
             </div>
           </Reveal>
         </div>

@@ -23,7 +23,7 @@ export default function Security() {
           </div>
           <Reveal>
             <div className="media" style={{ marginTop: 30 }}>
-              <img src={trustImg} alt="A technician working hands-on inside a secured server rack" />
+              <img src={trustImg} alt="An engineer patching cables in a dark server rack" />
             </div>
           </Reveal>
         </div>

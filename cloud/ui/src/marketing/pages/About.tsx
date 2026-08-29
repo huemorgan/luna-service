@@ -25,7 +25,7 @@ export default function About() {
           </div>
           <Reveal>
             <div className="media" style={{ marginTop: 30 }}>
-              <img src={selfImg} alt="Two engineers testing and refining a robot arm" />
+              <img src={selfImg} alt="A maker standing in front of her workshop tool wall" />
             </div>
           </Reveal>
         </div>

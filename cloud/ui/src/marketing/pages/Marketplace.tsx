@@ -30,7 +30,7 @@ export default function Marketplace() {
           </div>
           <Reveal>
             <div className="media" style={{ marginTop: 30 }}>
-              <img src={marketImg} alt="Operators walking a warehouse floor, scanner in hand" />
+              <img src={marketImg} alt="A delivery courier grinning beside his truck at dusk" />
             </div>
           </Reveal>
         </div>

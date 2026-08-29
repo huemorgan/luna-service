@@ -55,7 +55,7 @@ export default function Home() {
 
           <Reveal>
             <div className="media" style={{ marginTop: 18 }}>
-              <img src={heroImg} alt="A team gathered around a laptop watching their Luna work" />
+              <img src={heroImg} alt="Three friends laughing together over their laptops in a loft workspace" />
             </div>
           </Reveal>
         </div>
@@ -114,7 +114,7 @@ export default function Home() {
           <div className="grid cols-2" style={{ marginTop: 30 }}>
             <Reveal>
               <div className="card hov">
-                <img className="visual" src={reliabilityImg} alt="Engineers reviewing output together on a robotics production floor" />
+                <img className="visual" src={reliabilityImg} alt="A welder at work in a shower of sparks on the shop floor" />
                 <h3>Reliable</h3>
                 <ul className="checklist" style={{ marginTop: 14 }}>
                   <li><span><b>Repeats tasks without failing.</b> Deterministic playbooks the agent builds and refines.</span></li>
@@ -125,7 +125,7 @@ export default function Home() {
             </Reveal>
             <Reveal>
               <div className="card hov">
-                <img className="visual" src={trustImg} alt="A technician working hands-on inside a secured server rack" />
+                <img className="visual" src={trustImg} alt="An engineer patching cables in a dark server rack" />
                 <h3>Trustworthy</h3>
                 <ul className="checklist" style={{ marginTop: 14 }}>
                   <li><span><b>Secure.</b> No keys to the LLM, a proper one-way vault, safe on any environment.</span></li>
@@ -186,7 +186,7 @@ export default function Home() {
               </ul>
             </div>
             <Reveal className="media">
-              <img src={selfImg} alt="Two engineers testing and refining a robot arm" />
+              <img src={selfImg} alt="A maker standing in front of her workshop tool wall" />
             </Reveal>
           </div>
         </div>
