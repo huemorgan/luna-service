@@ -294,7 +294,7 @@ def _holding_page(agent_slug: str) -> Response:
 
 
 async def _proxy_request(
-    request: Request, user: User, agent: Agent, agent_slug: str, path: str,
+    request: Request, user: User | None, agent: Agent, agent_slug: str, path: str,
 ) -> Response:
     """Build and send the proxied request. Returns the response."""
     from cloud.runtime.proxy_secret import derive_proxy_secret
@@ -310,7 +310,8 @@ async def _proxy_request(
     headers.pop("host", None)
     headers.pop("cookie", None)
     headers.pop("accept-encoding", None)
-    headers["x-luna-user"] = user.email
+    if user is not None:
+        headers["x-luna-user"] = user.email
     headers["x-luna-proxy-secret"] = proxy_secret
     # Public base for this agent, so plugins can emit public URLs (e.g. MacRunner's
     # pairing ws://…) instead of their unreachable internal address.
@@ -467,6 +468,40 @@ async def luna_ready(request: Request, agent_slug: str):
     return {"ready": False, "state": "starting"}
 
 
+# --- Token-gated HTTP pass-through (plan 077; HTTP twin of plan 062's WS) ---
+
+# The playbook delegation progress card is embedded in chat as an opaque-origin
+# srcdoc iframe (sandbox="allow-scripts…"): it can send neither the session
+# cookie nor a bearer header. Its status poll is capability-scoped instead —
+# the tenant route verifies a random per-delegation token baked into that one
+# card's HTML (compare_digest, one 404 for unknown id AND bad token, read-only,
+# ACAO: *). The proxy forwards it by slug and lets the tenant do the auth,
+# mirroring _TOKEN_GATED_WS_SUFFIXES below (plan 062).
+_TOKEN_GATED_GET_PATHS = re.compile(
+    r"^api/p/plugin-playbooks/delegations/[0-9a-fA-F-]{1,64}/card$"
+)
+
+
+async def _proxy_token_gated_get(
+    request: Request, agent_slug: str, path: str,
+) -> Response:
+    """Forward a token-gated GET with no session. Auth model: plan 077.
+
+    Never wakes a machine: a stopped machine cannot be running a delegation,
+    and an unauthenticated poll must not be able to keep a tenant awake.
+    """
+    agent = await _resolve_agent_by_slug(agent_slug)
+    if agent is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
+    if not agent.runtime_ref or agent.status in ("stopped", "error"):
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Agent is not running")
+    try:
+        return await _proxy_request(request, None, agent, agent_slug, path)
+    except httpx.TransportError as exc:
+        log.warning("Token-gated proxy failed for %s: %s", agent_slug, type(exc).__name__)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Cannot reach Luna instance")
+
+
 @router.api_route(
     "/a/{agent_slug}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
@@ -482,6 +517,10 @@ async def luna_ready(request: Request, agent_slug: str):
     methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
 )
 async def proxy_to_luna(request: Request, agent_slug: str, path: str = ""):
+    if request.method == "GET" and _TOKEN_GATED_GET_PATHS.match(path.rstrip("/")):
+        # Sessionless capability-token path — the tenant does the auth.
+        return await _proxy_token_gated_get(request, agent_slug, path)
+
     user, agent = await _resolve_agent(request, agent_slug)
 
     if not agent.runtime_ref:
