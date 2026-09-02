@@ -77,6 +77,32 @@ def test_domain_gifts_validation():
     validate_commercial_config(config)
 
 
+def test_email_gifts_validation():
+    config = _valid()
+    config["trial"]["email_gifts"] = "omryman@gmail.com"
+    with pytest.raises(ConfigValidationError, match="map"):
+        validate_commercial_config(config)
+
+    config = _valid()
+    config["trial"]["email_gifts"] = {"gmail.com": {"gift_credits": 100_000}}
+    with pytest.raises(ConfigValidationError, match="lowercase email address"):
+        validate_commercial_config(config)
+
+    config = _valid()
+    config["trial"]["email_gifts"] = {"Omryman@gmail.com": {"gift_credits": 100_000}}
+    with pytest.raises(ConfigValidationError, match="lowercase email address"):
+        validate_commercial_config(config)
+
+    config = _valid()
+    config["trial"]["email_gifts"] = {"omryman@gmail.com": 100_000}
+    with pytest.raises(ConfigValidationError, match="object"):
+        validate_commercial_config(config)
+
+    config = _valid()
+    config["trial"]["email_gifts"] = {"omryman@gmail.com": {"gift_credits": 100_000, "days": 90}}
+    validate_commercial_config(config)
+
+
 def test_credit_value_fixed():
     config = _valid()
     config["credit_value_micro_usd"] = 20_000
@@ -181,6 +207,7 @@ async def test_seeded_config_contents(db_session):
         "daily_limit_credits": 75, "monthly_limit_credits": 800,
         "active_luna_cap": 1,
         "domain_gifts": {"monday.com": {"gift_credits": 20_000}},
+        "email_gifts": {"omryman@gmail.com": {"gift_credits": 100_000, "days": 90}},
     }
     assert config["migration_gift"] == {"credits": 1_800, "days": 28, "active_luna_cap": 1}
     assert config["hosting"]["price_credits"] == 999

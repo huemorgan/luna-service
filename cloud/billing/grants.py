@@ -67,9 +67,11 @@ async def grant_trial_gift(
 ) -> CreditGrant | None:
     """Issue the one-time trial gift from the assigned version's config.
 
-    When the signup email's domain has an entry in ``trial.domain_gifts``
-    (partner offers, e.g. monday.com), that entry's amount/expiry replaces the
-    standard trial gift — still one lot, same idempotency key.
+    When the signup email has an entry in ``trial.email_gifts`` (individual
+    offers), or its domain one in ``trial.domain_gifts`` (partner offers,
+    e.g. monday.com), that entry's amount/expiry replaces the standard trial
+    gift — still one lot, same idempotency key. The email match wins over
+    the domain match.
 
     Idempotent via source_key ``trial:{account_id}`` — concurrent signup
     callbacks issue exactly one gift. Returns None when the config defines no
@@ -82,12 +84,18 @@ async def grant_trial_gift(
     credits = trial.get("gift_credits") or 0
     days = trial.get("days") or 28
     reason = "trial gift"
+    email_key = (email or "").strip().lower()
     domain = _email_domain(email)
-    domain_gift = (trial.get("domain_gifts") or {}).get(domain) if domain else None
-    if domain_gift:
-        credits = domain_gift.get("gift_credits") or 0
-        days = domain_gift.get("days") or days
-        reason = f"trial gift ({domain} signup offer)"
+    offer = (trial.get("email_gifts") or {}).get(email_key) if email_key else None
+    if offer:
+        reason = f"trial gift ({email_key} signup offer)"
+    else:
+        offer = (trial.get("domain_gifts") or {}).get(domain) if domain else None
+        if offer:
+            reason = f"trial gift ({domain} signup offer)"
+    if offer:
+        credits = offer.get("gift_credits") or 0
+        days = offer.get("days") or days
     if credits <= 0:
         return None
     return await ledger.create_grant(

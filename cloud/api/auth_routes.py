@@ -42,6 +42,7 @@ _ALLOWED_EMAILS = {
     "vaselin@gmail.com",
     "dotanbahat@gmail.com",
     "dotanbahat@googlemail.com",
+    "omryman@gmail.com",
 }
 
 

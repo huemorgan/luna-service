@@ -26,7 +26,9 @@ reaching here):
              "active_luna_cap": 1,
              # optional partner signup offers by verified email domain;
              # replaces the standard gift (days falls back to trial.days)
-             "domain_gifts": {"monday.com": {"gift_credits": 20000}}},
+             "domain_gifts": {"monday.com": {"gift_credits": 20000}},
+             # optional per-address offers; wins over domain_gifts
+             "email_gifts": {"someone@gmail.com": {"gift_credits": 100000}}},
   "migration_gift": {"credits": 1800, "days": 28},   # M9: trial treatment
   "gift_default_days": 90,
   "topup_steps_usd_cents": [1000, 2500, 5000, 10000]
@@ -224,6 +226,21 @@ def validate_commercial_config(config: dict) -> None:
             _require_int(gift.get("gift_credits"), f"trial.domain_gifts.{dom}.gift_credits", minimum=0)
             if gift.get("days") is not None:
                 _require_int(gift.get("days"), f"trial.domain_gifts.{dom}.days", minimum=1)
+
+    email_gifts = trial.get("email_gifts")
+    if email_gifts is not None:
+        if not isinstance(email_gifts, dict):
+            raise ConfigValidationError("trial.email_gifts must be a map of email address -> gift")
+        for addr, gift in email_gifts.items():
+            if not isinstance(addr, str) or "@" not in addr or addr != addr.strip().lower():
+                raise ConfigValidationError(
+                    f"trial.email_gifts key {addr!r} must be a lowercase email address"
+                )
+            if not isinstance(gift, dict):
+                raise ConfigValidationError(f"trial.email_gifts.{addr} must be an object")
+            _require_int(gift.get("gift_credits"), f"trial.email_gifts.{addr}.gift_credits", minimum=0)
+            if gift.get("days") is not None:
+                _require_int(gift.get("days"), f"trial.email_gifts.{addr}.days", minimum=1)
 
     migration = config.get("migration_gift")
     if not isinstance(migration, dict):
