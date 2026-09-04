@@ -9,6 +9,7 @@
 
 !luna/**
 !scripts/bake_plugin_set.py
+!scripts/bake_code_run_venv.py
 !plugin-set.toml
 !plugin-set.json
 
