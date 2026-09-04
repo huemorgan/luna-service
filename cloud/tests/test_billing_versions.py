@@ -206,7 +206,7 @@ async def test_seeded_config_contents(db_session):
         "gift_credits": 1_800, "days": 14,
         "daily_limit_credits": 75, "monthly_limit_credits": 800,
         "active_luna_cap": 1,
-        "domain_gifts": {"monday.com": {"gift_credits": 20_000}},
+        "domain_gifts": {"monday.com": {"gift_credits": 100_000, "days": 90}},
         "email_gifts": {"omryman@gmail.com": {"gift_credits": 100_000, "days": 90}},
     }
     assert config["migration_gift"] == {"credits": 1_800, "days": 28, "active_luna_cap": 1}

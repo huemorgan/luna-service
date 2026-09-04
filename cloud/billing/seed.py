@@ -149,9 +149,8 @@ def commercial_v1_config() -> dict:
             "daily_limit_credits": 75, "monthly_limit_credits": 800,
             "active_luna_cap": 1,
             # Partner signup offers by verified email domain — replaces the
-            # standard gift for matching signups ($200; days falls back to
-            # trial.days when unset).
-            "domain_gifts": {"monday.com": {"gift_credits": 20_000}},
+            # standard gift for matching signups ($1000, 90 days).
+            "domain_gifts": {"monday.com": {"gift_credits": 100_000, "days": 90}},
             # Individual signup offers by verified email — wins over
             # domain_gifts for the exact address.
             "email_gifts": {"omryman@gmail.com": {"gift_credits": 100_000, "days": 90}},

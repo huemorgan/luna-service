@@ -252,6 +252,43 @@ class CreditGrant(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
+class Coupon(Base):
+    """Admin-issued single-use credit coupon (plan 102).
+
+    Redemption stamps the redeemed_* fields and issues one gift grant lot
+    (source_key ``coupon:{id}`` — the grant's global source_key uniqueness is
+    the double-redeem backstop under the row lock). Used coupons are
+    permanent records; only unredeemed coupons may be deleted.
+    """
+
+    __tablename__ = "coupons"
+    __table_args__ = (
+        CheckConstraint("credits > 0", name="ck_coupon_credits_positive"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    # Canonical uppercase; admin-supplied or generated LUNA-XXXX-XXXX.
+    code: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    credits: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # Lifetime of the granted lot; NULL falls back to pricing gift_default_days.
+    expires_days: Mapped[int | None] = mapped_column(Integer)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    redeemed_by_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="RESTRICT")
+    )
+    redeemed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT")
+    )
+    grant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("credit_grants.id", ondelete="RESTRICT")
+    )
+
+
 class CreditLedgerTransaction(Base):
     """Immutable transaction header. `seq` is the monotonic ledger sequence
     used by projections to detect stale writes."""

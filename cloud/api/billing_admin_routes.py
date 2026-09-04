@@ -613,6 +613,104 @@ async def create_gift(body: GiftRequest, request: Request,
         }
 
 
+# ── Coupons (plan 102) ───────────────────────────────────────────────────────
+
+class CouponCreateRequest(BaseModel):
+    credits: int = Field(gt=0)
+    code: str | None = Field(default=None, max_length=64)
+    expires_days: int | None = Field(default=None, gt=0)
+    reason: str = Field(default="")
+
+
+def _coupon_out(c, *, account=None, redeemer=None) -> dict:
+    return {
+        "id": str(c.id),
+        "code": c.code,
+        "credits": c.credits,
+        "expires_days": c.expires_days,
+        "reason": c.reason,
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+        "status": "used" if c.redeemed_at else "active",
+        "redeemed_at": c.redeemed_at.isoformat() if c.redeemed_at else None,
+        "redeemed_account": (
+            {"id": str(account.id), "slug": account.slug, "name": account.name}
+            if account is not None else None
+        ),
+        "redeemed_by": (
+            {"id": str(redeemer.id), "email": redeemer.email, "name": redeemer.name}
+            if redeemer is not None else None
+        ),
+        "grant_id": str(c.grant_id) if c.grant_id else None,
+    }
+
+
+@router.get("/coupons")
+async def list_coupons(admin: User = Depends(require_admin)):
+    """All coupons, newest first — used ones carry the redeeming account
+    (name/slug) and user (email/name)."""
+    from cloud.billing.models import Coupon
+
+    async with get_db_session() as db:
+        rows = (
+            await db.execute(
+                select(Coupon, Account, User)
+                .outerjoin(Account, Coupon.redeemed_by_account_id == Account.id)
+                .outerjoin(User, Coupon.redeemed_by_user_id == User.id)
+                .order_by(Coupon.created_at.desc())
+            )
+        ).all()
+        return [_coupon_out(c, account=a, redeemer=u) for c, a, u in rows]
+
+
+@router.post("/coupons")
+async def create_coupon(body: CouponCreateRequest, request: Request,
+                        admin: User = Depends(require_admin)):
+    from cloud.billing.coupons import CouponError, create_coupon as create_coupon_svc
+
+    reason = _require_reason(body.reason)
+    async with get_db_session() as db:
+        try:
+            coupon = await create_coupon_svc(
+                db,
+                credits=body.credits,
+                code=body.code,
+                expires_days=body.expires_days,
+                reason=reason,
+                created_by=admin.id,
+            )
+        except CouponError as exc:
+            code_status = (status.HTTP_409_CONFLICT if "already exists" in str(exc)
+                           else status.HTTP_400_BAD_REQUEST)
+            raise HTTPException(code_status, str(exc))
+        _audit(db, request, admin, action="pricing.coupon.create",
+               target=f"coupon:{coupon.id}", reason=reason,
+               after={"code": coupon.code, "credits": coupon.credits,
+                      "expires_days": coupon.expires_days})
+        await db.commit()
+        return _coupon_out(coupon)
+
+
+@router.delete("/coupons/{coupon_id}")
+async def delete_coupon(coupon_id: uuid.UUID, request: Request,
+                        admin: User = Depends(require_admin)):
+    """Delete an unredeemed coupon. Used coupons are permanent records."""
+    from cloud.billing.coupons import CouponError, delete_coupon as delete_coupon_svc
+
+    async with get_db_session() as db:
+        try:
+            coupon = await delete_coupon_svc(db, coupon_id)
+        except CouponError as exc:
+            if str(exc) == "invalid_code":
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Coupon not found")
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                "Used coupons cannot be deleted")
+        _audit(db, request, admin, action="pricing.coupon.delete",
+               target=f"coupon:{coupon_id}",
+               before={"code": coupon.code, "credits": coupon.credits})
+        await db.commit()
+        return {"deleted": True, "id": str(coupon_id)}
+
+
 # ── Enforcement overrides (039/010) ──────────────────────────────────────────
 # Per-account/cohort escalation over the global CLOUD_BILLING_MODE. The
 # effective mode is max(global, override), so an override can only escalate —

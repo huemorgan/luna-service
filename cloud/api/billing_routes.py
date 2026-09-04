@@ -24,7 +24,9 @@ from sqlalchemy import func, select
 
 from cloud.auth.deps import enforce_same_origin, require_active_account
 from cloud.billing import assignments as assignments_svc
+from cloud.billing import coupons as coupons_svc
 from cloud.billing import ledger
+from cloud.billing.coupons import CouponError
 from cloud.billing.grants import account_config, is_trial_account
 from cloud.billing.hosting import hosting_price
 from cloud.billing.models import (
@@ -465,6 +467,43 @@ async def billing_portal(auth: tuple[User, Account] = Depends(require_active_acc
             return await _checkout_call(db, create_portal_session, db, gw, account, user)
     finally:
         await gw.aclose()
+
+
+# ── Coupons (plan 102) ───────────────────────────────────────────────────────
+
+class CouponRedeemBody(BaseModel):
+    code: str = Field(min_length=1, max_length=64)
+
+
+@router.post("/coupons/redeem", dependencies=[Depends(enforce_same_origin)])
+async def redeem_coupon(
+    body: CouponRedeemBody,
+    auth: tuple[User, Account] = Depends(require_active_account),
+):
+    """Redeem a coupon code onto the current account. Any active member may
+    redeem — it only ever adds credits."""
+    user, account = auth
+    async with get_db_session() as db:
+        try:
+            coupon, grant = await coupons_svc.redeem_coupon(
+                db, code=body.code, account_id=account.id, user_id=user.id
+            )
+        except CouponError as exc:
+            if str(exc) == "invalid_code":
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown coupon code")
+            if str(exc) == "coupon_used":
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT, "This coupon has already been used"
+                )
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+        except RatingUnavailable:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Pricing unavailable")
+        await db.commit()
+        return {
+            "code": coupon.code,
+            "credits": coupon.credits,
+            "expires_at": grant.expires_at.isoformat() if grant.expires_at else None,
+        }
 
 
 # ── Usage ────────────────────────────────────────────────────────────────────

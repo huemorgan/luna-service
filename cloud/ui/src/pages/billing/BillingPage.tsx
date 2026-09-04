@@ -72,6 +72,10 @@ export default function BillingPage() {
   const [statementDone, setStatementDone] = useState(false);
 
   const [busy, setBusy] = useState<string | null>(null);
+  const [couponCode, setCouponCode] = useState('');
+  const [couponBusy, setCouponBusy] = useState(false);
+  const [couponMsg, setCouponMsg] = useState<string | null>(null);
+  const [couponErr, setCouponErr] = useState<string | null>(null);
   const [payMsg, setPayMsg] = useState<string | null>(null);
   const [payErr, setPayErr] = useState<string | null>(null);
   const [interval, setInterval_] = useState<'month' | 'year'>('month');
@@ -121,6 +125,27 @@ export default function BillingPage() {
   };
 
   const openPortal = () => redirectTo('/portal', undefined, 'portal');
+
+  const redeemCoupon = async () => {
+    const code = couponCode.trim();
+    if (!code) return;
+    setCouponBusy(true);
+    setCouponErr(null);
+    setCouponMsg(null);
+    try {
+      const r = await postJson<{ credits: number; expires_at: string | null }>(
+        `${API}/coupons/redeem`, { code },
+      );
+      setCouponMsg(`Coupon accepted — ${r.credits.toLocaleString()} credits added to your account${
+        r.expires_at ? ` (valid until ${fmtDate(r.expires_at)})` : ''}.`);
+      setCouponCode('');
+      loadTop();
+      loadStatement(0);
+    } catch (e) {
+      setCouponErr((e as Error).message);
+    }
+    setCouponBusy(false);
+  };
 
   const paymentDue = summary?.hosting.filter(h => h.state === 'payment_due') ?? [];
   const plans = products?.products.filter(p => p.kind === 'subscription' && p.interval === interval) ?? [];
@@ -371,6 +396,41 @@ export default function BillingPage() {
                 )}
               </section>
             )}
+
+            {/* Coupon */}
+            <section className="rounded-2xl p-5 border mb-8" style={card}>
+              <SectionTitle>Coupon</SectionTitle>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input
+                  value={couponCode}
+                  onChange={e => setCouponCode(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') redeemCoupon(); }}
+                  placeholder="Enter coupon code"
+                  className="px-3 py-2 rounded-xl text-sm border bg-transparent outline-none"
+                  style={{ ...card, color: 'var(--text)', minWidth: '16rem' }}
+                />
+                <button onClick={redeemCoupon} disabled={couponBusy || !couponCode.trim()}
+                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition-opacity ${
+                    couponBusy || !couponCode.trim() ? 'cursor-not-allowed opacity-50' : 'hover:opacity-90'}`}
+                  style={{ background: 'var(--moon)', color: 'var(--ink)' }}>
+                  {couponBusy ? 'Redeeming…' : 'Redeem'}
+                </button>
+              </div>
+              {couponMsg && (
+                <div className="rounded-xl px-4 py-3 border text-sm mt-3" style={{
+                  background: 'rgba(120,220,160,0.08)', borderColor: 'rgba(120,220,160,0.4)', color: 'var(--text)',
+                }}>
+                  {couponMsg}
+                </div>
+              )}
+              {couponErr && (
+                <div className="rounded-xl px-4 py-3 border text-sm mt-3" style={{
+                  background: 'rgba(255,107,107,0.08)', borderColor: 'rgba(255,107,107,0.4)', color: '#ff6b6b',
+                }}>
+                  {couponErr}
+                </div>
+              )}
+            </section>
 
             {/* Statement */}
             <section className="rounded-2xl p-5 border mb-8" style={card}>

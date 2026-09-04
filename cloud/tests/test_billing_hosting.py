@@ -98,14 +98,14 @@ async def test_trial_gift_exactly_once(db_session, account):
 
 
 async def test_trial_gift_domain_offer_replaces_standard(db_session, account):
-    # monday.com signup gets the partner gift instead of the standard 1800;
-    # days falls back to trial.days when the offer sets none.
+    # monday.com signup gets the partner gift instead of the standard 1800,
+    # with the offer's own expiry window.
     await _seed(db_session, account.id)
     g = await grants.grant_trial_gift(
         db_session, account.id, email="someone@monday.com", now=NOW
     )
-    assert g.original_credits == 20_000
-    assert g.expires_at == NOW + timedelta(days=14)
+    assert g.original_credits == 100_000
+    assert g.expires_at == NOW + timedelta(days=90)
     tx = (await db_session.execute(
         select(CreditLedgerTransaction).where(CreditLedgerTransaction.id == g.grant_transaction_id)
     )).scalar_one()
@@ -121,7 +121,7 @@ async def test_trial_gift_domain_match_is_case_insensitive(db_session, account):
     g = await grants.grant_trial_gift(
         db_session, account.id, email="Someone@MONDAY.com", now=NOW
     )
-    assert g.original_credits == 20_000
+    assert g.original_credits == 100_000
 
 
 async def test_trial_gift_non_partner_email_gets_standard(db_session, account):
@@ -164,7 +164,7 @@ async def test_trial_gift_domain_offer_still_exactly_once(db_session, account):
     )
     g2 = await grants.grant_trial_gift(db_session, account.id, now=NOW)
     assert g1.id == g2.id
-    assert await ledger.posted_balance(db_session, account.id) == 20_000
+    assert await ledger.posted_balance(db_session, account.id) == 100_000
 
 
 async def test_trial_flips_to_paid_on_topup(db_session, account):
