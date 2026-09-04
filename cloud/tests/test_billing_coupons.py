@@ -29,7 +29,9 @@ async def _mint(client, **overrides) -> dict:
     body = {"credits": 500, "reason": "test coupon", **overrides}
     resp = await client.post(ADMIN_API, json=body, headers=SAME_ORIGIN)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    coupons = resp.json()["coupons"]
+    assert len(coupons) == body.get("count", 1)
+    return coupons[0]
 
 
 # ── Admin auth & validation ──────────────────────────────────────────────────
@@ -71,6 +73,87 @@ async def test_coupon_explicit_code_canonicalized_and_unique(admin_client):
         headers=SAME_ORIGIN,
     )
     assert resp.status_code == 409
+
+
+async def test_coupon_bulk_create(admin_client, db_session):
+    resp = await admin_client.post(
+        ADMIN_API, json={"credits": 100, "count": 5, "reason": "batch"},
+        headers=SAME_ORIGIN,
+    )
+    assert resp.status_code == 200, resp.text
+    coupons = resp.json()["coupons"]
+    assert len(coupons) == 5
+    assert len({c["code"] for c in coupons}) == 5
+    assert all(c["credits"] == 100 and c["status"] == "active" for c in coupons)
+    # One audit row for the whole batch.
+    audit = (
+        await db_session.execute(
+            select(AuditLog).where(AuditLog.action == "pricing.coupon.create")
+        )
+    ).scalars().all()
+    assert len(audit) == 1
+
+
+async def test_coupon_bulk_create_rejects_custom_code(admin_client):
+    resp = await admin_client.post(
+        ADMIN_API,
+        json={"credits": 100, "count": 2, "code": "DUP", "reason": "batch"},
+        headers=SAME_ORIGIN,
+    )
+    assert resp.status_code == 400
+
+
+# ── Sent state ───────────────────────────────────────────────────────────────
+
+async def test_coupon_mark_sent_and_undo(admin_client, db_session):
+    out = await _mint(admin_client)
+    resp = await admin_client.post(
+        f"{ADMIN_API}/{out['id']}/sent", json={"sent": True}, headers=SAME_ORIGIN,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "sent" and body["sent_at"] is not None
+
+    rows = (await admin_client.get(ADMIN_API)).json()
+    assert next(r for r in rows if r["id"] == out["id"])["status"] == "sent"
+
+    resp = await admin_client.post(
+        f"{ADMIN_API}/{out['id']}/sent", json={"sent": False}, headers=SAME_ORIGIN,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "active"
+
+    assert (await admin_client.post(
+        f"{ADMIN_API}/{uuid.uuid4()}/sent", json={"sent": True}, headers=SAME_ORIGIN,
+    )).status_code == 404
+
+
+async def test_sent_coupon_redeems_to_used(admin_client, db_session, account):
+    await _seed(db_session)
+    out = await _mint(admin_client)
+    assert (await admin_client.post(
+        f"{ADMIN_API}/{out['id']}/sent", json={"sent": True}, headers=SAME_ORIGIN,
+    )).status_code == 200
+    assert (await admin_client.post(
+        REDEEM, json={"code": out["code"]}, headers=SAME_ORIGIN,
+    )).status_code == 200
+    rows = (await admin_client.get(ADMIN_API)).json()
+    row = next(r for r in rows if r["id"] == out["id"])
+    assert row["status"] == "used"
+    # Redeemed coupons are frozen — sent state can no longer change.
+    assert (await admin_client.post(
+        f"{ADMIN_API}/{out['id']}/sent", json={"sent": False}, headers=SAME_ORIGIN,
+    )).status_code == 409
+
+
+async def test_sent_unredeemed_coupon_deletable(admin_client, db_session):
+    out = await _mint(admin_client)
+    assert (await admin_client.post(
+        f"{ADMIN_API}/{out['id']}/sent", json={"sent": True}, headers=SAME_ORIGIN,
+    )).status_code == 200
+    assert (await admin_client.delete(
+        f"{ADMIN_API}/{out['id']}", headers=SAME_ORIGIN,
+    )).status_code == 200
 
 
 # ── Redemption ───────────────────────────────────────────────────────────────

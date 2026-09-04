@@ -73,6 +73,50 @@ async def create_coupon(
     return coupon
 
 
+async def create_coupons(
+    session: AsyncSession,
+    *,
+    credits: int,
+    count: int,
+    code: str | None = None,
+    expires_days: int | None = None,
+    reason: str,
+    created_by: uuid.UUID | None = None,
+) -> list[Coupon]:
+    """Batch mint: `count` coupons sharing credits/expiry/reason. A custom
+    code only makes sense for a single coupon."""
+    if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+        raise CouponError("count must be a positive integer")
+    if count > 1 and code:
+        raise CouponError("a custom code cannot be used with count > 1")
+    return [
+        await create_coupon(
+            session, credits=credits, code=code, expires_days=expires_days,
+            reason=reason, created_by=created_by,
+        )
+        for _ in range(count)
+    ]
+
+
+async def set_sent(
+    session: AsyncSession,
+    coupon_id: uuid.UUID,
+    *,
+    sent: bool,
+    now: datetime | None = None,
+) -> Coupon:
+    """Admin bookkeeping: mark a coupon as handed out (or undo a misclick).
+    Redeemed coupons are frozen."""
+    coupon = await session.get(Coupon, coupon_id)
+    if coupon is None:
+        raise CouponError("invalid_code")
+    if coupon.redeemed_at is not None:
+        raise CouponError("coupon_used")
+    coupon.sent_at = (now or _utcnow()) if sent else None
+    await session.flush()
+    return coupon
+
+
 async def redeem_coupon(
     session: AsyncSession,
     *,

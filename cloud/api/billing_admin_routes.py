@@ -619,7 +619,12 @@ class CouponCreateRequest(BaseModel):
     credits: int = Field(gt=0)
     code: str | None = Field(default=None, max_length=64)
     expires_days: int | None = Field(default=None, gt=0)
+    count: int = Field(default=1, ge=1, le=500)
     reason: str = Field(default="")
+
+
+class CouponSentRequest(BaseModel):
+    sent: bool = True
 
 
 def _coupon_out(c, *, account=None, redeemer=None) -> dict:
@@ -630,7 +635,8 @@ def _coupon_out(c, *, account=None, redeemer=None) -> dict:
         "expires_days": c.expires_days,
         "reason": c.reason,
         "created_at": c.created_at.isoformat() if c.created_at else None,
-        "status": "used" if c.redeemed_at else "active",
+        "status": "used" if c.redeemed_at else ("sent" if c.sent_at else "active"),
+        "sent_at": c.sent_at.isoformat() if c.sent_at else None,
         "redeemed_at": c.redeemed_at.isoformat() if c.redeemed_at else None,
         "redeemed_account": (
             {"id": str(account.id), "slug": account.slug, "name": account.name}
@@ -665,14 +671,15 @@ async def list_coupons(admin: User = Depends(require_admin)):
 @router.post("/coupons")
 async def create_coupon(body: CouponCreateRequest, request: Request,
                         admin: User = Depends(require_admin)):
-    from cloud.billing.coupons import CouponError, create_coupon as create_coupon_svc
+    from cloud.billing.coupons import CouponError, create_coupons as create_coupons_svc
 
     reason = _require_reason(body.reason)
     async with get_db_session() as db:
         try:
-            coupon = await create_coupon_svc(
+            minted = await create_coupons_svc(
                 db,
                 credits=body.credits,
+                count=body.count,
                 code=body.code,
                 expires_days=body.expires_days,
                 reason=reason,
@@ -682,10 +689,33 @@ async def create_coupon(body: CouponCreateRequest, request: Request,
             code_status = (status.HTTP_409_CONFLICT if "already exists" in str(exc)
                            else status.HTTP_400_BAD_REQUEST)
             raise HTTPException(code_status, str(exc))
+        target = (f"coupon:{minted[0].id}" if len(minted) == 1
+                  else f"coupon:batch:{len(minted)}")
         _audit(db, request, admin, action="pricing.coupon.create",
-               target=f"coupon:{coupon.id}", reason=reason,
-               after={"code": coupon.code, "credits": coupon.credits,
-                      "expires_days": coupon.expires_days})
+               target=target, reason=reason,
+               after={"codes": [c.code for c in minted], "credits": body.credits,
+                      "expires_days": body.expires_days, "count": len(minted)})
+        await db.commit()
+        return {"coupons": [_coupon_out(c) for c in minted]}
+
+
+@router.post("/coupons/{coupon_id}/sent")
+async def set_coupon_sent(coupon_id: uuid.UUID, body: CouponSentRequest, request: Request,
+                          admin: User = Depends(require_admin)):
+    """Bookkeeping toggle: the code was handed to someone (or wasn't after all)."""
+    from cloud.billing.coupons import CouponError, set_sent as set_sent_svc
+
+    async with get_db_session() as db:
+        try:
+            coupon = await set_sent_svc(db, coupon_id, sent=body.sent)
+        except CouponError as exc:
+            if str(exc) == "invalid_code":
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Coupon not found")
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                "Used coupons cannot change sent state")
+        _audit(db, request, admin, action="pricing.coupon.sent",
+               target=f"coupon:{coupon_id}",
+               after={"code": coupon.code, "sent": body.sent})
         await db.commit()
         return _coupon_out(coupon)
 

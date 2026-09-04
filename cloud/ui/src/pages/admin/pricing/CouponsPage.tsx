@@ -3,7 +3,7 @@
 // account + user.
 
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, RefreshCw, Ticket, Trash2 } from 'lucide-react';
+import { Check, Copy, Loader2, RefreshCw, Ticket, Trash2, Undo2 } from 'lucide-react';
 
 interface CouponRow {
   id: string;
@@ -12,7 +12,8 @@ interface CouponRow {
   expires_days: number | null;
   reason: string;
   created_at: string | null;
-  status: 'active' | 'used';
+  status: 'active' | 'sent' | 'used';
+  sent_at: string | null;
   redeemed_at: string | null;
   redeemed_account: { id: string; slug: string; name: string } | null;
   redeemed_by: { id: string; email: string; name: string | null } | null;
@@ -41,9 +42,11 @@ export default function CouponsPage() {
   const [credits, setCredits] = useState('');
   const [code, setCode] = useState('');
   const [expiresDays, setExpiresDays] = useState('');
+  const [count, setCount] = useState('1');
   const [reason, setReason] = useState('');
   const [creating, setCreating] = useState(false);
   const [createErr, setCreateErr] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     const res = await fetch(API);
@@ -61,13 +64,14 @@ export default function CouponsPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         credits: Number(credits),
-        code: code.trim() || null,
+        code: Number(count) > 1 ? null : (code.trim() || null),
         expires_days: expiresDays.trim() ? Number(expiresDays) : null,
+        count: Math.max(1, Number(count) || 1),
         reason: reason.trim(),
       }),
     });
     if (res.ok) {
-      setCredits(''); setCode(''); setExpiresDays(''); setReason('');
+      setCredits(''); setCode(''); setExpiresDays(''); setCount('1'); setReason('');
       await fetchAll();
     } else {
       const body = await res.json().catch(() => null);
@@ -82,7 +86,25 @@ export default function CouponsPage() {
     if (res.ok) await fetchAll();
   };
 
-  const canCreate = Number(credits) > 0 && reason.trim().length > 0 && !creating;
+  const handleCopy = async (c: CouponRow) => {
+    try {
+      await navigator.clipboard.writeText(c.code);
+      setCopiedId(c.id);
+      setTimeout(() => setCopiedId(prev => (prev === c.id ? null : prev)), 1500);
+    } catch { /* clipboard unavailable */ }
+  };
+
+  const handleSent = async (c: CouponRow, sent: boolean) => {
+    const res = await fetch(`${API}/${c.id}/sent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sent }),
+    });
+    if (res.ok) await fetchAll();
+  };
+
+  const canCreate = Number(credits) > 0 && reason.trim().length > 0
+    && Number(count) >= 1 && !creating;
 
   if (loading) {
     return (
@@ -119,10 +141,15 @@ export default function CouponsPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <input value={credits} onChange={e => setCredits(e.target.value)} type="number" min={1}
             placeholder="Credits *" className={inputCls} style={{ ...inputStyle, width: '8.5rem' }} />
-          <input value={code} onChange={e => setCode(e.target.value)}
-            placeholder="Code (blank = generated)" className={`${inputCls} font-mono`} style={{ ...inputStyle, width: '15rem' }} />
+          <input value={code} onChange={e => setCode(e.target.value)} disabled={Number(count) > 1}
+            placeholder={Number(count) > 1 ? 'Codes generated' : 'Code (blank = generated)'}
+            className={`${inputCls} font-mono ${Number(count) > 1 ? 'opacity-50' : ''}`}
+            style={{ ...inputStyle, width: '15rem' }} />
           <input value={expiresDays} onChange={e => setExpiresDays(e.target.value)} type="number" min={1}
             placeholder="Credit lifetime, days" className={inputCls} style={{ ...inputStyle, width: '11rem' }} />
+          <input value={count} onChange={e => setCount(e.target.value)} type="number" min={1} max={500}
+            title="How many coupons to mint with these values"
+            placeholder="Count" className={inputCls} style={{ ...inputStyle, width: '6rem' }} />
           <input value={reason} onChange={e => setReason(e.target.value)}
             placeholder="Reason *" className={inputCls} style={{ ...inputStyle, minWidth: '16rem', flex: 1 }} />
           <button onClick={handleCreate} disabled={!canCreate}
@@ -164,7 +191,15 @@ export default function CouponsPage() {
             <tbody>
               {coupons.map(c => (
                 <tr key={c.id} className="border-t" style={{ borderColor: 'var(--ink-lighter)', background: 'var(--surface)' }}>
-                  <td className="px-4 py-3 text-sm font-mono" style={{ color: 'var(--text)' }}>{c.code}</td>
+                  <td className="px-4 py-3 text-sm font-mono whitespace-nowrap" style={{ color: 'var(--text)' }}>
+                    {c.code}
+                    <button onClick={() => handleCopy(c)}
+                      className="ml-2 p-1 rounded-md align-middle transition-all hover:scale-110"
+                      style={{ color: copiedId === c.id ? '#22c55e' : 'var(--text-dim)' }}
+                      title="Copy code">
+                      {copiedId === c.id ? <Check size={13} /> : <Copy size={13} />}
+                    </button>
+                  </td>
                   <td className="px-4 py-3 text-sm tabular-nums" style={{ color: 'var(--text)' }}>
                     {c.credits.toLocaleString()}
                     {c.expires_days != null && (
@@ -173,9 +208,9 @@ export default function CouponsPage() {
                   </td>
                   <td className="px-4 py-3">
                     <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{
-                      color: c.status === 'used' ? '#eab308' : '#22c55e',
-                      background: c.status === 'used' ? '#eab30822' : '#22c55e22',
-                    }}>
+                      color: c.status === 'used' ? '#eab308' : c.status === 'sent' ? '#3b82f6' : '#22c55e',
+                      background: c.status === 'used' ? '#eab30822' : c.status === 'sent' ? '#3b82f622' : '#22c55e22',
+                    }} title={c.status === 'sent' ? `Sent ${fmtTime(c.sent_at)}` : undefined}>
                       {c.status}
                     </span>
                   </td>
@@ -195,8 +230,23 @@ export default function CouponsPage() {
                       </>
                     ) : '—'}
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 text-right whitespace-nowrap">
                     {c.status === 'active' && (
+                      <button onClick={() => handleSent(c, true)}
+                        className="text-xs px-2 py-1 rounded-lg mr-1 transition-all hover:scale-105"
+                        style={{ border: '1px solid var(--ink-lighter)', color: '#3b82f6' }}
+                        title="Mark as sent — you gave this code to someone">
+                        Sent
+                      </button>
+                    )}
+                    {c.status === 'sent' && (
+                      <button onClick={() => handleSent(c, false)}
+                        className="p-1.5 rounded-lg mr-1 transition-all hover:scale-110"
+                        style={{ color: 'var(--text-dim)' }} title="Undo — mark as not sent">
+                        <Undo2 size={14} />
+                      </button>
+                    )}
+                    {c.status !== 'used' && (
                       <button onClick={() => handleDelete(c)}
                         className="p-1.5 rounded-lg transition-all hover:scale-110"
                         style={{ color: '#ef4444' }} title="Delete unused coupon">

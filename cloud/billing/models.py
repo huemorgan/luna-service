@@ -277,6 +277,8 @@ class Coupon(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT")
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    # Admin bookkeeping: stamped when the code was handed to someone.
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     redeemed_by_account_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="RESTRICT")
