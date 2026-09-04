@@ -174,6 +174,37 @@ async def cmd_build(args) -> int:
     return 0
 
 
+async def cmd_rebake(args) -> int:
+    """Non-main sibling image of the current Luna main version with the current
+    admin defaults (POST /images/rebake). Auto-picks the next free `{base}-r{n}`
+    tag — the sanctioned path for 'same Luna version, new plugin set/Dockerfile',
+    since `build --version {base}-rN` fails the workflow's __version__ check."""
+    from cloud.api import admin_routes as ar
+
+    admin = await _admin()
+    res = await ar.rebake_image(_Req(), admin=admin)
+    print(json.dumps({k: res.get(k) for k in ("id", "version", "build_status", "registry_tag")},
+                     default=str, indent=2))
+    print("watch: gh run list --repo huemorgan/luna-service --workflow build-luna-image.yml")
+    return 0
+
+
+async def cmd_audit(args) -> int:
+    from sqlalchemy import select
+
+    from cloud.db.models import AuditLog
+    from cloud.db.session import get_session
+
+    async with get_session() as db:
+        rows = (await db.execute(
+            select(AuditLog).order_by(AuditLog.created_at.desc()).limit(args.limit)
+        )).scalars().all()
+    for r in rows:
+        print(f"{str(r.created_at)[:19]} {r.action:<28} actor={str(r.actor_user_id)[:8]} "
+              f"ip={r.actor_ip} meta={json.dumps(r.metadata_, default=str)[:160]}")
+    return 0
+
+
 async def cmd_promote(args) -> int:
     from sqlalchemy import select
 
@@ -258,6 +289,11 @@ def main() -> int:
     sb.add_argument("--force", action="store_true",
                     help="delete an existing record for this version first (e.g. a cancelled run)")
 
+    sub.add_parser("rebake", help="non-main sibling image of current Luna main + current defaults")
+
+    sa = sub.add_parser("audit", help="print recent audit_log rows")
+    sa.add_argument("--limit", type=int, default=20)
+
     spr = sub.add_parser("promote", help="make an image main, migrate every machine")
     spr.add_argument("--version", required=True)
     spr.add_argument("--warm-timeout", type=int, default=180)
@@ -268,6 +304,7 @@ def main() -> int:
     args = p.parse_args()
     return asyncio.run({
         "status": cmd_status, "pin": cmd_pin, "build": cmd_build,
+        "rebake": cmd_rebake, "audit": cmd_audit,
         "promote": cmd_promote, "verify": cmd_verify,
     }[args.cmd](args))
 
