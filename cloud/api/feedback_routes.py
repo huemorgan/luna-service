@@ -15,9 +15,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select, update
 
-from cloud.auth.deps import enforce_same_origin, require_admin
+from cloud.auth.api_keys import AdminActor, require_admin_or_scope
+from cloud.auth.deps import enforce_same_origin
 from cloud.db import session as db_session
-from cloud.db.models import Account, Agent, FeedbackMessage, FeedbackTicket, User
+from cloud.db.models import Account, Agent, FeedbackMessage, FeedbackTicket
 
 log = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ def _message_view(m: FeedbackMessage) -> dict:
 
 @router.get("/tickets")
 async def list_tickets(
-    admin: User = Depends(require_admin),
+    actor: AdminActor = Depends(require_admin_or_scope("feedback:full")),
     status_filter: str | None = Query(default=None, alias="status"),
     category: str | None = Query(default=None),
     origin: str | None = Query(default=None),
@@ -142,7 +143,7 @@ async def list_tickets(
 
 
 @router.get("/unread-count")
-async def unread_count(admin: User = Depends(require_admin)):
+async def unread_count(actor: AdminActor = Depends(require_admin_or_scope("feedback:full"))):
     """Number of tickets with client activity the team hasn't opened yet.
 
     Polled by the admin nav for the Feedback badge. Closed tickets are
@@ -158,7 +159,7 @@ async def unread_count(admin: User = Depends(require_admin)):
 
 
 @router.get("/tickets/{ticket_id}")
-async def get_ticket(ticket_id: str, admin: User = Depends(require_admin)):
+async def get_ticket(ticket_id: str, actor: AdminActor = Depends(require_admin_or_scope("feedback:full"))):
     async with db_session.get_session() as db:
         row = (await db.execute(
             select(FeedbackTicket, Agent, Account)
@@ -196,7 +197,7 @@ async def reply(
     ticket_id: str,
     payload: ReplyBody,
     request: Request,
-    admin: User = Depends(require_admin),
+    actor: AdminActor = Depends(require_admin_or_scope("feedback:full")),
 ):
     body = payload.body.strip()
     if not body:
@@ -211,8 +212,9 @@ async def reply(
         msg = FeedbackMessage(
             ticket_id=ticket.id,
             author="admin",
-            admin_user_id=admin.id,
+            admin_user_id=actor.user_id,
             body=body,
+            meta={"via_api_key": actor.api_key.name} if actor.api_key else None,
         )
         db.add(msg)
         ticket.last_admin_reply_at = now
@@ -229,7 +231,7 @@ async def reply(
 async def set_status(
     ticket_id: str,
     payload: StatusBody,
-    admin: User = Depends(require_admin),
+    actor: AdminActor = Depends(require_admin_or_scope("feedback:full")),
 ):
     new_status = payload.status.strip()
     if new_status not in ("open", "closed"):

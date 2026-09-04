@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Moon, Shield, Package, Server, ScrollText, ArrowLeft, LogOut, Loader2, User, ChevronDown, ChevronRight, KeyRound, SlidersHorizontal, MessageCircle, Clock, Send, Blocks, Coins, LayoutDashboard, GitBranch, Cpu, Wallet, Activity, FlaskConical, Gauge, Menu, X, MessageSquareWarning, Bug, Webhook, Ticket } from 'lucide-react';
+import { Moon, Shield, Package, Server, ScrollText, ArrowLeft, LogOut, Loader2, User, ChevronDown, ChevronRight, KeyRound, SlidersHorizontal, MessageCircle, Clock, Send, Blocks, Coins, LayoutDashboard, GitBranch, Cpu, Wallet, Activity, FlaskConical, Gauge, Menu, X, MessageSquareWarning, Bug, Webhook, Ticket, KeySquare } from 'lucide-react';
 
 interface UserInfo {
   user: { id: string; email: string; name: string | null; avatar_url: string | null; is_admin: boolean };
@@ -14,6 +14,7 @@ const NAV_TOP = [
   { to: '/admin/machines', label: 'Machines', icon: Server },
   { to: '/admin/services', label: 'Key Registry', icon: KeyRound },
   { to: '/admin/errors', label: 'Error Tracking', icon: Bug },
+  { to: '/admin/api-keys', label: 'API Keys', icon: KeySquare },
 ];
 
 const SERVICE_ITEMS = [

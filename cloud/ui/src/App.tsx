@@ -20,6 +20,7 @@ import SchedulerPage from './pages/admin/SchedulerPage';
 import WebhooksPage from './pages/admin/WebhooksPage';
 import FeedbackPage from './pages/admin/FeedbackPage';
 import ErrorsPage from './pages/admin/ErrorsPage';
+import ApiKeysPage from './pages/admin/ApiKeysPage';
 import PricingOverviewPage from './pages/admin/pricing/PricingOverviewPage';
 import PricingVersionsPage from './pages/admin/pricing/PricingVersionsPage';
 import PricingVersionDetailPage from './pages/admin/pricing/PricingVersionDetailPage';
@@ -79,6 +80,7 @@ export default function App() {
           <Route path="webhooks" element={<WebhooksPage />} />
           <Route path="feedback" element={<FeedbackPage />} />
           <Route path="errors" element={<ErrorsPage />} />
+          <Route path="api-keys" element={<ApiKeysPage />} />
           <Route path="pricing" element={<PricingOverviewPage />} />
           <Route path="pricing/versions" element={<PricingVersionsPage />} />
           <Route path="pricing/versions/:versionId" element={<PricingVersionDetailPage />} />

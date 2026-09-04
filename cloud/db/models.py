@@ -536,3 +536,31 @@ class AppSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
     )
+
+class ServiceApiKey(Base):
+    """Plan 088 — generated API keys for luna-service admin APIs.
+
+    A key is a machine credential (e.g. a Luna keeps it in its vault) with a
+    coarse scope list. Only the sha256 of the secret is stored; the clear
+    secret is returned once at creation. Revoked rows are kept for audit.
+    """
+
+    __tablename__ = "service_api_keys"
+    __table_args__ = (
+        Index("ix_service_api_keys_created", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    key_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    # First characters of the secret ("lsk_ab12cd34"), for display only.
+    key_prefix: Mapped[str] = mapped_column(Text, nullable=False)
+    # Coarse permission strings, e.g. ["feedback:full"].
+    scopes: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
