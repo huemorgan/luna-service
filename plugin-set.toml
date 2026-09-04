@@ -55,3 +55,11 @@ sha256 = "14638fcfd6fd071c00aa29f08ec50f9e302a19379e87de405b6fe983b6cdadf3"
 name = "plugin-goalseek"
 version = "1.0.1"
 sha256 = "58e58a9f895420c2bab3ec7fd56a1402662c66d1373fa602053d88a4b0bde305"
+
+# 0.4.0: curated data stack (plan 077). Baking this plugin also triggers the
+# Dockerfile's code_run venv bake (bake_code_run_venv.py) so the packages are
+# preinstalled in an image layer — restart-proof, no PyPI at tenant runtime.
+[[plugins]]
+name = "plugin-inline-code-run"
+version = "0.4.0"
+sha256 = "086c31968fd0f6b6a47e8c5a89e451fc4e8606e47f99009b277252fbdbaebe85"

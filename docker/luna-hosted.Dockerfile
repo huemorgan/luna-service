@@ -31,8 +31,17 @@ RUN pnpm build
 FROM python:3.12-slim AS plugin-set
 WORKDIR /bake
 COPY scripts/bake_plugin_set.py ./bake_plugin_set.py
+COPY scripts/bake_code_run_venv.py ./bake_code_run_venv.py
 COPY plugin-set.* ./
 RUN python bake_plugin_set.py --out /opt/luna/plugin-set --context /bake
+# Plan 077: pre-build the code_run curated venv (numpy/pandas/matplotlib/…)
+# from the baked plugin's own CURATED_PACKAGES, at the keyed path its
+# venv_manager expects. Fly rootfs is ephemeral, so anything not in an image
+# layer is re-downloaded from PyPI on every machine restart — this layer is
+# what makes code_run's packages restart-proof. No-op if the plugin isn't in
+# this image's set. This stage MUST stay on the same python minor as the
+# runtime stage (venvs aren't relocatable across minors).
+RUN python bake_code_run_venv.py --set-dir /opt/luna/plugin-set --out /opt/luna/code-run-venvs
 
 # ─── Stage 3: Python runtime ─────────────────────────────────────────
 FROM python:3.12-slim AS runtime
@@ -67,6 +76,12 @@ COPY --from=ui-build /build/ui/dist ./ui/dist
 # volume over ~/.luna or /app can't shadow it.
 COPY --from=plugin-set /opt/luna/plugin-set /opt/luna/plugin-set
 ENV LUNA_PLUGIN_SET_DIR=/opt/luna/plugin-set
+
+# Plan 077: image-baked code_run curated venv. The plugin checks this root for
+# a ready venv (curated-<key>/.curated-ready.json) before ever touching PyPI;
+# without it the venv lives in /tmp/luna-scratch and is rebuilt on every boot.
+COPY --from=plugin-set /opt/luna/code-run-venvs /opt/luna/code-run-venvs
+ENV LUNA_INLINE_CODE_RUN_VENV_DIR=/opt/luna/code-run-venvs
 
 # Node 22 runtime for stdio MCP servers (`npx -y <pkg>`) — plugin-mcp's
 # contract ("the luna-service image ships Node 22") was never honored here,
