@@ -54,7 +54,12 @@ def _log(msg: str) -> None:
 
 
 def _find_settings(set_dir: Path) -> Path | None:
-    hits = sorted(set_dir.glob(f"*/{PLUGIN_PKG}/settings.py"))
+    # bake_plugin_set.py unpacks each artifact FLAT: <set-dir>/<pkg>/… (the
+    # zip's single top-level dir is the package). The nested pattern is kept
+    # for layouts that keep a per-plugin wrapper dir.
+    hits = sorted(set_dir.glob(f"{PLUGIN_PKG}/settings.py")) or sorted(
+        set_dir.glob(f"*/{PLUGIN_PKG}/settings.py")
+    )
     return hits[0] if hits else None
 
 
