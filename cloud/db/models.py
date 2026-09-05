@@ -393,6 +393,8 @@ class FeedbackTicket(Base):
         Index("ix_feedback_tickets_status_updated", "status", "updated_at"),
         Index("ix_feedback_tickets_agent_updated", "agent_id", "updated_at"),
         Index("ix_feedback_tickets_created", "created_at"),
+        # 078/7b: idempotent creates — NULLs (pre-0.7.0 clients) are exempt
+        Index("ux_feedback_tickets_client_ref", "client_ref", unique=True),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
@@ -410,6 +412,9 @@ class FeedbackTicket(Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     # client block under context.client, server enrichment under context.server
     context: Mapped[dict | None] = mapped_column(JSONB)
+    # 078/7b: client-supplied idempotency key (plugin-feedback ≥0.7.0 sends
+    # uuid5 over sha256(host|title|body)); duplicate create → existing ticket.
+    client_ref: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow

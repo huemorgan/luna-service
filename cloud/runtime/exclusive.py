@@ -23,6 +23,7 @@ LOCK_RELAY_FORWARDER = 0x1004A_01
 LOCK_RECONCILER = 0x1004A_02
 LOCK_BILLING_WORKER = 0x1004A_03
 LOCK_STARTUP_SEED = 0x1004A_04
+LOCK_SCHEDULER_SWEEP = 0x1004A_05  # 078/7a
 
 
 async def run_exclusive(lock_key: int, name: str, loop_fn: Callable[[], Awaitable[None]]) -> None:

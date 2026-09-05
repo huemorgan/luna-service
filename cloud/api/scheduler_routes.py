@@ -163,8 +163,13 @@ async def scheduler_fire_relay(agent_slug: str, request: Request):
     from cloud.runtime.proxy_secret import derive_proxy_secret
 
     async with get_db_session() as db:
+        # 078/7a: tombstoned agents must 404 — the scheduler service then
+        # dead-letters the trigger instead of waking a zombie machine forever.
         agent = (await db.execute(
-            select(Agent).where(Agent.slug == agent_slug)
+            select(Agent).where(
+                Agent.slug == agent_slug,
+                Agent.deleted_at.is_(None),
+            )
         )).scalar_one_or_none()
         if not agent:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown agent")

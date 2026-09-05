@@ -100,7 +100,8 @@ async def lifespan(app: FastAPI):
     import asyncio
     import os
     from cloud.runtime.exclusive import (
-        LOCK_BILLING_WORKER, LOCK_RECONCILER, LOCK_RELAY_FORWARDER, run_exclusive,
+        LOCK_BILLING_WORKER, LOCK_RECONCILER, LOCK_RELAY_FORWARDER,
+        LOCK_SCHEDULER_SWEEP, run_exclusive,
     )
 
     # Composio trigger-relay forwarder (plan 015)
@@ -117,6 +118,15 @@ async def lifespan(app: FastAPI):
         from cloud.runtime.reconcile import reconcile_loop
         reconciler_task = asyncio.create_task(
             run_exclusive(LOCK_RECONCILER, "reconciler", reconcile_loop)
+        )
+
+    # Orphaned scheduler-account sweep (plan 078/7a) — stops zombie fires for
+    # deleted agents on the external scheduler service.
+    scheduler_sweep_task = None
+    if os.environ.get("CLOUD_SCHEDULER_SWEEP", "1") == "1":
+        from cloud.scheduler_svc.sweep import sweep_loop
+        scheduler_sweep_task = asyncio.create_task(
+            run_exclusive(LOCK_SCHEDULER_SWEEP, "scheduler-sweep", sweep_loop)
         )
 
     # Durable billing outbox worker (plan 039) — rollouts, grants, settlement.
@@ -148,7 +158,8 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    for task in (forwarder_task, reconciler_task, billing_worker_task):
+    for task in (forwarder_task, reconciler_task, scheduler_sweep_task,
+                 billing_worker_task):
         if task:
             task.cancel()
             try:

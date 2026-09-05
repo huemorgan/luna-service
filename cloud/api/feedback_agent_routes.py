@@ -17,7 +17,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Body, Header, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from cloud.db import session as db_session
 from cloud.db.models import Agent, FeedbackMessage, FeedbackTicket
@@ -136,8 +138,26 @@ async def create_ticket(
 
     now = datetime.now(timezone.utc)
     day_ago = now - timedelta(days=1)
+    # 078/7b: idempotency key from plugin-feedback ≥0.7.0. A resend of the
+    # same ticket returns the existing row (200) instead of creating another
+    # (the 08-31 five-ticket cancel cascade).
+    client_ref = (str(payload.get("client_ref") or "")).strip() or None
+
+    def _duplicate_response(existing: FeedbackTicket) -> JSONResponse:
+        return JSONResponse(status_code=200, content={
+            "id": str(existing.id),
+            "status": existing.status,
+            "created_at": existing.created_at.isoformat() if existing.created_at else None,
+            "duplicate": True,
+        })
 
     async with db_session.get_session() as db:
+        if client_ref:
+            existing = (await db.execute(
+                select(FeedbackTicket).where(FeedbackTicket.client_ref == client_ref)
+            )).scalar_one_or_none()
+            if existing is not None:
+                return _duplicate_response(existing)
         recent = (await db.execute(
             select(func.count(FeedbackTicket.id)).where(
                 FeedbackTicket.agent_id == agent.id,
@@ -171,11 +191,11 @@ async def create_ticket(
             status="open",
             title=title[:200],
             context=context,
+            client_ref=client_ref,
             # the opening message is client-authored → unread for the team
             last_client_reply_at=datetime.now(timezone.utc),
         )
         db.add(ticket)
-        await db.flush()
 
         meta: dict = {}
         excerpt = payload.get("conversation_excerpt")
@@ -185,13 +205,24 @@ async def create_ticket(
         if technical:
             meta["technical"] = technical
 
-        db.add(FeedbackMessage(
-            ticket_id=ticket.id,
-            author=origin,
-            body=body,
-            meta=meta or None,
-        ))
-        await db.commit()
+        try:
+            await db.flush()
+            db.add(FeedbackMessage(
+                ticket_id=ticket.id,
+                author=origin,
+                body=body,
+                meta=meta or None,
+            ))
+            await db.commit()
+        except IntegrityError:
+            # 078/7b: lost the insert race on client_ref — return the winner.
+            await db.rollback()
+            existing = (await db.execute(
+                select(FeedbackTicket).where(FeedbackTicket.client_ref == client_ref)
+            )).scalar_one_or_none()
+            if existing is None:
+                raise
+            return _duplicate_response(existing)
         await db.refresh(ticket)
         return {
             "id": str(ticket.id),

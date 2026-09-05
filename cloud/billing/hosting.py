@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cloud.billing import ledger, rating
 from cloud.billing.models import AgentHostingPeriod, BillingJob, ResourceAllocation
 from cloud.billing.worker import enqueue, register_handler
-from cloud.db.models import Agent
+from cloud.db.models import Agent, GatewayTenantToken
 
 log = logging.getLogger(__name__)
 
@@ -568,6 +568,21 @@ async def _handle_agent_teardown(session: AsyncSession, job: BillingJob) -> dict
     agent = await session.get(Agent, uuid.UUID(job.payload["agent_id"]))
     agent.runtime_ref = None
     agent.internal_url = None
+
+    # 078/7a: a torn-down machine must not keep a live gateway token — a
+    # surviving zombie copy would otherwise call the gateway forever (the
+    # 08-31→09-04 gateway_auth error grids). Revoked in the same transaction
+    # that clears the runtime refs.
+    tokens = (
+        await session.execute(
+            select(GatewayTenantToken).where(
+                GatewayTenantToken.agent_id == agent.id,
+                GatewayTenantToken.revoked_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    for t in tokens:
+        t.revoked_at = now
     allocations = (
         await session.execute(
             select(ResourceAllocation).where(
@@ -579,6 +594,18 @@ async def _handle_agent_teardown(session: AsyncSession, job: BillingJob) -> dict
     for alloc in allocations:
         alloc.closed_at = now
         alloc.reconcile_state = "closed"
+    await session.commit()
+
+    # 078/7a: stop service-side scheduled work — without this the external
+    # scheduler keeps firing the dead slug on its 3-hourly grids. Best-effort:
+    # the periodic sweep (scheduler_svc/sweep.py) catches anything missed here.
+    try:
+        from cloud.scheduler_svc.provision import disconnect_agent
+
+        await disconnect_agent(agent)
+    except Exception as exc:  # noqa: BLE001 — teardown must not fail on this
+        log.warning("scheduler disconnect on teardown failed for %s: %s",
+                    agent.slug, exc)
     return {"torn_down": str(agent.id)}
 
 
