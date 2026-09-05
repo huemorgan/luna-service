@@ -57,7 +57,7 @@ the sweep stops the service-side fires that wake it).
 
 ### Fix
 1. `feedback_tickets.client_ref` (nullable text, unique index — Postgres
-   ignores NULLs, so history is unaffected). Migration 0019.
+   ignores NULLs, so history is unaffected). Migration 0020 (0019 taken by service-api-keys on origin).
 2. `create_ticket`: when the payload carries `client_ref`, return the existing
    ticket (200, `duplicate: true`) instead of inserting; on the insert race,
    catch the unique violation and re-read. plugin-feedback ≥0.7.0 sends the

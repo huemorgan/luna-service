@@ -26,7 +26,7 @@ Commit `1682f26` ("078: zombie scheduled work + feedback ticket idempotency").
 
 - `cloud/db/models.py`: `FeedbackTicket.client_ref` (Text, nullable) + unique
   index `ux_feedback_tickets_client_ref`.
-- `cloud/alembic/versions/0019_feedback_client_ref.py`: migration.
+- `cloud/alembic/versions/0020_feedback_client_ref.py`: migration.
 - `cloud/api/feedback_agent_routes.py`: `create_ticket` pre-checks an existing
   ticket by `client_ref` before rate limiting and returns 200
   `{id, status, created_at, duplicate: true}`; race window covered by
@@ -39,6 +39,6 @@ Commit `1682f26` ("078: zombie scheduled work + feedback ticket idempotency").
 - Full suite: 831 passed, 9 skipped, 1 pre-existing failure
   (`test_billing_stripe_clawback::test_refund_of_spent_credits_creates_debt_repaid_by_next_grant`,
   fails on a clean tree too).
-- Deploy: push of this repo's main triggers the Render deploy; migration 0019
+- Deploy: push of this repo's main triggers the Render deploy; migration 0020
   runs on release. See rollout status in the luna repo
   `plans/106-validated-bugfix-batch/execution_summary.md` (phase 8).
