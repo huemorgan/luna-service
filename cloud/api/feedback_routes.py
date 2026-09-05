@@ -67,8 +67,23 @@ def _is_unread_by_us(t: FeedbackTicket) -> bool:
     return last_client is not None and (read_at is None or last_client > read_at)
 
 
+def _last_activity(t: FeedbackTicket) -> datetime | None:
+    """Last real change (a message from either side, or creation) — reads and
+    status flips don't count (079)."""
+    times = [
+        ts for ts in (
+            _aware(t.created_at),
+            _aware(t.last_admin_reply_at),
+            _aware(t.last_client_reply_at),
+        ) if ts is not None
+    ]
+    return max(times) if times else None
+
+
 def _ticket_row(t: FeedbackTicket, agent: Agent | None, account: Account | None) -> dict:
+    last_activity = _last_activity(t)
     return {
+        "last_activity_at": last_activity.isoformat() if last_activity else None,
         "id": str(t.id),
         "title": t.title,
         "category": t.category,

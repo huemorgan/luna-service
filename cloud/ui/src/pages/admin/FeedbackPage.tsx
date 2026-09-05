@@ -15,6 +15,7 @@ interface TicketRow {
   updated_at: string | null;
   last_admin_reply_at: string | null;
   last_client_reply_at: string | null;
+  last_activity_at: string | null;
   unread_by_us: boolean;
   agent_name: string | null;
   agent_slug: string | null;
@@ -55,6 +56,11 @@ function fmtAgo(iso: string | null): string {
   const h = Math.floor(mins / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
+}
+
+function fmtAbs(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 function StatusPill({ status }: { status: string }) {
@@ -135,7 +141,7 @@ export default function FeedbackPage() {
           <table className="w-full">
             <thead>
               <tr style={{ background: 'var(--surface)', borderBottom: '1px solid var(--ink-lighter)' }}>
-                {['', 'Title', 'Category', 'Origin', 'Agent', 'Updated', 'Status'].map((h, i) => (
+                {['', 'Title', 'Category', 'Origin', 'Agent', 'Last activity', 'Status'].map((h, i) => (
                   <th key={i} className="text-left text-xs font-medium px-4 py-3" style={dimText}>{h}</th>
                 ))}
               </tr>
@@ -161,7 +167,7 @@ export default function FeedbackPage() {
                   <td className="px-4 py-3 text-xs" style={dimText}>
                     {t.agent_name || '—'}{t.agent_slug && <span className="font-mono block opacity-70">{t.agent_slug}</span>}
                   </td>
-                  <td className="px-4 py-3 text-xs" style={dimText}>{fmtAgo(t.updated_at)}</td>
+                  <td className="px-4 py-3 text-xs" style={dimText}>{fmtAgo(t.last_activity_at || t.updated_at)}</td>
                   <td className="px-4 py-3"><StatusPill status={t.status} /></td>
                 </tr>
               ))}
@@ -250,6 +256,14 @@ function TicketDrawer({ id, onClose, onChanged }: { id: string; onClose: () => v
                 </span>
               </div>
             )}
+            {t && (
+              <div className="text-xs mt-1" style={dimText}>
+                Opened {fmtAgo(t.created_at)}
+                {(detail?.messages || []).length > 1 && (
+                  <> · last reply {fmtAgo(detail!.messages[detail!.messages.length - 1].created_at)}</>
+                )}
+              </div>
+            )}
           </div>
           <button onClick={onClose} style={dimText}><X size={20} /></button>
         </div>
@@ -271,7 +285,7 @@ function TicketDrawer({ id, onClose, onChanged }: { id: string; onClose: () => v
                 <div className="flex items-center gap-2 mb-1">
                   <Icon size={13} style={{ color: isAdmin ? 'var(--moon)' : 'var(--text-dim)' }} />
                   <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>{AUTHOR_LABEL[m.author] || m.author}</span>
-                  <span className="text-xs" style={dimText}>{fmtAgo(m.created_at)}</span>
+                  <span className="text-xs" style={dimText}>{fmtAgo(m.created_at)} · {fmtAbs(m.created_at)}</span>
                 </div>
                 <div className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text)' }}>{m.body}</div>
                 {m.meta?.technical && (
@@ -289,6 +303,26 @@ function TicketDrawer({ id, onClose, onChanged }: { id: string; onClose: () => v
                         </div>
                       ))}
                     </div>
+                  </details>
+                )}
+                {typeof m.meta?.transcript === 'string' && (
+                  <details className="mt-2">
+                    <summary className="text-xs cursor-pointer" style={dimText}>
+                      Conversation history ({m.meta.transcript.length.toLocaleString()} chars)
+                    </summary>
+                    <pre className="mt-1 text-xs p-2 rounded overflow-x-auto whitespace-pre-wrap" style={{ background: 'var(--ink-light)', color: 'var(--text-dim)' }}>
+                      {m.meta.transcript}
+                    </pre>
+                  </details>
+                )}
+                {typeof m.meta?.agent_context === 'string' && (
+                  <details className="mt-2">
+                    <summary className="text-xs cursor-pointer" style={dimText}>
+                      Agent context ({m.meta.agent_context.length.toLocaleString()} chars)
+                    </summary>
+                    <pre className="mt-1 text-xs p-2 rounded overflow-x-auto whitespace-pre-wrap" style={{ background: 'var(--ink-light)', color: 'var(--text-dim)' }}>
+                      {m.meta.agent_context}
+                    </pre>
                   </details>
                 )}
               </div>

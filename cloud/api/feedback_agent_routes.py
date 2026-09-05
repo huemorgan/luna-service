@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Body, Header, HTTPException, Query, status
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from cloud.db import session as db_session
@@ -85,7 +85,21 @@ def _unread(ticket: FeedbackTicket) -> bool:
     return read_at is None or admin_at > read_at
 
 
+def _last_activity(t: FeedbackTicket) -> datetime | None:
+    """Last real change: a message from either side (or creation) — never a
+    read. `updated_at` bumps on status/read writes, so it lies in lists."""
+    times = [
+        ts for ts in (
+            _aware(t.created_at),
+            _aware(t.last_admin_reply_at),
+            _aware(t.last_client_reply_at),
+        ) if ts is not None
+    ]
+    return max(times) if times else None
+
+
 def _ticket_summary(t: FeedbackTicket) -> dict:
+    last_activity = _last_activity(t)
     return {
         "id": str(t.id),
         "title": t.title,
@@ -98,16 +112,41 @@ def _ticket_summary(t: FeedbackTicket) -> dict:
         "last_admin_reply_at": (
             t.last_admin_reply_at.isoformat() if t.last_admin_reply_at else None
         ),
+        "last_client_reply_at": (
+            t.last_client_reply_at.isoformat() if t.last_client_reply_at else None
+        ),
+        "last_activity_at": last_activity.isoformat() if last_activity else None,
         "unread": _unread(t),
     }
 
 
-def _message_view(m: FeedbackMessage) -> dict:
+# 079: opening-message attachments stored in meta as their own fields (the
+# ticket body stays the owner's actual words). Clamps are server-side truth;
+# the plugin clamps too but is not trusted.
+_ATTACH_CLAMPS = {"agent_context": 200_000, "transcript": 60_000}
+# Above this, an attachment string is elided from the default agent read —
+# a woken agent must not swallow 200k chars unasked.
+_ATTACH_ELIDE_OVER = 4_000
+
+
+def _message_view(m: FeedbackMessage, *, include_attachments: bool = True) -> dict:
+    meta = m.meta
+    if meta and not include_attachments:
+        slim = dict(meta)
+        for key in _ATTACH_CLAMPS:
+            value = slim.get(key)
+            if isinstance(value, str) and len(value) > _ATTACH_ELIDE_OVER:
+                slim[key] = {
+                    "elided": True,
+                    "chars": len(value),
+                    "note": "re-fetch this ticket with include_attachments=1 for the full text",
+                }
+        meta = slim
     return {
         "id": str(m.id),
         "author": m.author,
         "body": m.body,
-        "meta": m.meta,
+        "meta": meta,
         "created_at": m.created_at.isoformat() if m.created_at else None,
     }
 
@@ -204,6 +243,12 @@ async def create_ticket(
         technical = payload.get("technical")
         if technical:
             meta["technical"] = technical
+        # 079: transcript / agent context ride as attachment fields, never
+        # concatenated into the body.
+        for key, clamp in _ATTACH_CLAMPS.items():
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                meta[key] = value[:clamp]
 
         try:
             await db.flush()
@@ -285,6 +330,7 @@ async def updates(
 async def get_ticket(
     ticket_id: str,
     mark_read: int = Query(0),
+    include_attachments: int = Query(0),
     authorization: str | None = Header(default=None),
     x_luna_gateway_token: str | None = Header(default=None),
 ):
@@ -298,7 +344,14 @@ async def get_ticket(
         if not ticket or ticket.agent_id != agent.id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Ticket not found")
         if mark_read:
-            ticket.agent_read_at = datetime.now(timezone.utc)
+            # 079: a read is not an update — explicit updated_at keeps the
+            # onupdate hook from bumping "last change" (admin read's trick).
+            now = datetime.now(timezone.utc)
+            await db.execute(
+                update(FeedbackTicket)
+                .where(FeedbackTicket.id == ticket.id)
+                .values(agent_read_at=now, updated_at=FeedbackTicket.updated_at)
+            )
         messages = (await db.execute(
             select(FeedbackMessage)
             .where(FeedbackMessage.ticket_id == ticket.id)
@@ -306,7 +359,10 @@ async def get_ticket(
         )).scalars().all()
         result = {
             "ticket": {**_ticket_summary(ticket), "context": ticket.context},
-            "messages": [_message_view(m) for m in messages],
+            "messages": [
+                _message_view(m, include_attachments=bool(include_attachments))
+                for m in messages
+            ],
         }
         await db.commit()
         return result
