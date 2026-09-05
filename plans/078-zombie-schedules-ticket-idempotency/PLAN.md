@@ -1,6 +1,6 @@
 # Plan 078 — zombie scheduled work + feedback ticket idempotency
 
-Date: 2026-09-05. Sibling of luna repo `plans/103-validated-bugfix-batch/PLAN.md`
+Date: 2026-09-05. Sibling of luna repo `plans/106-validated-bugfix-batch/PLAN.md`
 (phases 7a/7b) and plugin-feedback `plans/002-ticket-idempotency`.
 
 ## 7a — zombie-token scheduled work
@@ -64,5 +64,5 @@ the sweep stops the service-side fires that wake it).
    ref (uuid5 over sha256(host|title|body)).
 
 ## Ship
-Part of luna 103 phase 8: deploy cloud (migration runs via
+Part of luna 106 phase 8: deploy cloud (migration runs via
 `python -m cloud.db.migrate` on deploy), then plugin pins + image rollout.
