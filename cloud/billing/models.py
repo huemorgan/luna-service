@@ -27,6 +27,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy import true as sa_true
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -217,7 +218,7 @@ class CreditGrant(Base):
             "expires_at IS NULL OR expires_at > effective_at", name="ck_grant_expiry_window"
         ),
         CheckConstraint(
-            "source_type IN ('subscription_paid','subscription_bonus','topup','free_recurring','gift','refund','admin')",
+            "source_type IN ('subscription_paid','subscription_bonus','topup','free_recurring','gift','partner_gift','refund','admin')",
             name="ck_grant_source_type",
         ),
         CheckConstraint(
@@ -448,6 +449,11 @@ class BillingHold(Base):
     # Portion of the estimate not covered by available balance — the single
     # permitted bounded overrun when > 0.
     overrun_credits: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    # False for holds authorized outside the per-Luna day/month caps (hosting):
+    # settle/release then leave the agent_limit_periods alone.
+    count_toward_limits: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=sa_true()
+    )
     status: Mapped[str] = mapped_column(Text, nullable=False, default="open")
     settle_transaction_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("credit_ledger_transactions.id", ondelete="RESTRICT")

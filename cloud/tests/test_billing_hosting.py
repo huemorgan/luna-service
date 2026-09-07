@@ -110,6 +110,7 @@ async def test_trial_gift_domain_offer_replaces_standard(db_session, account):
         select(CreditLedgerTransaction).where(CreditLedgerTransaction.id == g.grant_transaction_id)
     )).scalar_one()
     assert tx.reason == "trial gift (monday.com signup offer)"
+    assert g.source_type == "partner_gift"  # lifts per-Luna trial caps (0021)
     lots = (await db_session.execute(
         select(CreditGrant).where(CreditGrant.account_id == account.id)
     )).scalars().all()

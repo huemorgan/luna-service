@@ -95,15 +95,16 @@ def billing_mode() -> str:
     return mode
 
 
-def block_response(code: str) -> JSONResponse:
-    """Frozen machine-readable 402 block contract."""
+def block_response(code: str, message: str | None = None) -> JSONResponse:
+    """Frozen machine-readable 402 block contract. `message` overrides the
+    generic text with the ledger's specific explanation when it has one."""
     return JSONResponse(
         status_code=402,
         content={
             "error": {
                 "type": "billing",
                 "code": code,
-                "message": BLOCK_MESSAGES[code],
+                "message": message or BLOCK_MESSAGES[code],
                 "retryable": code in _RETRYABLE,
             }
         },
@@ -141,6 +142,7 @@ class BillingContext:
     mode: str
     active: bool = False                 # metered billed route in a non-off mode
     block: str | None = None             # block code — request must not go upstream
+    block_message: str | None = None     # specific customer-facing text for `block`
     would_block: str | None = None       # observe/shadow decision, recorded only
     operation_id: str | None = None
     account_id: uuid.UUID | None = None
@@ -372,6 +374,7 @@ async def prepare(
     except (ledger.InsufficientBalance, ledger.LimitExceeded) as exc:
         await db.rollback()
         ctx.block = exc.code
+        ctx.block_message = getattr(exc, "message", None)
         ctx.active = False
     except Exception:  # noqa: BLE001 — billing store failure
         log.exception(

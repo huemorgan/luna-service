@@ -98,10 +98,13 @@ async def grant_trial_gift(
         days = offer.get("days") or days
     if credits <= 0:
         return None
+    # Partner/individual signup offers are real credit, not the paced free
+    # trial: a distinct source_type so the per-Luna trial caps do not bind
+    # (ledger.limits_bind) while the standard gift keeps its pacing.
     return await ledger.create_grant(
         session,
         account_id=account_id,
-        source_type="gift",
+        source_type="partner_gift" if offer else "gift",
         source_key=f"trial:{account_id}",
         credits=credits,
         visible_category="gift",

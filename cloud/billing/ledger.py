@@ -20,7 +20,7 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cloud.billing.models import (
@@ -69,9 +69,14 @@ class InsufficientBalance(BillingError):
 
 
 class LimitExceeded(BillingError):
+    """`message` is customer-facing: it says which cap, how much is used, when
+    it resets, and — for trial-default caps — that the wallet is not the
+    reason (the gateway forwards it verbatim in the 402 body)."""
+
     def __init__(self, code: str, message: str = ""):
         super().__init__(message or code)
         self.code = code
+        self.message = message or None
 
 
 class UnbalancedPostings(BillingError):
@@ -717,6 +722,69 @@ def _month_period(now: datetime) -> tuple[datetime, datetime]:
     return start, end
 
 
+async def has_non_trial_credits(
+    session: AsyncSession, account_id: uuid.UUID, now: datetime
+) -> bool:
+    """True when the workspace holds live credits from anything other than the
+    standard signup trial lot (``gift`` / ``trial:{account}``): a purchase,
+    top-up, admin gift, coupon, partner signup offer, …"""
+    row = (
+        await session.execute(
+            select(CreditGrant.id)
+            .where(
+                CreditGrant.account_id == account_id,
+                CreditGrant.status == "active",
+                CreditGrant.remaining_credits > 0,
+                CreditGrant.effective_at <= now,
+                or_(CreditGrant.expires_at.is_(None), CreditGrant.expires_at > now),
+                not_(and_(
+                    CreditGrant.source_type == "gift",
+                    CreditGrant.source_key.like("trial:%"),
+                )),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return row is not None
+
+
+async def limits_bind(
+    session: AsyncSession, account_id: uuid.UUID, limits: AgentCreditLimit, now: datetime
+) -> bool:
+    """Do this Luna's day/month caps apply right now?
+
+    Caps a person set (``updated_by`` present) always bind. Trial-default caps
+    (system-written at Luna creation, ``updated_by`` NULL) exist to pace the
+    free signup gift, so they bind only while that gift is the workspace's
+    only live credit — a workspace that holds any other credits can spend
+    them without a per-Luna trial cap in the way.
+    """
+    if limits.updated_by is not None:
+        return True
+    return not await has_non_trial_credits(session, account_id, now)
+
+
+def _limit_message(
+    kind: str, *, limit: int, used: int, estimated: int, period_end: datetime,
+    balance: int, trial_default: bool,
+) -> str:
+    unit = "today" if kind == "daily" else "this month"
+    when = period_end.strftime("%b ") + str(period_end.day) + period_end.strftime(", %H:%M UTC")
+    msg = (
+        f"This Luna has used {used} of its {limit}-credit limit {unit}, so this "
+        f"request (about {estimated} credits) does not fit. The limit resets on {when}."
+    )
+    if trial_default:
+        msg += (
+            f" Your workspace balance is {balance} credits and is not the problem: "
+            "this is the free-trial per-Luna cap, which lifts automatically once "
+            "the workspace holds purchased or gifted credits."
+        )
+    else:
+        msg += " This cap was set by the workspace owner and can be changed in billing settings."
+    return msg
+
+
 async def _limit_period(
     session: AsyncSession, agent_id: uuid.UUID, kind: str, now: datetime
 ) -> AgentLimitPeriod:
@@ -805,25 +873,26 @@ async def authorize(
     daily_period = monthly_period = None
     if agent_id is not None and count_toward_limits:
         limits = await session.get(AgentCreditLimit, agent_id)
-        if limits is not None:
+        if limits is not None and await limits_bind(session, account_id, limits, now):
+            trial_default = limits.updated_by is None
             if limits.daily_limit_credits is not None:
                 daily_period = await _limit_period(session, agent_id, "daily", now)
-                if (
-                    daily_period.settled_credits
-                    + daily_period.open_exposure_credits
-                    + estimated_credits
-                    > limits.daily_limit_credits
-                ):
-                    raise LimitExceeded("luna_daily_limit")
+                used = daily_period.settled_credits + daily_period.open_exposure_credits
+                if used + estimated_credits > limits.daily_limit_credits:
+                    raise LimitExceeded("luna_daily_limit", _limit_message(
+                        "daily", limit=limits.daily_limit_credits, used=used,
+                        estimated=estimated_credits, period_end=_aware(daily_period.period_end),
+                        balance=balance, trial_default=trial_default,
+                    ))
             if limits.monthly_limit_credits is not None:
                 monthly_period = await _limit_period(session, agent_id, "monthly", now)
-                if (
-                    monthly_period.settled_credits
-                    + monthly_period.open_exposure_credits
-                    + estimated_credits
-                    > limits.monthly_limit_credits
-                ):
-                    raise LimitExceeded("luna_monthly_limit")
+                used = monthly_period.settled_credits + monthly_period.open_exposure_credits
+                if used + estimated_credits > limits.monthly_limit_credits:
+                    raise LimitExceeded("luna_monthly_limit", _limit_message(
+                        "monthly", limit=limits.monthly_limit_credits, used=used,
+                        estimated=estimated_credits, period_end=_aware(monthly_period.period_end),
+                        balance=balance, trial_default=trial_default,
+                    ))
 
     hold = BillingHold(
         operation_id=operation_id,
@@ -837,6 +906,7 @@ async def authorize(
         provider_cost_version_id=provider_cost_version_id,
         estimated_credits=estimated_credits,
         overrun_credits=overrun,
+        count_toward_limits=count_toward_limits,
         authorized_at=now,
         expires_at=now + ttl,
     )
@@ -863,7 +933,10 @@ async def _get_hold(session: AsyncSession, operation_id: str) -> BillingHold:
 async def _drain_limit_exposure(
     session: AsyncSession, hold: BillingHold, settled_credits: int, now: datetime
 ) -> None:
-    if hold.agent_id is None:
+    # A hold that never counted toward the caps (hosting) must not drain
+    # exposure it never added, nor settle its credits into the periods —
+    # that bug locked every new trial Luna out for its first month (2026-09).
+    if hold.agent_id is None or not hold.count_toward_limits:
         return
     limits = await session.get(AgentCreditLimit, hold.agent_id)
     if limits is None:

@@ -424,7 +424,8 @@ async def test_stale_holds_downgrade_and_settle(db_session, account):
 @pytest.mark.asyncio
 async def test_agent_daily_and_monthly_limits(db_session, account, sample_agent):
     await _grant(db_session, account, 10_000, "topup:1", "topup")
-    db_session.add(AgentCreditLimit(agent_id=sample_agent.id,
+    # Owner-set caps (updated_by present) bind whatever the wallet holds.
+    db_session.add(AgentCreditLimit(agent_id=sample_agent.id, updated_by=account.created_by,
                                     daily_limit_credits=100, monthly_limit_credits=150))
     await db_session.flush()
 
@@ -434,6 +435,10 @@ async def test_agent_daily_and_monthly_limits(db_session, account, sample_agent)
         await authorize(db_session, operation_id="op:2", account_id=account.id,
                         agent_id=sample_agent.id, estimated_credits=30, now=NOW)
     assert exc.value.code == "luna_daily_limit"
+    assert "used 80 of its 100-credit limit today" in exc.value.message
+    assert "about 30 credits" in exc.value.message
+    assert "resets on Jul 14, 00:00 UTC" in exc.value.message
+    assert "workspace owner" in exc.value.message
 
     # Next UTC day: daily resets, monthly still accumulates.
     await settle(db_session, operation_id="op:1", final_credits=80, now=NOW)
@@ -450,7 +455,8 @@ async def test_agent_daily_and_monthly_limits(db_session, account, sample_agent)
 @pytest.mark.asyncio
 async def test_hosting_excluded_from_limits(db_session, account, sample_agent):
     await _grant(db_session, account, 10_000, "topup:1", "topup")
-    db_session.add(AgentCreditLimit(agent_id=sample_agent.id, daily_limit_credits=100))
+    db_session.add(AgentCreditLimit(agent_id=sample_agent.id, daily_limit_credits=100,
+                                    updated_by=account.created_by))
     await db_session.flush()
     hold = await authorize(
         db_session, operation_id="op:hosting", account_id=account.id,
@@ -466,7 +472,8 @@ async def test_hosting_excluded_from_limits(db_session, account, sample_agent):
 @pytest.mark.asyncio
 async def test_release_drains_limit_exposure(db_session, account, sample_agent):
     await _grant(db_session, account, 10_000, "topup:1", "topup")
-    db_session.add(AgentCreditLimit(agent_id=sample_agent.id, daily_limit_credits=100))
+    db_session.add(AgentCreditLimit(agent_id=sample_agent.id, daily_limit_credits=100,
+                                    updated_by=account.created_by))
     await db_session.flush()
     await authorize(db_session, operation_id="op:1", account_id=account.id,
                     agent_id=sample_agent.id, estimated_credits=100, now=NOW)
@@ -474,6 +481,81 @@ async def test_release_drains_limit_exposure(db_session, account, sample_agent):
     hold = await authorize(db_session, operation_id="op:2", account_id=account.id,
                            agent_id=sample_agent.id, estimated_credits=100, now=NOW)
     assert hold is not None
+
+
+@pytest.mark.asyncio
+async def test_hosting_settle_and_release_leave_limit_periods_alone(db_session, account, sample_agent):
+    """Regression (2026-09-07, daniel-b/Gustavo): a hold authorized outside the
+    caps must not settle into — or drain exposure out of — the caps."""
+    await _grant(db_session, account, 10_000, "topup:1", "topup")
+    db_session.add(AgentCreditLimit(agent_id=sample_agent.id, daily_limit_credits=75,
+                                    monthly_limit_credits=800, updated_by=account.created_by))
+    await db_session.flush()
+
+    # Settled hosting month: 999 credits leave the wallet, the caps stay at 0.
+    await authorize(db_session, operation_id="hosting:1", account_id=account.id,
+                    agent_id=sample_agent.id, estimated_credits=999, service="hosting",
+                    count_toward_limits=False, now=NOW)
+    await settle(db_session, operation_id="hosting:1", final_credits=999, now=NOW)
+    hold = await authorize(db_session, operation_id="op:chat1", account_id=account.id,
+                           agent_id=sample_agent.id, estimated_credits=50, now=NOW)
+    assert hold.estimated_credits == 50
+
+    # Releasing a no-count hold must not wipe the exposure of real chat work.
+    await authorize(db_session, operation_id="hosting:2", account_id=account.id,
+                    agent_id=sample_agent.id, estimated_credits=999, service="hosting",
+                    count_toward_limits=False, now=NOW)
+    await release(db_session, operation_id="hosting:2", now=NOW)
+    with pytest.raises(LimitExceeded) as exc:
+        await authorize(db_session, operation_id="op:chat2", account_id=account.id,
+                        agent_id=sample_agent.id, estimated_credits=30, now=NOW)
+    assert exc.value.code == "luna_daily_limit"
+
+
+@pytest.mark.asyncio
+async def test_trial_default_caps_bind_only_while_on_trial_gift(db_session, account, sample_agent):
+    # Standard signup gift only → the system-written cap paces it.
+    await _grant(db_session, account, 1_800, f"trial:{account.id}", "gift")
+    db_session.add(AgentCreditLimit(agent_id=sample_agent.id, daily_limit_credits=75))
+    await db_session.flush()
+    with pytest.raises(LimitExceeded) as exc:
+        await authorize(db_session, operation_id="op:1", account_id=account.id,
+                        agent_id=sample_agent.id, estimated_credits=100, now=NOW)
+    assert exc.value.code == "luna_daily_limit"
+    assert "free-trial per-Luna cap" in exc.value.message
+    assert "balance is 1800 credits and is not the problem" in exc.value.message
+
+    # Any other live credit (admin gift here) lifts the trial cap entirely.
+    await _grant(db_session, account, 40_000, "monday40k:test", "gift")
+    hold = await authorize(db_session, operation_id="op:2", account_id=account.id,
+                           agent_id=sample_agent.id, estimated_credits=100, now=NOW)
+    assert hold.estimated_credits == 100
+
+    # ...but not once that credit is gone (expired lot): back to pacing.
+    await _grant(db_session, account, 500, "coupon:x", "gift",
+                 effective=NOW - timedelta(days=2), expires=NOW - timedelta(days=1))
+    lots = (await db_session.execute(select(CreditGrant))).scalars().all()
+    for lot in lots:
+        if lot.source_key == "monday40k:test":
+            lot.remaining_credits = 0
+            lot.status = "exhausted"
+    await db_session.flush()
+    with pytest.raises(LimitExceeded):
+        await authorize(db_session, operation_id="op:3", account_id=account.id,
+                        agent_id=sample_agent.id, estimated_credits=100, now=NOW)
+
+
+@pytest.mark.asyncio
+async def test_partner_signup_gift_lifts_trial_caps(db_session, account, sample_agent):
+    await create_grant(db_session, account_id=account.id, source_type="partner_gift",
+                       source_key=f"trial:{account.id}", credits=100_000,
+                       visible_category="gift", effective_at=NOW, expires_at=None, now=NOW)
+    db_session.add(AgentCreditLimit(agent_id=sample_agent.id, daily_limit_credits=75,
+                                    monthly_limit_credits=800))
+    await db_session.flush()
+    hold = await authorize(db_session, operation_id="op:1", account_id=account.id,
+                           agent_id=sample_agent.id, estimated_credits=5_000, now=NOW)
+    assert hold.estimated_credits == 5_000
 
 
 # ── Hash canon ───────────────────────────────────────────────────────────────

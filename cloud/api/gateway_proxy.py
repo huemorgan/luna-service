@@ -436,7 +436,7 @@ async def gateway_proxy(request: Request, service_slug: str, path: str = ""):
                     agent_id=agent_id, service_slug=service_slug, billable=False,
                     key_id=None, status_code=402, input_tokens=0, output_tokens=0,
                 )
-                return enforcement.block_response(billing.block)
+                return enforcement.block_response(billing.block, billing.block_message)
             body = billing.body or body
             # After billing may have rewritten the body, still strip a tenant
             # token mistakenly sent as JSON api_key (Tavily 401 class of bug).

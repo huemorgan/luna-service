@@ -1038,12 +1038,31 @@ async def test_luna_daily_limit_blocks_in_enforce(
 ):
     _set_mode(monkeypatch, "enforce")
     token = await _seed_billing_gateway(db_session, sample_agent, credits=1_000)
-    db_session.add(AgentCreditLimit(agent_id=sample_agent.id, daily_limit_credits=1))
+    db_session.add(AgentCreditLimit(agent_id=sample_agent.id, daily_limit_credits=1,
+                                    updated_by=sample_agent.creator_id))
     await db_session.commit()
     r = await _call_messages(anon_client, token)
     assert r.status_code == 402
-    assert r.json()["error"]["code"] == "luna_daily_limit"
+    err = r.json()["error"]
+    assert err["code"] == "luna_daily_limit"
+    # The ledger's specific explanation travels in the frozen contract's message.
+    assert "1-credit limit today" in err["message"]
+    assert "workspace owner" in err["message"]
     assert anthropic_upstream == []
+
+
+async def test_trial_default_limit_lifted_by_non_trial_credits(
+    anon_client, db_session, sample_agent, anthropic_upstream, monkeypatch,
+):
+    # Seeded credits are a non-trial gift lot; a system-written (trial) cap
+    # therefore does not bind and the call goes upstream.
+    _set_mode(monkeypatch, "enforce")
+    token = await _seed_billing_gateway(db_session, sample_agent, credits=1_000)
+    db_session.add(AgentCreditLimit(agent_id=sample_agent.id, daily_limit_credits=1))
+    await db_session.commit()
+    r = await _call_messages(anon_client, token)
+    assert r.status_code == 200
+    assert len(anthropic_upstream) == 1
 
 
 async def test_revoked_token_cannot_spend(
