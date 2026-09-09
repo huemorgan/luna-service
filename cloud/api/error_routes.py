@@ -1,6 +1,7 @@
 """Admin-facing error tracking API (plan 051).
 
-Cookie-authenticated, admin-only, same-origin guarded. Groups raw
+Admin cookie or a service API key with `errors:read` (reads only; status
+changes stay cookie-admin). Same-origin guarded. Groups raw
 `error_events` rows by fingerprint at query time — no pre-aggregation, so
 grouping logic can evolve without touching stored data.
 """
@@ -17,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import case, func, or_, select
 
+from cloud.auth.api_keys import AdminActor, require_admin_or_scope
 from cloud.auth.deps import enforce_same_origin, require_admin
 from cloud.db import session as db_session
 from cloud.db.models import Account, Agent, ErrorEvent, ErrorGroupStatus, User
@@ -137,7 +139,7 @@ def _base_filters(
 @router.get("")
 @router.get("/", include_in_schema=False)
 async def list_groups(
-    admin: User = Depends(require_admin),
+    actor: AdminActor = Depends(require_admin_or_scope("errors:read")),
     source: str | None = Query(default=None),
     severity: str | None = Query(default=None),
     kind: str | None = Query(default=None),
@@ -243,7 +245,10 @@ async def list_groups(
 
 
 @router.get("/events/{event_id}")
-async def get_event(event_id: str, admin: User = Depends(require_admin)):
+async def get_event(
+    event_id: str,
+    actor: AdminActor = Depends(require_admin_or_scope("errors:read")),
+):
     try:
         eid = uuid.UUID(event_id)
     except (ValueError, AttributeError):
@@ -308,7 +313,7 @@ async def set_group_status(
 @router.get("/{fingerprint}")
 async def get_group(
     fingerprint: str,
-    admin: User = Depends(require_admin),
+    actor: AdminActor = Depends(require_admin_or_scope("errors:read")),
     limit: int = Query(50, ge=1, le=200),
 ):
     """A group's recent raw events, newest first, with full context."""

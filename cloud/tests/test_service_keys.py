@@ -71,6 +71,7 @@ async def test_scope_catalog(admin_client):
     assert res.status_code == 200
     scopes = {s["scope"] for s in res.json()["scopes"]}
     assert "feedback:full" in scopes
+    assert "errors:read" in scopes
 
 
 @pytest.mark.asyncio
@@ -215,3 +216,40 @@ async def test_last_used_stamped(admin_client, anon_client, db_session):
         select(ServiceApiKey).where(ServiceApiKey.id == uuid.UUID(created["id"]))
     )).scalar_one()
     assert key.last_used_at is not None
+
+
+# ── errors:read scope ────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_errors_read_scope(admin_client, anon_client, db_session, sample_agent):
+    from cloud.tests.test_errors import _seed_events
+    await _seed_events(anon_client, db_session, sample_agent)
+
+    errors_key = await _mint(admin_client, name="errors-key", scopes=["errors:read"])
+    headers = {"x-api-key": errors_key["key"]}
+
+    res = await anon_client.get("/api/admin/errors", headers=headers)
+    assert res.status_code == 200, res.text
+    groups = res.json()["groups"]
+    assert len(groups) == 2
+    fp = groups[0]["fingerprint"]
+
+    res = await anon_client.get(f"/api/admin/errors/{fp}", headers=headers)
+    assert res.status_code == 200
+    eid = res.json()["events"][0]["id"]
+
+    res = await anon_client.get(f"/api/admin/errors/events/{eid}", headers=headers)
+    assert res.status_code == 200 and res.json()["event"]["id"] == eid
+
+    # Read-only: status mutation stays cookie-admin.
+    res = await anon_client.put(
+        f"/api/admin/errors/{fp}/status", headers=headers, json={"status": "resolved"}
+    )
+    assert res.status_code == 401
+
+    # Scope isolation both ways.
+    res = await anon_client.get("/api/admin/feedback/tickets", headers=headers)
+    assert res.status_code == 403
+    feedback_key = await _mint(admin_client, name="fb-key", scopes=["feedback:full"])
+    res = await anon_client.get("/api/admin/errors", headers={"x-api-key": feedback_key["key"]})
+    assert res.status_code == 403

@@ -33,6 +33,7 @@ LAST_USED_THROTTLE_S = 60.0
 # Known scopes; the admin UI renders one checkbox per entry, in this order.
 KNOWN_SCOPES: dict[str, str] = {
     "feedback:full": "Full feedback management",
+    "errors:read": "Read error tracking (groups, events)",
 }
 
 
