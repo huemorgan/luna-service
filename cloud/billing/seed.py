@@ -153,7 +153,10 @@ def commercial_v1_config() -> dict:
             "domain_gifts": {"monday.com": {"gift_credits": 100_000, "days": 90}},
             # Individual signup offers by verified email — wins over
             # domain_gifts for the exact address.
-            "email_gifts": {"omryman@gmail.com": {"gift_credits": 100_000, "days": 90}},
+            "email_gifts": {
+                "omryman@gmail.com": {"gift_credits": 100_000, "days": 90},
+                "erez@qumracapital.com": {"gift_credits": 40_000, "days": 90},
+            },
         },
         # M9 (owner decision): migrated accounts get exactly the trial
         # treatment — configurable here like every other product.
