@@ -14,6 +14,7 @@ from cloud.billing import grants, hosting, ledger, maintenance, rating
 from cloud.billing.models import (
     AgentCreditLimit,
     AgentHostingPeriod,
+    BillingAccount,
     BillingHold,
     BillingJob,
     CreditGrant,
@@ -154,6 +155,25 @@ async def test_trial_gift_email_offer_replaces_standard(db_session, account):
         select(CreditGrant).where(CreditGrant.account_id == account.id)
     )).scalars().all()
     assert len(lots) == 1  # replaces, never stacks
+
+
+async def test_trial_gift_email_offer_sets_active_luna_cap_override(db_session, account):
+    # Seed carries erez@qumracapital.com with active_luna_cap 10: the offer
+    # lifts the trial 1-Luna cap via the per-account override.
+    await _seed(db_session, account.id)
+    g = await grants.grant_trial_gift(
+        db_session, account.id, email="Erez@qumracapital.com", now=NOW
+    )
+    assert g.original_credits == 40_000
+    acct = await db_session.get(BillingAccount, account.id)
+    assert acct.active_luna_cap_override == 10
+
+
+async def test_trial_gift_without_cap_leaves_override_null(db_session, account):
+    await _seed(db_session, account.id)
+    await grants.grant_trial_gift(db_session, account.id, email="omryman@gmail.com", now=NOW)
+    acct = await db_session.get(BillingAccount, account.id)
+    assert acct.active_luna_cap_override is None
 
 
 async def test_trial_gift_domain_offer_still_exactly_once(db_session, account):

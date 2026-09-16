@@ -155,7 +155,7 @@ def commercial_v1_config() -> dict:
             # domain_gifts for the exact address.
             "email_gifts": {
                 "omryman@gmail.com": {"gift_credits": 100_000, "days": 90},
-                "erez@qumracapital.com": {"gift_credits": 40_000, "days": 90},
+                "erez@qumracapital.com": {"gift_credits": 40_000, "days": 90, "active_luna_cap": 10},
             },
         },
         # M9 (owner decision): migrated accounts get exactly the trial

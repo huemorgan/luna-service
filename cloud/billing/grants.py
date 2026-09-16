@@ -71,7 +71,8 @@ async def grant_trial_gift(
     offers), or its domain one in ``trial.domain_gifts`` (partner offers,
     e.g. monday.com), that entry's amount/expiry replaces the standard trial
     gift — still one lot, same idempotency key. The email match wins over
-    the domain match.
+    the domain match. An offer's optional ``active_luna_cap`` becomes the
+    account's active-Luna cap override.
 
     Idempotent via source_key ``trial:{account_id}`` — concurrent signup
     callbacks issue exactly one gift. Returns None when the config defines no
@@ -96,6 +97,14 @@ async def grant_trial_gift(
     if offer:
         credits = offer.get("gift_credits") or 0
         days = offer.get("days") or days
+        # An offer may lift the trial active-Luna cap for this workspace:
+        # stored as the per-account override (057), which applies regardless
+        # of trial status. Set even when the offer carries no credits.
+        cap = offer.get("active_luna_cap")
+        if cap is not None:
+            billing_acct = await ledger.ensure_billing_account(session, account_id)
+            billing_acct.active_luna_cap_override = int(cap)
+            await session.flush()
     if credits <= 0:
         return None
     # Partner/individual signup offers are real credit, not the paced free

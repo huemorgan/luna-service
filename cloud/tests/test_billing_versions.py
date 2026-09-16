@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 import pytest
 from sqlalchemy import func, select
 
@@ -100,6 +102,19 @@ def test_email_gifts_validation():
 
     config = _valid()
     config["trial"]["email_gifts"] = {"omryman@gmail.com": {"gift_credits": 100_000, "days": 90}}
+    validate_commercial_config(config)
+
+
+def test_offer_active_luna_cap_validation():
+    config = deepcopy(commercial_v1_config())
+    config["trial"]["email_gifts"] = {"x@y.com": {"gift_credits": 1, "active_luna_cap": 0}}
+    with pytest.raises(ConfigValidationError, match="active_luna_cap"):
+        validate_commercial_config(config)
+    config["trial"]["email_gifts"] = {"x@y.com": {"gift_credits": 1, "active_luna_cap": "10"}}
+    with pytest.raises(ConfigValidationError, match="active_luna_cap"):
+        validate_commercial_config(config)
+    config["trial"]["email_gifts"] = {"x@y.com": {"gift_credits": 1, "active_luna_cap": 10}}
+    config["trial"]["domain_gifts"] = {"y.com": {"gift_credits": 1, "active_luna_cap": 3}}
     validate_commercial_config(config)
 
 
@@ -207,7 +222,10 @@ async def test_seeded_config_contents(db_session):
         "daily_limit_credits": 75, "monthly_limit_credits": 800,
         "active_luna_cap": 1,
         "domain_gifts": {"monday.com": {"gift_credits": 100_000, "days": 90}},
-        "email_gifts": {"omryman@gmail.com": {"gift_credits": 100_000, "days": 90}},
+        "email_gifts": {
+            "omryman@gmail.com": {"gift_credits": 100_000, "days": 90},
+            "erez@qumracapital.com": {"gift_credits": 40_000, "days": 90, "active_luna_cap": 10},
+        },
     }
     assert config["migration_gift"] == {"credits": 1_800, "days": 28, "active_luna_cap": 1}
     assert config["hosting"]["price_credits"] == 999
