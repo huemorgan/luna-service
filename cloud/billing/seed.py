@@ -146,8 +146,9 @@ def commercial_v1_config() -> dict:
         ],
         "trial": {
             "gift_credits": 1_800, "days": 14,
-            "daily_limit_credits": 75, "monthly_limit_credits": 800,
-            "active_luna_cap": 1,
+            # Owner decision 2026-09-17: non-paying workspaces get 2 Lunas and
+            # NO per-Luna day/month caps — any credit balance is spendable.
+            "active_luna_cap": 2,
             # Partner signup offers by verified email domain — replaces the
             # standard gift for matching signups ($1000, 90 days).
             "domain_gifts": {"monday.com": {"gift_credits": 100_000, "days": 90}},

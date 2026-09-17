@@ -203,6 +203,10 @@ async def test_trial_flips_to_paid_on_topup(db_session, account):
 async def test_apply_trial_agent_limits_insert_only(db_session, account, sample_agent):
     await _seed(db_session, account.id)
     config = await grants.account_config(db_session, account.id, NOW)
+    # Default config (2026-09-17) carries no per-Luna caps: nothing is written.
+    assert await grants.apply_trial_agent_limits(db_session, sample_agent.id, config) is None
+    config = {**config, "trial": {**config["trial"],
+                                  "daily_limit_credits": 75, "monthly_limit_credits": 800}}
     row = await grants.apply_trial_agent_limits(db_session, sample_agent.id, config)
     assert row.daily_limit_credits == 75 and row.monthly_limit_credits == 800
     row.daily_limit_credits = 10  # customer-edited
@@ -528,7 +532,10 @@ async def test_create_agent_trial_cap_enforced(
     await _seed(db_session, account.id)
     await _fund(db_session, account.id, 5000)
     await db_session.commit()
+    # Trial cap is 2 (2026-09-17): the second Luna fits, the third does not.
     r = await admin_client.post("/api/agents", json={"name": "Second Luna"})
+    assert r.status_code == 201
+    r = await admin_client.post("/api/agents", json={"name": "Third Luna"})
     assert r.status_code == 402
     assert r.json()["detail"]["code"] == "active_luna_limit"
 
@@ -539,31 +546,35 @@ async def test_create_agent_trial_cap_observe_only_logs(
     _set_mode(monkeypatch, "observe")
     await _seed(db_session, account.id)
     await db_session.commit()
-    r = await admin_client.post("/api/agents", json={"name": "Second Luna"})
+    await admin_client.post("/api/agents", json={"name": "Second Luna"})
+    r = await admin_client.post("/api/agents", json={"name": "Third Luna"})
     assert r.status_code == 201  # would_block, never blocked outside enforce
 
 
 async def test_create_agent_cap_override_lifts_trial_cap(
     admin_client, db_session, account, sample_agent, monkeypatch,
 ):
-    # 057: trial account with override=2 gets a second Luna, not a third.
+    # 057: trial account with override=3 (above the trial default of 2) gets
+    # a third Luna, not a fourth.
     _set_mode(monkeypatch, "enforce")
     await _seed(db_session, account.id)
     await _fund(db_session, account.id, 5000)
     ba = await ledger.ensure_billing_account(db_session, account.id)
-    ba.active_luna_cap_override = 2
+    ba.active_luna_cap_override = 3
     await db_session.commit()
 
     r = await admin_client.post("/api/agents", json={"name": "Second Luna"})
     assert r.status_code == 201
-    # Metering untouched: the new trial agent still gets spend caps.
+    r = await admin_client.post("/api/agents", json={"name": "Third Luna"})
+    assert r.status_code == 201
+    # Default config carries no per-Luna spend caps: no limits row is written.
     limits = (await db_session.execute(
         select(AgentCreditLimit).where(
             AgentCreditLimit.agent_id == uuid.UUID(r.json()["id"]))
     )).scalars().all()
-    assert len(limits) == 1
+    assert limits == []
 
-    r = await admin_client.post("/api/agents", json={"name": "Third Luna"})
+    r = await admin_client.post("/api/agents", json={"name": "Fourth Luna"})
     assert r.status_code == 402
     assert r.json()["detail"]["code"] == "active_luna_limit"
 
@@ -615,8 +626,8 @@ async def test_create_agent_enforce_funded_durable_provisioning(
     )).scalar_one()
     assert period.state == "pending"
     await _job(db_session, f"hostprov:{period.id}")
-    limits = await db_session.get(AgentCreditLimit, agent_id)
-    assert limits.daily_limit_credits == 75 and limits.monthly_limit_credits == 800
+    # No per-Luna spend caps under the default config (2026-09-17).
+    assert await db_session.get(AgentCreditLimit, agent_id) is None
 
 
 async def test_start_agent_payment_due_402(

@@ -136,7 +136,7 @@ async def test_summary_trial_balances_and_payments_flag(admin_client, db_session
     assert body["balances"]["gift"] == 1800
     assert body["trial"]["is_trial"] is True
     assert body["trial"]["expires_at"] is not None
-    assert body["trial"]["active_luna_cap"] == 1
+    assert body["trial"]["active_luna_cap"] == 2
     assert body["payments_enabled"] is False
     assert body["recovery"]["debt_credits"] == 0
     assert body["recovery"]["payment_action_required"] is False

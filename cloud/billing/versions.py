@@ -22,8 +22,9 @@ reaching here):
                  "paid_credits": int, "bonus_credits": int,
                  "yearly_gift_credits": int, "expiration": ...}, ...],
   "trial": {"gift_credits": 1800, "days": 28,
+             # optional per-Luna pacing caps (omit = uncapped)
              "daily_limit_credits": 75, "monthly_limit_credits": 800,
-             "active_luna_cap": 1,
+             "active_luna_cap": 2,
              # optional partner signup offers by verified email domain;
              # replaces the standard gift (days falls back to trial.days)
              "domain_gifts": {"monday.com": {"gift_credits": 20000}},

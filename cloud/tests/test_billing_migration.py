@@ -138,8 +138,8 @@ async def test_execute_posts_gift_hosting_stops_and_audit(db_session, cohort):
     assert await ledger.posted_balance(db_session, alpha.id) == 1_800 - 999
     assert await ledger.posted_balance(db_session, beta.id) == 1_800
 
-    # Kept Luna got insert-only trial limits from config.
-    assert await db_session.get(AgentCreditLimit, cohort["keep"].id) is not None
+    # Default config carries no per-Luna caps, so no limits row is written.
+    assert await db_session.get(AgentCreditLimit, cohort["keep"].id) is None
 
     # The other running Luna gets a durable stop job — never a delete.
     jobs = (await db_session.execute(select(BillingJob))).scalars().all()
