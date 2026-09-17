@@ -63,3 +63,11 @@ sha256 = "58e58a9f895420c2bab3ec7fd56a1402662c66d1373fa602053d88a4b0bde305"
 name = "plugin-inline-code-run"
 version = "0.4.0"
 sha256 = "086c31968fd0f6b6a47e8c5a89e451fc4e8606e47f99009b277252fbdbaebe85"
+
+# 0.1.0: typesafe_decide — calibrated answers to closed questions for chat and
+# playbooks (luna-plugins plans/018, luna-service plans/080). Keyed through the
+# gateway in proxy mode; returns `unavailable` on a machine without the binding.
+[[plugins]]
+name = "plugin-typesafe"
+version = "0.1.0"
+sha256 = "406b67ffac4df88dba834bb264de22a1c3c7a5a761d8a719aa0a856da25ef279"
