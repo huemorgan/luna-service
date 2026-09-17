@@ -133,6 +133,9 @@ _SERVICE_DEFAULTS: dict[str, RouteClass] = {
     # Free until a browser_task SKU is priced/enabled — same interim posture
     # as Composio ("Included with Luna Cloud").
     "browser-use": _FREE,
+    # TypeSafe System One (plugin-typesafe): one endpoint, ~$0.04 per million
+    # input tokens. Free until usage is measured and a SKU is priced.
+    "typesafe": _FREE,
 }
 
 

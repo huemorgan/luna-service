@@ -86,6 +86,18 @@ SEED_SERVICES: list[dict] = [
         "provision_by_default": True,
     },
     {
+        # TypeSafe System One (plugin-typesafe, luna-plugins plans/018). The
+        # plugin calls /v1/systemone, so the upstream is the bare host.
+        # Bound per plugin via the catalog (proxy mode), not pushed to every
+        # tenant by default.
+        "slug": "typesafe",
+        "display_name": "TypeSafe",
+        "upstream_url": "https://api.typesafe.ai",
+        "auth_style": "header:Authorization:Bearer",
+        "enabled": True,
+        "provision_by_default": False,
+    },
+    {
         # Composio's REST API lives under /api/v3 — when Luna calls
         # LUNA_COMPOSIO_BASE_URL/toolkits in proxy mode the gateway has to
         # supply the /api/v3 prefix itself (same trick as OpenAI's /v1 above).
@@ -207,6 +219,7 @@ KNOWN_SERVICES: dict[str, tuple[str, str, str]] = {
     "browser-use":    ("https://api.browser-use.com/api/v4", "header:X-Browser-Use-API-Key", "Browser Use"),
     "composio":       ("https://backend.composio.dev/api/v3", "header:x-api-key",         "Composio"),
     "tavily":         ("https://api.tavily.com",           "header:Authorization:Bearer", "Tavily"),
+    "typesafe":       ("https://api.typesafe.ai",          "header:Authorization:Bearer", "TypeSafe"),
     "openai":         ("https://api.openai.com/v1",         "header:Authorization:Bearer", "OpenAI"),
     "moonshot":       ("https://api.moonshot.ai/v1",         "header:Authorization:Bearer", "Moonshot AI"),
     "qwen":           ("https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "header:Authorization:Bearer", "Qwen (Alibaba)"),
