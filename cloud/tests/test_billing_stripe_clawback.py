@@ -34,8 +34,10 @@ from cloud.billing.stripe_webhooks import grant_from_paid_invoice, intake_event
 pytestmark = pytest.mark.asyncio
 
 CUS = "cus_test1"
-PERIOD_START = datetime(2026, 7, 1, tzinfo=timezone.utc)
-PERIOD_END = datetime(2026, 8, 1, tzinfo=timezone.utc)
+# Keep the monthly lot active when testing consumption and clawback. A fixed
+# 2026-07 period expired as the test suite aged, making a charge uncoverable.
+PERIOD_START = datetime.now(timezone.utc) - timedelta(days=1)
+PERIOD_END = PERIOD_START + timedelta(days=30)
 
 
 def _unix(dt: datetime) -> int:

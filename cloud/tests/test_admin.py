@@ -130,6 +130,9 @@ class TestImages:
         data = resp.json()
         main_versions = [i["version"] for i in data if i["is_main"]]
         assert main_versions == ["0.01.002"]
+        previous = next(i for i in data if i["version"] == sample_image.version)
+        assert previous["build_status"] == "built"
+        assert previous["is_main"] is False
 
     async def test_set_main_rejects_unbuilt(self, admin_client: AsyncClient, db_session):
         from cloud.db.models import LunaImage

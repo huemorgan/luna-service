@@ -207,6 +207,12 @@ async def test_resolve_falls_back_to_seed(anon_client, sample_image):
     )
     assert resp.status_code == 200
     names = {p["name"] for p in resp.json()["plugins"]}
-    assert names == {"plugin-charts", "plugin-web-access", "plugin-files", "plugin-browser",
-                     "plugin-goalseek", "plugin-chat-ui", "plugin-inline-code-run",
-                     "plugin-typesafe"}
+    assert names == {
+        "plugin-recall", "plugin-mcp", "plugin-charts", "plugin-web-access",
+        "plugin-html-page", "plugin-image-gen", "plugin-wiki", "plugin-scheduler",
+        "plugin-marketplace-ui", "plugin-files", "plugin-curiosity",
+        "plugin-inline-code-run", "plugin-chat-ui", "plugin-connectors",
+        "plugin-browser", "plugin-feedback", "plugin-playbooks",
+        "plugin-typesafe", "plugin-db",
+    }
+    assert all(len(p["sha256"]) == 64 for p in resp.json()["plugins"])

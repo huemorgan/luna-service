@@ -1,73 +1,100 @@
-# plugin-set.toml — default/seed for the image-baked plugin set (Plan 019).
-#
-# This is ONLY the fallback used when an image has no UI selection
-# (image_config.plugin_set is empty). The real source of truth is the admin
-# "Plugin Set" picker, which writes per-image selections captured live from the
-# marketplace index.json. The build (scripts/bake_plugin_set.py) prefers the UI
-# selection (plugin-set.json) and falls back to this file.
-#
-# Curated leaf set: charts + web-access + files. Connectors (monday/render/
-# cloudflare) are NOT bakeable yet — they carry PyPI deps that hit the
-# dependency-isolation problem (Luna 008.5 §5).
-#
-# `sha256` pins the exact artifact; the build fails closed on any mismatch.
-# Refresh these from the official index when the marketplace publishes new
-# versions:
-#   curl -s https://luna-marketplaces.onrender.com/mp/official/index.json
+# Fleet image fallback pins — plan 081, verified against the official index on 2026-09-18.
+# The admin image defaults are primary. The image build uses this file only if the
+# control-plane plugin-set snapshot cannot be fetched. Keep versions and hashes
+# synchronized with the live default plugin set before a fleet image build.
 marketplace = "https://luna-marketplaces.onrender.com/mp/official/"
 
 [[plugins]]
-name = "plugin-charts"
-version = "0.1.0"
-sha256 = "52e063f327a2f1ed505b239344eca9aadb0806fe1921e3f6b58f0f0ba0a9f1b9"
+name = "plugin-recall"
+version = "0.1.2"
+sha256 = "3023e1a9ba87ca7e64ed102bcf93d203978d690f67ccd81f249f148030360b7c"
 
-# 0.2.4: vault.connect("tavily") + omit body api_key for virtual/gateway tokens.
+[[plugins]]
+name = "plugin-mcp"
+version = "0.2.1"
+sha256 = "f9abc5c74f6688af1272d806b8e92884e1a43ea668551fce2d940dc2c990b270"
+
+[[plugins]]
+name = "plugin-charts"
+version = "0.1.2"
+sha256 = "95c73fd5cf1fe2973325dcb4abc2f496efebaeaa2c2553c0179b7ed35a320736"
+
 [[plugins]]
 name = "plugin-web-access"
-version = "0.2.4"
-sha256 = "b4ff6e84c68902cba47282e3c5fba175c2f0c4b521f1b6a5dd5559d2e5917823"
+version = "0.3.1"
+sha256 = "0d2ed0f430f775ddbcc8032c1ef5d6b7537fc1230fcedd541f3ab7ef9dac459d"
 
-# Synced with admin defaults (Jun 2026). The build prefers the UI selection
-# (plugin-set.json from the control plane); this seed is a fallback only.
+[[plugins]]
+name = "plugin-html-page"
+version = "0.1.2"
+sha256 = "a2f58650d74f290d98eb89171ebd657f8c633b7fe12bc9740a9a8ef251820288"
+
+[[plugins]]
+name = "plugin-image-gen"
+version = "0.3.8"
+sha256 = "895bc2c4a7aeafe00c65d208221629aaa1944933e01ab01182c70c6b5cdbfae5"
+
+[[plugins]]
+name = "plugin-wiki"
+version = "0.10.0"
+sha256 = "2f12635415d43b3b7f6b21f34921b3db99130a6c13766fd6e29da861ebad029d"
+
+[[plugins]]
+name = "plugin-scheduler"
+version = "0.8.3"
+sha256 = "81504526abb04f588994e554e1420d48617b32c7bc396090715b1b564e5a93b4"
+
+[[plugins]]
+name = "plugin-marketplace-ui"
+version = "1.2.2"
+sha256 = "b484ff70a48e6f052d2441bb47323e9d1231b81cb2f8ddd2f70e7946bc6230d7"
+
 [[plugins]]
 name = "plugin-files"
-version = "0.6.1"
-sha256 = "64d9e4d0433b79c9ec57fc8a569d4e646e8a44572299d8f000c5962318002436"
+version = "0.15.0"
+sha256 = "1fcd0dcca4e4dc859b8cedae48efaf82b53d7d8d67c75911cce0dac01551ed6c"
 
 [[plugins]]
-name = "plugin-browser"
-version = "0.4.0"
-sha256 = "c6bb7fc197a62db0521b8c3cd0377de4468c1d22f0d3da1d9d7d5c71ed2fa967"
+name = "plugin-curiosity"
+version = "0.26.0"
+sha256 = "4f8f85bf108129413a0edaf0e67d3ee7da2f30fd93e67fccd42c10e004f55b25"
 
-# 008-chat-ui: the rich chat panel, extracted from luna core 0.54.000. Mounts
-# natively in the shell's React tree (window.LunaReact* globals); without it
-# core falls back to the minimal BasicChat.
-[[plugins]]
-name = "plugin-chat-ui"
-version = "0.1.0"
-sha256 = "14638fcfd6fd071c00aa29f08ec50f9e302a19379e87de405b6fe983b6cdadf3"
-
-# 1.0.1: durable governed goal pursuit (042/phase09). Leaf deps only
-# (luna_sdk + sqlalchemy already in the image); requires luna >= 0.40.005
-# for deferential tool registration when curiosity is also installed, and
-# plugin-scheduler >= 0.3.2 for goalseek_run heartbeat billing attribution.
-[[plugins]]
-name = "plugin-goalseek"
-version = "1.0.1"
-sha256 = "58e58a9f895420c2bab3ec7fd56a1402662c66d1373fa602053d88a4b0bde305"
-
-# 0.4.0: curated data stack (plan 077). Baking this plugin also triggers the
-# Dockerfile's code_run venv bake (bake_code_run_venv.py) so the packages are
-# preinstalled in an image layer — restart-proof, no PyPI at tenant runtime.
 [[plugins]]
 name = "plugin-inline-code-run"
 version = "0.4.0"
 sha256 = "086c31968fd0f6b6a47e8c5a89e451fc4e8606e47f99009b277252fbdbaebe85"
 
-# 0.1.0: typesafe_decide — calibrated answers to closed questions for chat and
-# playbooks (luna-plugins plans/018, luna-service plans/080). Keyed through the
-# gateway in proxy mode; returns `unavailable` on a machine without the binding.
+[[plugins]]
+name = "plugin-chat-ui"
+version = "0.30.2"
+sha256 = "2987cbe1ee15b3d4cee8e9c65ef9c8ff9b6e2e4390b0c763f8a4892be86467c4"
+
+[[plugins]]
+name = "plugin-connectors"
+version = "0.3.0"
+sha256 = "49bd3568ea53f16257afe221426018570b7636b252d136990a1caff03f88340d"
+
+[[plugins]]
+name = "plugin-browser"
+version = "0.6.0"
+sha256 = "907c0a2b873fcecbd46221484ee148ec76520b596d6ba8b10df30b406bc79576"
+
+[[plugins]]
+name = "plugin-feedback"
+version = "0.9.0"
+sha256 = "3a9b403cca4644b3a1f42c646c8e8cd741cb2fff11d871a2c401d0de6efcff7c"
+
+[[plugins]]
+name = "plugin-playbooks"
+version = "0.57.16"
+sha256 = "2fea074f9124958f078664ca66b9562f1cdd81844c62ce8a8214ab07d6d634a3"
+
 [[plugins]]
 name = "plugin-typesafe"
 version = "0.1.0"
 sha256 = "406b67ffac4df88dba834bb264de22a1c3c7a5a761d8a719aa0a856da25ef279"
+
+[[plugins]]
+name = "plugin-db"
+version = "0.1.1"
+sha256 = "c424ac0f08cd96acf6af54ba34f46e005f6aa056e710e04783a76c8a5d4aef2f"

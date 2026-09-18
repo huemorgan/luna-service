@@ -19,6 +19,9 @@ build dispatch and the Fly migration all behave identically.
   # flip main, migrate every machine, delete the old main (promote_main does all three)
   python scripts/rollout_image.py promote --version 0.53.000
 
+  # preferred for fleet releases: migrate while retaining the old image
+  python scripts/rollout_image.py promote-preserve --version 0.53.000
+
   # ask Fly what each machine actually runs — the DB is not the oracle
   python scripts/rollout_image.py verify --version 0.53.000
 
@@ -234,6 +237,47 @@ async def cmd_promote(args) -> int:
     return 1 if res.get("errors") else 0
 
 
+async def cmd_promote_preserve(args) -> int:
+    """Make a built image main and migrate machines, retaining image history."""
+    from sqlalchemy import select
+
+    from cloud.api import admin_routes as ar
+    from cloud.db.models import LunaImage
+    from cloud.db.session import get_session
+
+    async with get_session() as db:
+        images = (await db.execute(
+            select(LunaImage).where(LunaImage.version == args.version)
+        )).scalars().all()
+        previous = (await db.execute(
+            select(LunaImage).where(LunaImage.is_main == True)  # noqa: E712
+        )).scalar_one_or_none()
+    if len(images) != 1:
+        print(f"expected exactly one image for {args.version}, found {len(images)}")
+        return 2
+    img = images[0]
+    if img.build_status != "built":
+        print(f"{args.version} is {img.build_status}, not built — nothing promoted")
+        return 2
+
+    admin = await _admin()
+    promoted = await ar.set_main_image(str(img.id), _Req(), admin=admin)
+    migrated = await ar.migrate_all_machines(_Req(), admin=admin)
+    async with get_session() as db:
+        retained = previous is None or await db.get(LunaImage, previous.id) is not None
+    print(json.dumps({
+        "promoted": promoted.get("version"),
+        "migrated": migrated.get("updated"),
+        "errors": migrated.get("errors", []),
+        "previous_image": previous.version if previous else None,
+        "previous_image_retained": retained,
+    }, default=str, indent=2))
+    pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    if pending:
+        await asyncio.wait(pending, timeout=args.warm_timeout)
+    return 1 if migrated.get("errors") or not retained else 0
+
+
 async def cmd_verify(args) -> int:
     from sqlalchemy import select
 
@@ -298,6 +342,10 @@ def main() -> int:
     spr.add_argument("--version", required=True)
     spr.add_argument("--warm-timeout", type=int, default=180)
 
+    spp = sub.add_parser("promote-preserve", help="make main, migrate machines, retain old images")
+    spp.add_argument("--version", required=True)
+    spp.add_argument("--warm-timeout", type=int, default=180)
+
     sv = sub.add_parser("verify", help="ask Fly what each machine actually runs")
     sv.add_argument("--version", default=None, help="flag machines not on this tag")
 
@@ -305,7 +353,8 @@ def main() -> int:
     return asyncio.run({
         "status": cmd_status, "pin": cmd_pin, "build": cmd_build,
         "rebake": cmd_rebake, "audit": cmd_audit,
-        "promote": cmd_promote, "verify": cmd_verify,
+        "promote": cmd_promote, "promote-preserve": cmd_promote_preserve,
+        "verify": cmd_verify,
     }[args.cmd](args))
 
 
