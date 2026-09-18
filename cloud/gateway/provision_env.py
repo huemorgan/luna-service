@@ -49,7 +49,14 @@ def _emit_extra_env(env: dict[str, str], svc: GatewayService) -> None:
 
 # Services Luna can't route through the proxy yet (no base-url support on the
 # Luna side until 007.001 lands). The real key keeps being injected for these.
-LEGACY_REAL_KEY_VARS = ("LUNA_TAVILY_API_KEY", "LUNA_ELEVENLABS_API_KEY")
+# LUNA_GEMINI_API_KEY: plugin-voice 0.8.0 mints ephemeral Live-session tokens
+# directly against Google (the browser then talks to Google over WS) — a proxy
+# virtual key can't do that, so the real key must reach the machine.
+LEGACY_REAL_KEY_VARS = (
+    "LUNA_TAVILY_API_KEY",
+    "LUNA_ELEVENLABS_API_KEY",
+    "LUNA_GEMINI_API_KEY",
+)
 
 
 async def build_gateway_env(
