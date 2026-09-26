@@ -9,6 +9,7 @@ Every event source (a Luna pushing events, or a tenant-DB trigger listener) call
     {"type": "conversation.deleted", "event_id", "conversation_id"}
     {"type": "approval.requested", "event_id", "approval_id", "conversation_id"?, "summary"?}
     {"type": "approval.decided", "event_id", "approval_id", "conversation_id"?, "decision"?}
+    {"type": "turn.started", "event_id", "conversation_id", "source"?}
     {"type": "turn.ended", "event_id", "conversation_id", "error_code"?}
 
 Inputs are untrusted: unknown types are skipped, strings are clamped, and a repeated
@@ -29,12 +30,14 @@ log = logging.getLogger(__name__)
 
 TYPES = {
     "message", "conversation", "conversation.deleted",
-    "approval.requested", "approval.decided", "turn.ended",
+    "approval.requested", "approval.decided", "turn.started", "turn.ended",
 }
 PREVIEW_CHARS = 200
 TITLE_CHARS = 200
 ID_CHARS = 64
 RETENTION_DAYS = 30
+# A turn whose "ended" never arrived (machine crash) stops showing as working after this.
+WORKING_STALE = timedelta(minutes=10)
 
 
 def _s(v: object, n: int) -> str | None:
@@ -162,6 +165,7 @@ async def feed(db, user_id: uuid.UUID, account_id: uuid.UUID, since: datetime | 
     }
     unread = await _unread(db, rows, markers)
     pending = await _pending(db, list(agents))
+    working = await _working(db, list(agents))
 
     out = []
     for r in rows:
@@ -178,6 +182,7 @@ async def feed(db, user_id: uuid.UUID, account_id: uuid.UUID, since: datetime | 
             "message_count": r.message_count,
             "unread": unread.get((r.agent_id, r.conversation_id), 0),
             "pending_approvals": pending.get((r.agent_id, r.conversation_id), 0),
+            "working": (r.agent_id, r.conversation_id) in working,
             "updated_at": _iso(r.updated_at),
         })
     far = datetime.min.replace(tzinfo=timezone.utc)
@@ -237,6 +242,24 @@ async def _pending(db, agent_ids: list) -> dict:
         .group_by(ChatEvent.agent_id, ChatEvent.conversation_id)
     )
     return {(a, c): n for a, c, n in res.all()}
+
+
+async def _working(db, agent_ids: list) -> set:
+    """Conversations whose latest turn event is a start, within WORKING_STALE."""
+    cutoff = datetime.now(timezone.utc) - WORKING_STALE
+    res = await db.execute(
+        select(ChatEvent.agent_id, ChatEvent.conversation_id, ChatEvent.type, ChatEvent.occurred_at)
+        .where(
+            ChatEvent.agent_id.in_(agent_ids),
+            ChatEvent.type.in_(("turn.started", "turn.ended")),
+            ChatEvent.occurred_at > cutoff,
+        )
+        .order_by(ChatEvent.occurred_at, ChatEvent.created_at)
+    )
+    latest: dict = {}
+    for a, c, typ, _ in res.all():
+        latest[(a, c)] = typ
+    return {k for k, typ in latest.items() if typ == "turn.started"}
 
 
 async def mark_read(db, user_id: uuid.UUID, agent_id: uuid.UUID, conversation_id: str) -> None:

@@ -150,3 +150,17 @@ async def test_ingest_publishes_change_to_subscribers(admin_client, db_session, 
 @pytest.mark.asyncio
 async def test_stream_route_is_member_only(anon_client):
     assert (await anon_client.get("/api/feed/stream")).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_working_while_a_turn_runs(admin_client, db_session, sample_agent):
+    from datetime import datetime, timezone
+    h = await _auth(db_session, sample_agent)
+    now = datetime.now(timezone.utc).isoformat()
+    await _post(admin_client, h, [
+        _msg("conv-a", "user", "go", now),
+        {"type": "turn.started", "event_id": "t1", "conversation_id": "conv-a", "created_at": now},
+    ])
+    assert (await admin_client.get("/api/feed")).json()["items"][0]["working"] is True
+    await _post(admin_client, h, [{"type": "turn.ended", "event_id": "t2", "conversation_id": "conv-a"}])
+    assert (await admin_client.get("/api/feed")).json()["items"][0]["working"] is False
