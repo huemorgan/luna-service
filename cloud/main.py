@@ -17,6 +17,7 @@ from cloud.api.billing_admin_routes import router as billing_admin_router
 from cloud.api.billing_routes import public_router as billing_public_router
 from cloud.api.billing_routes import router as billing_router
 from cloud.api.error_agent_routes import router as error_agent_router
+from cloud.api.feed_routes import agent_router as feed_agent_router, router as feed_router
 from cloud.api.error_routes import router as error_admin_router
 from cloud.api.gateway_admin_routes import router as gateway_admin_router
 from cloud.api.gateway_agent_routes import router as gateway_agent_router
@@ -156,10 +157,18 @@ async def lifespan(app: FastAPI):
             run_exclusive(LOCK_BILLING_WORKER, "billing-worker", billing_loop)
         )
 
+    # Chat feed fan-out (luna-control plan 002): every worker listens on its own
+    # connection so a phone's /api/feed/stream on either worker sees each change.
+    chat_feed_task = None
+    settings = get_settings()
+    if settings.database_url.startswith("postgresql") and os.environ.get("CLOUD_CHAT_FEED_LISTENER", "1") == "1":
+        from cloud.chat.broker import listen_loop
+        chat_feed_task = asyncio.create_task(listen_loop(settings.database_url))
+
     yield
 
     for task in (forwarder_task, reconciler_task, scheduler_sweep_task,
-                 billing_worker_task):
+                 billing_worker_task, chat_feed_task):
         if task:
             task.cancel()
             try:
@@ -305,6 +314,9 @@ def create_app() -> FastAPI:
     app.include_router(error_admin_router)
     app.include_router(error_agent_router)
     app.include_router(error_agent_router, prefix="/proxy")
+    app.include_router(feed_router)
+    app.include_router(feed_agent_router)
+    app.include_router(feed_agent_router, prefix="/proxy")
     app.include_router(gateway_proxy_router)
     app.include_router(proxy_router)
 
