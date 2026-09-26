@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import logging
 import re
 import secrets
@@ -9,11 +12,13 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from cloud.auth.deps import require_user
 from cloud.auth.identity import GoogleIdentityProvider, StubIdentityProvider, UserInfo
-from cloud.auth.session import clear_session, set_session
+from cloud.auth.session import MAX_AGE, clear_session, make_session_token, set_session
 from cloud.config import Settings, get_settings
 from cloud.db.models import Account, Membership, User
 from cloud.db.session import get_session as get_db_session
@@ -22,7 +27,19 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["auth"])
 
-_states: dict[str, str] = {}  # state → redirect_to (simple in-memory for MVP)
+# OAuth state is signed rather than kept in memory, so it survives the callback
+# landing on a different uvicorn worker and is actually verified.
+STATE_MAX_AGE = 600
+# The iPhone app's one-time hand-off code (PKCE-bound) is short-lived.
+HANDOFF_MAX_AGE = 120
+
+
+def _signer(salt: str) -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(get_settings().session_secret, salt=salt)
+
+
+def _pkce_s256(verifier: str) -> str:
+    return base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
 
 # 044: current Terms of Service version (its effective date). Every login
 # path shows "By continuing you agree to the Terms" before the OAuth
@@ -48,6 +65,9 @@ _ALLOWED_EMAILS = {
 
 
 def _enforce_email_allowlist(email: str) -> None:
+    # The stub provider only exists for local dev/tests; its fixed users aren't real sign-ups.
+    if get_settings().identity_provider == "stub":
+        return
     domain = email.split("@", 1)[-1].lower()
     if domain in _ALLOWED_DOMAINS or email.lower() in _ALLOWED_EMAILS:
         return
@@ -84,15 +104,26 @@ async def auth_mode():
 async def login(request: Request):
     settings = get_settings()
     provider = _get_identity_provider(settings)
-    state = secrets.token_urlsafe(32)
-    _states[state] = str(request.query_params.get("next", "/dashboard"))
+    client = request.query_params.get("client", "web")
+    challenge = request.query_params.get("challenge", "")
+    if client == "ios" and not re.fullmatch(r"[A-Za-z0-9_-]{43}", challenge):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "iOS sign-in needs a PKCE S256 challenge.")
+    state = _signer("oauth-state").dumps({
+        "n": secrets.token_urlsafe(16),
+        "client": "ios" if client == "ios" else "web",
+        "challenge": challenge if client == "ios" else "",
+    })
     url = await provider.get_authorization_url(settings.google_redirect_uri, state)
     return RedirectResponse(url, status_code=302)
 
 
 @router.get("/auth/google/callback")
 async def google_callback(code: str, state: str):
-    redirect_to = _states.pop(state, "/dashboard")
+    try:
+        st = _signer("oauth-state").loads(state, max_age=STATE_MAX_AGE)
+    except (BadSignature, SignatureExpired):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Sign-in expired or invalid — please try again.")
+    is_ios = st.get("client") == "ios"
     settings = get_settings()
     provider = _get_identity_provider(settings)
 
@@ -101,8 +132,19 @@ async def google_callback(code: str, state: str):
     except Exception as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"OAuth exchange failed: {e}")
 
-    _enforce_email_allowlist(user_info.email)
+    try:
+        _enforce_email_allowlist(user_info.email)
+    except HTTPException:
+        if is_ios:
+            return RedirectResponse(f"{settings.mobile_redirect_uri}?error=restricted", status_code=302)
+        raise
     user, account = await _upsert_user_and_account(user_info)
+
+    if is_ios:
+        handoff = _signer("mobile-handoff").dumps(
+            {"u": str(user.id), "a": str(account.id), "c": st.get("challenge", "")}
+        )
+        return RedirectResponse(f"{settings.mobile_redirect_uri}?code={handoff}", status_code=302)
 
     response = RedirectResponse("/dashboard", status_code=302)
     set_session(response, str(user.id), str(account.id))
@@ -186,6 +228,32 @@ async def _upsert_user_and_account(info: UserInfo) -> tuple[User, Account]:
         await db.refresh(user)
         await db.refresh(account)
         return user, account
+
+
+class MobileTokenRequest(BaseModel):
+    code: str
+    verifier: str
+
+
+@router.post("/auth/mobile/token")
+async def mobile_token(body: MobileTokenRequest):
+    """iPhone app: swap the hand-off code (+ PKCE verifier) for a session token.
+
+    The token is the same signed value the web cookie carries; the app sends it
+    as `X-Luna-Session`. The code is bound to the verifier the app generated,
+    so an intercepted `lunacontrol://` redirect is useless on its own.
+    """
+    try:
+        data = _signer("mobile-handoff").loads(body.code, max_age=HANDOFF_MAX_AGE)
+    except (BadSignature, SignatureExpired):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Sign-in code expired or invalid.")
+    if not data.get("c") or not hmac.compare_digest(_pkce_s256(body.verifier), data["c"]):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Sign-in code does not match this device.")
+    return {
+        "token": make_session_token(data["u"], data["a"]),
+        "expires_in": MAX_AGE,
+        "header": "X-Luna-Session",
+    }
 
 
 @router.get("/auth/logout")

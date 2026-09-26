@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     google_redirect_uri: str = "http://localhost:8100/auth/google/callback"
 
     base_url: str = "http://localhost:8100"
+    # iPhone app (luna-control): where Google sign-in hands the app its one-time code.
+    mobile_redirect_uri: str = "lunacontrol://auth"
 
     runtime: str = "docker-local"  # "docker-local" | "fly-machines"
     tenant_database_url: str = ""  # shared tenant DB; falls back to database_url

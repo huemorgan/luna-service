@@ -309,6 +309,7 @@ async def _proxy_request(
     headers = dict(request.headers)
     headers.pop("host", None)
     headers.pop("cookie", None)
+    headers.pop("x-luna-session", None)  # the app's control-plane session never reaches a tenant
     headers.pop("accept-encoding", None)
     if user is not None:
         headers["x-luna-user"] = user.email
