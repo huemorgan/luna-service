@@ -18,9 +18,16 @@ def _serializer() -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(get_settings().session_secret)
 
 
+HEADER_NAME = "x-luna-session"  # the iPhone app sends its session here instead of a cookie
+
+
+def make_session_token(user_id: str, account_id: str) -> str:
+    """The signed value the cookie carries; the iPhone app holds the same value."""
+    return _serializer().dumps(json.dumps({"user_id": user_id, "account_id": account_id}))
+
+
 def set_session(response: Response, user_id: str, account_id: str) -> None:
-    payload = json.dumps({"user_id": user_id, "account_id": account_id})
-    token = _serializer().dumps(payload)
+    token = make_session_token(user_id, account_id)
     response.set_cookie(
         COOKIE_NAME,
         token,
@@ -33,7 +40,8 @@ def set_session(response: Response, user_id: str, account_id: str) -> None:
 
 
 def get_session(request: Request) -> dict | None:
-    token = request.cookies.get(COOKIE_NAME)
+    # Cookie first (web); else the app's header. Same signature, same max age.
+    token = request.cookies.get(COOKIE_NAME) or request.headers.get(HEADER_NAME)
     if not token:
         return None
     try:
