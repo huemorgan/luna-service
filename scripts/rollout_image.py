@@ -358,6 +358,25 @@ async def cmd_canary(args) -> int:
     return 0
 
 
+async def cmd_agents(args) -> int:
+    """Agents on accounts this person belongs to (to pick a canary)."""
+    from sqlalchemy import select
+
+    from cloud.db.models import Agent, Membership, User
+    from cloud.db.session import get_session
+
+    async with get_session() as db:
+        rows = (await db.execute(
+            select(Agent.slug, Agent.name, Agent.status, Agent.image_version, Agent.runtime_ref)
+            .join(Membership, Membership.account_id == Agent.account_id)
+            .join(User, User.id == Membership.user_id)
+            .where(User.email == args.email, Agent.deleted_at.is_(None))
+        )).all()
+    for slug, name, st, ver, ref in rows:
+        print(f"  {slug:<40} {name:<20} {st:<10} {ver or '':<14} {ref or 'no machine'}")
+    return 0
+
+
 async def cmd_feedcheck(args) -> int:
     """luna-control plan 002 / 082: what the chat feed has received from an agent (or all)."""
     from sqlalchemy import func, select
@@ -461,6 +480,8 @@ def main() -> int:
     sc = sub.add_parser("canary", help="move one agent's machine to a built image")
     sc.add_argument("--version", required=True)
     sc.add_argument("--slug", required=True)
+    sag = sub.add_parser("agents", help="agents on this person's accounts")
+    sag.add_argument("--email", required=True)
     sf = sub.add_parser("feedcheck", help="chat feed events received per agent")
     sf.add_argument("--slug")
     sv = sub.add_parser("verify", help="ask Fly what each machine actually runs")
@@ -471,7 +492,7 @@ def main() -> int:
         "status": cmd_status, "pin": cmd_pin, "build": cmd_build,
         "rebake": cmd_rebake, "audit": cmd_audit,
         "promote": cmd_promote, "promote-preserve": cmd_promote_preserve,
-        "verify": cmd_verify, "canary": cmd_canary, "feedcheck": cmd_feedcheck,
+        "verify": cmd_verify, "canary": cmd_canary, "agents": cmd_agents, "feedcheck": cmd_feedcheck,
     }[args.cmd](args))
 
 
