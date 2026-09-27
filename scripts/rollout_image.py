@@ -195,9 +195,56 @@ async def cmd_rebake(args) -> int:
     from cloud.api import admin_routes as ar
 
     admin = await _admin()
+    if args.from_version:
+        return await _rebake_from(args.from_version, admin)
     res = await ar.rebake_image(_Req(), admin=admin)
     print(json.dumps({k: res.get(k) for k in ("id", "version", "build_status", "registry_tag")},
                      default=str, indent=2))
+    print("watch: gh run list --repo huemorgan/luna-service --workflow build-luna-image.yml")
+    return 0
+
+
+async def _rebake_from(base: str, admin) -> int:
+    """Same Luna commit as an existing image, current admin plugin defaults: `{base}-rN`.
+    For shipping a plugin-set change without also moving the fleet to newer Luna code."""
+    from sqlalchemy import select
+
+    from cloud.api import admin_routes as ar
+    from cloud.db.models import LunaImage
+    from cloud.db.session import get_session
+
+    async with get_session() as db:
+        src = (await db.execute(select(LunaImage).where(LunaImage.version == base))).scalar_one_or_none()
+        if src is None or not src.git_sha:
+            print(f"{base}: no image with a recorded git sha")
+            return 2
+        taken = set((await db.execute(select(LunaImage.version).where(
+            LunaImage.version.like(f"{base}-r%")))).scalars())
+        n = 1
+        while f"{base}-r{n}" in taken:
+            n += 1
+        version = f"{base}-r{n}"
+        cfg = await ar._default_image_config(db)
+        fly_app = src.registry_tag.split("/", 1)[1].rsplit(":", 1)[0]
+        img = LunaImage(
+            version=version, registry_tag=f"registry.fly.io/{fly_app}:{version}",
+            build_status="building", created_by=admin.id, git_branch=src.git_branch,
+            git_sha=src.git_sha, sdk_major=src.sdk_major, sdk_min_major=src.sdk_min_major,
+            release_notes=f"Rebake of {base} ({src.git_sha[:7]}) with the current plugin set.",
+            image_config={"plugin_set": cfg.get("plugin_set", []) or []}, is_main=False,
+        )
+        db.add(img)
+        await db.commit()
+        await db.refresh(img)
+        await ar._audit(db, action="image.rebake_triggered", actor=admin, actor_ip=None,
+                        target=str(img.id), metadata={"version": version, "base_version": base,
+                                                      "git_sha": src.git_sha},
+                        after_state={"version": version, "build_status": "building"})
+        await db.commit()
+        image_id = str(img.id)
+    await ar._trigger_github_build(image_id, version, src.git_sha, base)
+    print(json.dumps({"id": image_id, "version": version, "git_sha": src.git_sha,
+                      "plugins": len(cfg.get("plugin_set") or [])}, indent=2))
     print("watch: gh run list --repo huemorgan/luna-service --workflow build-luna-image.yml")
     return 0
 
@@ -396,7 +443,9 @@ def main() -> int:
     sb.add_argument("--force", action="store_true",
                     help="delete an existing record for this version first (e.g. a cancelled run)")
 
-    sub.add_parser("rebake", help="non-main sibling image of current Luna main + current defaults")
+    srb = sub.add_parser("rebake", help="non-main sibling image of current Luna main + current defaults")
+    srb.add_argument("--from-version", default=None,
+                     help="rebake this existing image's Luna commit instead of Luna main (e.g. 0.92.057)")
 
     sa = sub.add_parser("audit", help="print recent audit_log rows")
     sa.add_argument("--limit", type=int, default=20)
