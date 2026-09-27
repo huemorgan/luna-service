@@ -98,3 +98,8 @@ sha256 = "406b67ffac4df88dba834bb264de22a1c3c7a5a761d8a719aa0a856da25ef279"
 name = "plugin-db"
 version = "0.1.1"
 sha256 = "c424ac0f08cd96acf6af54ba34f46e005f6aa056e710e04783a76c8a5d4aef2f"
+
+[[plugins]]
+name = "luna-service-mobile"
+version = "0.1.0"
+sha256 = "bd8e62f71d9386a49a05463a8fb5a11ec2ccef528592c55ccd2e4466872a274f"

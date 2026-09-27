@@ -67,6 +67,16 @@ class _Req:
     client = None
 
 
+class _JsonReq(_Req):
+    """A Request stand-in carrying a JSON body (handlers that read `await request.json()`)."""
+
+    def __init__(self, body: dict):
+        self._body = body
+
+    async def json(self) -> dict:
+        return self._body
+
+
 async def _admin():
     from sqlalchemy import select
 
@@ -278,6 +288,59 @@ async def cmd_promote_preserve(args) -> int:
     return 1 if migrated.get("errors") or not retained else 0
 
 
+async def cmd_canary(args) -> int:
+    """Move one agent's machine to a built image (the admin UI's per-machine update)."""
+    from sqlalchemy import select
+
+    from cloud.api import admin_routes as ar
+    from cloud.db.models import Agent, LunaImage
+    from cloud.db.session import get_session
+
+    async with get_session() as db:
+        img = (await db.execute(select(LunaImage).where(LunaImage.version == args.version))).scalar_one_or_none()
+        agent = (await db.execute(select(Agent).where(Agent.slug == args.slug))).scalar_one_or_none()
+    if img is None or img.build_status != "built":
+        print(f"{args.version}: no built image")
+        return 2
+    if agent is None or not agent.runtime_ref:
+        print(f"{args.slug}: no agent with a machine")
+        return 2
+    admin = await _admin()
+    res = await ar.update_machine_image(agent.runtime_ref, _JsonReq({"image_id": str(img.id)}), admin=admin)
+    print(json.dumps(res, default=str, indent=2))
+    return 0
+
+
+async def cmd_feedcheck(args) -> int:
+    """luna-control plan 002 / 082: what the chat feed has received from an agent (or all)."""
+    from sqlalchemy import func, select
+
+    from cloud.db.models import Agent, ChatEvent, ChatIndexRow
+    from cloud.db.session import get_session
+
+    async with get_session() as db:
+        q = select(Agent.slug, func.count(ChatEvent.id), func.max(ChatEvent.created_at)).join(
+            ChatEvent, ChatEvent.agent_id == Agent.id).group_by(Agent.slug)
+        if args.slug:
+            q = q.where(Agent.slug == args.slug)
+        rows = (await db.execute(q)).all()
+        indexed = dict((await db.execute(
+            select(Agent.slug, func.count()).join(ChatIndexRow, ChatIndexRow.agent_id == Agent.id)
+            .group_by(Agent.slug))).all())
+        recent = []
+        if args.slug:
+            recent = (await db.execute(
+                select(ChatEvent.type, ChatEvent.role, ChatEvent.conversation_id, ChatEvent.created_at)
+                .join(Agent, Agent.id == ChatEvent.agent_id).where(Agent.slug == args.slug)
+                .order_by(ChatEvent.created_at.desc()).limit(15))).all()
+    print(f"agents reporting: {len(rows)}")
+    for slug, n, last in sorted(rows):
+        print(f"  {slug:<40} events={n:<6} chats={indexed.get(slug, 0):<5} last={last}")
+    for typ, role, conv, at in recent:
+        print(f"  {at}  {typ:<20} {role or '':<10} {conv}")
+    return 0
+
+
 async def cmd_verify(args) -> int:
     from sqlalchemy import select
 
@@ -346,6 +409,11 @@ def main() -> int:
     spp.add_argument("--version", required=True)
     spp.add_argument("--warm-timeout", type=int, default=180)
 
+    sc = sub.add_parser("canary", help="move one agent's machine to a built image")
+    sc.add_argument("--version", required=True)
+    sc.add_argument("--slug", required=True)
+    sf = sub.add_parser("feedcheck", help="chat feed events received per agent")
+    sf.add_argument("--slug")
     sv = sub.add_parser("verify", help="ask Fly what each machine actually runs")
     sv.add_argument("--version", default=None, help="flag machines not on this tag")
 
@@ -354,7 +422,7 @@ def main() -> int:
         "status": cmd_status, "pin": cmd_pin, "build": cmd_build,
         "rebake": cmd_rebake, "audit": cmd_audit,
         "promote": cmd_promote, "promote-preserve": cmd_promote_preserve,
-        "verify": cmd_verify,
+        "verify": cmd_verify, "canary": cmd_canary, "feedcheck": cmd_feedcheck,
     }[args.cmd](args))
 
 
