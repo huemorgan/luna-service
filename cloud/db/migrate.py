@@ -49,7 +49,7 @@ BASELINE_REVISION = "0001"
 # or every legacy database gets refused for lacking it. Grows with each
 # migration that touches a CORE_TABLES table.
 POST_BASELINE_COLUMNS: dict[str, set[str]] = {
-    "agents": {"deleted_at"},  # 0004
+    "agents": {"deleted_at", "chat_previews"},  # 0004, 0022
     "users": {"tos_version", "tos_accepted_at"},  # 0009
     "relay_deliveries": {"target_path"},  # 0016
 }

@@ -103,6 +103,9 @@ class Agent(Base):
     # Plan 038: dashboard card accent color (#RRGGBB). NULL falls back to a
     # deterministic palette color derived from the agent id.
     color: Mapped[str | None] = mapped_column(Text)
+    # luna-control plan 002: whether the phone feed may show a last-message preview
+    # for this Luna. Off = the index keeps titles, times and counts only.
+    chat_previews: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     # 039/005: soft-delete tombstone. Billing rows (ledger, holds, hosting
     # periods) reference agents with ON DELETE RESTRICT — financial
     # attribution is permanent, so agents are never hard-deleted once billed.
@@ -569,3 +572,69 @@ class ServiceApiKey(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ChatIndexRow(Base):
+    """Plan 002 (luna-control): one row per conversation on a Luna, for the phone's feed.
+
+    Written only by `cloud.chat.index.apply_events` from the events a Luna sends; never
+    read from the tenant DB. Holds a short preview at most, never message bodies.
+    """
+
+    __tablename__ = "chat_index"
+    __table_args__ = (Index("ix_chat_index_agent_last", "agent_id", "last_message_at"),)
+
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), primary_key=True
+    )
+    conversation_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    title: Mapped[str | None] = mapped_column(Text)
+    kind: Mapped[str | None] = mapped_column(Text)
+    state: Mapped[str | None] = mapped_column(Text)
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_role: Mapped[str | None] = mapped_column(Text)
+    preview: Mapped[str | None] = mapped_column(Text)
+    message_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ChatEvent(Base):
+    """Raw feed events (30-day retention). Unread and pending approvals are counted from
+    here rather than kept as counters, so a lost or repeated event can't make them drift."""
+
+    __tablename__ = "chat_events"
+    __table_args__ = (
+        UniqueConstraint("agent_id", "event_id", name="uq_chat_events_agent_event"),
+        Index("ix_chat_events_conv", "agent_id", "conversation_id", "occurred_at"),
+        Index("ix_chat_events_approval", "agent_id", "approval_id"),
+        Index("ix_chat_events_created", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    event_id: Mapped[str] = mapped_column(Text, nullable=False)
+    # message | conversation | conversation.deleted | approval.requested | approval.decided | turn.ended
+    type: Mapped[str] = mapped_column(Text, nullable=False)
+    conversation_id: Mapped[str | None] = mapped_column(Text)
+    approval_id: Mapped[str | None] = mapped_column(Text)
+    role: Mapped[str | None] = mapped_column(Text)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    payload: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ChatReadMarker(Base):
+    """Per person, so two members of one account each have their own unread."""
+
+    __tablename__ = "chat_read_markers"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), primary_key=True
+    )
+    conversation_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    last_read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
