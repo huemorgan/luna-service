@@ -1916,7 +1916,8 @@ async def update_machine_image(machine_id: str, request: Request, admin: User = 
 
 
 async def _migrate_all_agents(
-    main_version: str, registry_tag: str, admin: User, ip: str | None
+    main_version: str, registry_tag: str, admin: User, ip: str | None,
+    exclude_slugs: set[str] | None = None,
 ) -> dict:
     """Update every machine not already on `main_version` to `registry_tag` and
     record the new image_version. Returns {updated, errors}. Shared by the
@@ -1928,6 +1929,8 @@ async def _migrate_all_agents(
                 Agent.image_version != main_version,
             )
         )).scalars().all()
+    # Owner-held agents stay on their image (e.g. one being worked on by hand).
+    agents = [a for a in agents if a.slug not in (exclude_slugs or set())]
 
     if not agents:
         return {"updated": 0, "errors": []}

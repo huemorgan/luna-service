@@ -319,7 +319,11 @@ async def cmd_promote_preserve(args) -> int:
 
     admin = await _admin()
     promoted = await ar.set_main_image(str(img.id), _Req(), admin=admin)
-    migrated = await ar.migrate_all_machines(_Req(), admin=admin)
+    exclude = set(args.exclude or [])
+    res = await ar._migrate_all_agents(img.version, img.registry_tag, admin, None, exclude_slugs=exclude)
+    migrated = {"updated": res["updated"], "errors": res["errors"]}
+    if exclude:
+        print(f"left on their current image: {sorted(exclude)}")
     async with get_session() as db:
         retained = previous is None or await db.get(LunaImage, previous.id) is not None
     print(json.dumps({
@@ -476,6 +480,8 @@ def main() -> int:
     spp = sub.add_parser("promote-preserve", help="make main, migrate machines, retain old images")
     spp.add_argument("--version", required=True)
     spp.add_argument("--warm-timeout", type=int, default=180)
+    spp.add_argument("--exclude", action="append", metavar="SLUG",
+                     help="agent slug to leave on its current image (repeatable)")
 
     sc = sub.add_parser("canary", help="move one agent's machine to a built image")
     sc.add_argument("--version", required=True)

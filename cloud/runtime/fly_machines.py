@@ -441,7 +441,12 @@ class FlyMachinesRuntime:
         config = machine.get("config", {})
         config["image"] = new_image
         resp = await client.post(f"/machines/{machine_id}", json={"config": config})
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            # Fly explains a refused update in the body (e.g. 422); keep it in the error.
+            raise httpx.HTTPStatusError(
+                f"Fly {resp.status_code} updating {machine_id}: {resp.text[:500]}",
+                request=resp.request, response=resp,
+            )
         return resp.json()
 
     async def update_machine_env(self, machine_id: str, env_updates: dict[str, str],
