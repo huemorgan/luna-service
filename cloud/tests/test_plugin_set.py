@@ -213,6 +213,6 @@ async def test_resolve_falls_back_to_seed(anon_client, sample_image):
         "plugin-marketplace-ui", "plugin-files", "plugin-curiosity",
         "plugin-inline-code-run", "plugin-chat-ui", "plugin-connectors",
         "plugin-browser", "plugin-feedback", "plugin-playbooks",
-        "plugin-typesafe", "plugin-db",
+        "plugin-typesafe", "plugin-db", "luna-service-mobile",
     }
     assert all(len(p["sha256"]) == 64 for p in resp.json()["plugins"])
